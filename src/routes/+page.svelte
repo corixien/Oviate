@@ -1,156 +1,51 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { onMount } from 'svelte';
+  import ChartPane from '$lib/chart/ChartPane.svelte';
 
-  let name = $state("");
-  let greetMsg = $state("");
+  let fps = $state(0);
+  const symbols = ['AAPL', 'MSFT', 'BTC/USD', 'SPY'];
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
-  }
+  onMount(() => {
+    let frames = 0, last = performance.now(), id = 0;
+    const loop = (t: number) => {
+      frames++;
+      if (t - last >= 500) { fps = Math.round((frames * 1000) / (t - last)); frames = 0; last = t; }
+      id = requestAnimationFrame(loop);
+    };
+    id = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  });
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
-
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+<main>
+  <div class="grid">
+    {#each symbols as s, i}
+      <ChartPane symbol={s} seed={i + 1} />
+    {/each}
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
-
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
+  <div class="hud glass">Oviate · spike · {fps} fps · drag to pan, wheel to zoom</div>
 </main>
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  :global(:root) {
+    --bg: #0b0a14; --pane-bg: rgba(20, 18, 36, 0.55); --stroke: rgba(255, 255, 255, 0.09);
+    --accent: #8b5cf6; --fg: rgba(255, 255, 255, 0.9);
+    --glass-bg: rgba(255, 255, 255, 0.07);
   }
-
-  a:hover {
-    color: #24c8db;
+  @media (prefers-color-scheme: light) {
+    :global(:root) {
+      --bg: #f2f0fa; --pane-bg: rgba(255, 255, 255, 0.6); --stroke: rgba(0, 0, 0, 0.08);
+      --fg: rgba(0, 0, 0, 0.85); --glass-bg: rgba(255, 255, 255, 0.55);
+    }
   }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
+  :global(html, body) { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+  :global(.glass) { background: var(--glass-bg); border: 1px solid var(--stroke);
+    backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 32px rgba(0, 0, 0, 0.25); }
+  main { height: 100vh; position: relative;
+    background: radial-gradient(900px 600px at 15% 10%, color-mix(in srgb, var(--accent) 35%, transparent), transparent),
+                radial-gradient(800px 600px at 90% 90%, rgba(56, 189, 248, 0.2), transparent), var(--bg); }
+  .grid { position: absolute; inset: 12px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 12px; }
+  .hud { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 8px 18px; border-radius: 999px; font-size: 12px; }
 </style>
