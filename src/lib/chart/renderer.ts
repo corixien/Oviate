@@ -1,120 +1,684 @@
 import type { Candles } from './data';
+import type { ChartType } from './transforms';
+import type { IndicatorDef, Line } from './indicators';
+
+export type DrawTool = 'cursor' | 'trend' | 'ray' | 'arrow' | 'hline' | 'vline' | 'rect' | 'fib' | 'text' | 'measure';
+export const DRAW_TOOLS: DrawTool[] = ['cursor', 'trend', 'ray', 'arrow', 'hline', 'vline', 'rect', 'fib', 'text', 'measure'];
+const POINTS: Record<DrawTool, number> = { cursor: 0, trend: 2, ray: 2, arrow: 2, hline: 1, vline: 1, rect: 2, fib: 2, text: 1, measure: 2 };
+
+export interface DrawPt { t: number; p: number }
+export interface Drawing { id: string; type: DrawTool; pts: DrawPt[]; color: string; text?: string; sym?: string }
 
 export interface Theme {
-  up: string;
-  down: string;
-  grid: string;
-  text: string;
+  up: string; down: string; grid: string; text: string; textStrong: string;
+  accent: string; cross: string; axisBg: string; panel: string;
 }
 
-export class ChartRenderer {
-  /** Index of the first visible bar (fractional) and bar width in CSS px. */
-  start = 0;
-  barW = 8;
-  private ctx: CanvasRenderingContext2D;
-  private w = 0;
-  private h = 0;
-  private dpr = 1;
-  private raf = 0;
+export interface ActiveIndicator { id: string; def: IndicatorDef; lines: Line[] }
 
-  constructor(private canvas: HTMLCanvasElement, private data: Candles, public theme: Theme) {
-    this.ctx = canvas.getContext('2d', { alpha: true })!;
-    this.start = Math.max(0, data.n - 120);
+export interface RenderState {
+  data: Candles;
+  raw: Candles;
+  type: ChartType;
+  step: number;
+  indicators: ActiveIndicator[];
+  drawings: Drawing[];
+  theme: Theme;
+  log: boolean;
+  volume: boolean;
+  grid: boolean;
+  magnet: boolean;
+  tool: DrawTool;
+}
+
+export interface Hooks {
+  onHover(idx: number | null, t: number | null): void;
+  onViewChange(): void;
+  onNeedHistory(): void;
+  onDrawings(d: Drawing[]): void;
+  onToolDone(): void;
+}
+
+const AXIS_W = 66, TIME_H = 26;
+const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+
+export function fmtPrice(p: number): string {
+  const a = Math.abs(p);
+  return p.toFixed(a >= 1 ? 2 : a >= 0.1 ? 4 : 6);
+}
+
+interface Pane { kind: 'main' | 'sub'; y0: number; y1: number; ind?: ActiveIndicator; lo: number; hi: number }
+
+export class ChartRenderer {
+  start = 0;
+  barW = 9;
+  s!: RenderState;
+  manual: { lo: number; hi: number } | null = null;
+  selected: string | null = null;
+  externalT: number | null = null;
+
+  private ctx: CanvasRenderingContext2D;
+  private octx: CanvasRenderingContext2D;
+  private w = 0; private h = 0; private dpr = 1;
+  private plotW = 0;
+  private panes: Pane[] = [];
+  private raf = 0; private oraf = 0;
+  private mx = -1; private my = -1;
+  private draft: Drawing | null = null;
+  private drag: null | { kind: 'pan' | 'paxis' | 'taxis' | 'move'; x: number; y: number; lo?: number; hi?: number; orig?: DrawPt[] } = null;
+  private cleanup: Array<() => void> = [];
+
+  constructor(private main: HTMLCanvasElement, private over: HTMLCanvasElement, private hooks: Hooks, s: RenderState) {
+    this.ctx = main.getContext('2d')!;
+    this.octx = over.getContext('2d')!;
+    this.s = s;
+    this.bind();
   }
+
+  // ---------- public ----------
+  setState(patch: Partial<RenderState>) {
+    this.s = { ...this.s, ...patch };
+    if (patch.tool && patch.tool !== 'cursor') this.selected = null;
+    if (patch.tool === 'cursor') this.draft = null;
+    this.invalidate();
+  }
+
+  private pendingReset = false;
 
   resize(w: number, h: number) {
     this.dpr = window.devicePixelRatio || 1;
-    this.w = w;
-    this.h = h;
-    this.canvas.width = Math.round(w * this.dpr);
-    this.canvas.height = Math.round(h * this.dpr);
+    this.w = w; this.h = h;
+    for (const c of [this.main, this.over]) { c.width = Math.round(w * this.dpr); c.height = Math.round(h * this.dpr); }
+    if (this.pendingReset && w > 100) { this.pendingReset = false; this.resetView(); return; }
     this.invalidate();
   }
 
-  pan(dxPx: number) {
-    this.start = Math.min(Math.max(this.start - dxPx / this.barW, -50), this.data.n - 5);
+  resetView(bars = 120) {
+    if (this.w < 100) { this.pendingReset = true; return; }
+    this.start = Math.max(-5, this.s.data.n - bars * 0.85);
+    this.barW = Math.max(2, Math.min(40, (this.w - AXIS_W) / bars));
+    this.manual = null;
+    this.invalidate();
+    this.hooks.onViewChange();
+  }
+
+  scrollToEnd() {
+    const vis = (this.w - AXIS_W) / this.barW;
+    this.start = this.s.data.n - vis * 0.85;
     this.invalidate();
   }
 
-  zoom(factor: number, anchorPx: number) {
-    const anchorBar = this.start + anchorPx / this.barW;
-    this.barW = Math.min(Math.max(this.barW * factor, 1), 60);
-    this.start = anchorBar - anchorPx / this.barW;
-    this.invalidate();
+  visible(): [number, number] {
+    const n = this.s.data.n;
+    return [Math.max(0, Math.floor(this.start)), Math.min(n - 1, Math.ceil(this.start + (this.w - AXIS_W) / this.barW))];
   }
 
   invalidate() {
     if (this.raf) return;
-    this.raf = requestAnimationFrame(() => {
-      this.raf = 0;
-      this.draw();
-    });
+    this.raf = requestAnimationFrame(() => { this.raf = 0; this.draw(); this.drawOver(); });
+  }
+  private invalidateOver() {
+    if (this.oraf || this.raf) return;
+    this.oraf = requestAnimationFrame(() => { this.oraf = 0; this.drawOver(); });
   }
 
   destroy() {
-    cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.raf); cancelAnimationFrame(this.oraf);
+    this.cleanup.forEach((f) => f());
   }
 
+  // ---------- coordinates ----------
+  private xOf(i: number) { return (i - this.start) * this.barW + this.barW / 2; }
+  private idxOf(x: number) { return (x - this.barW / 2) / this.barW + this.start; }
+
+  private timeToIdx(t: number): number {
+    const { t: ts, n } = this.s.data;
+    if (!n) return 0;
+    if (t <= ts[0]) return (t - ts[0]) / this.s.step;
+    if (t >= ts[n - 1]) return n - 1 + (t - ts[n - 1]) / this.s.step;
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (ts[m] <= t) lo = m; else hi = m; }
+    return lo + (t - ts[lo]) / Math.max(1, ts[hi] - ts[lo]);
+  }
+  private idxToTime(i: number): number {
+    const { t: ts, n } = this.s.data;
+    if (!n) return 0;
+    if (i <= 0) return ts[0] + i * this.s.step;
+    if (i >= n - 1) return ts[n - 1] + (i - (n - 1)) * this.s.step;
+    const lo = Math.floor(i);
+    return ts[lo] + (ts[lo + 1] - ts[lo]) * (i - lo);
+  }
+  private tx(v: number) { return this.s.log ? Math.log(Math.max(v, 1e-9)) : v; }
+  private main_(): Pane { return this.panes[0]; }
+  private py(p: number, pane = this.main_()) {
+    const a = pane.kind === 'main' ? this.tx(pane.lo) : pane.lo, b = pane.kind === 'main' ? this.tx(pane.hi) : pane.hi;
+    const v = pane.kind === 'main' ? this.tx(p) : p;
+    return pane.y1 - ((v - a) / (b - a || 1)) * (pane.y1 - pane.y0);
+  }
+  private priceOf(y: number, pane = this.main_()) {
+    const a = this.tx(pane.lo), b = this.tx(pane.hi);
+    const v = a + ((pane.y1 - y) / (pane.y1 - pane.y0 || 1)) * (b - a);
+    return this.s.log ? Math.exp(v) : v;
+  }
+  private paneAt(y: number) { return this.panes.find((p) => y >= p.y0 && y <= p.y1); }
+
+  // ---------- layout ----------
+  private layout() {
+    const subs = this.s.indicators.filter((i) => i.def.pane === 'sub');
+    const total = this.h - TIME_H;
+    const subH = subs.length ? Math.min(total * 0.22, 150) : 0;
+    const mainH = total - subH * subs.length;
+    this.panes = [{ kind: 'main', y0: 6, y1: mainH - 4, lo: 0, hi: 1 }];
+    subs.forEach((ind, k) => {
+      this.panes.push({ kind: 'sub', ind, y0: mainH + subH * k + 4, y1: mainH + subH * (k + 1) - 4, lo: 0, hi: 1 });
+    });
+    this.plotW = this.w - AXIS_W;
+  }
+
+  private computeRanges() {
+    const [a, b] = this.visible();
+    const d = this.s.data;
+    const m = this.panes[0];
+    let lo = Infinity, hi = -Infinity;
+    for (let i = a; i <= b; i++) {
+      if (this.s.type === 'line' || this.s.type === 'area' || this.s.type === 'baseline') {
+        lo = Math.min(lo, d.c[i]); hi = Math.max(hi, d.c[i]);
+      } else { lo = Math.min(lo, d.l[i]); hi = Math.max(hi, d.h[i]); }
+    }
+    if (!Number.isFinite(lo)) { lo = 0; hi = 1; }
+    const pad = (hi - lo) * 0.1 || Math.abs(hi) * 0.01 || 1;
+    m.lo = lo - pad; m.hi = hi + pad + (this.s.volume ? (hi - lo) * 0.12 : 0);
+    if (this.manual) { m.lo = this.manual.lo; m.hi = this.manual.hi; }
+    if (this.s.log && m.lo <= 0) m.lo = Math.max(1e-6, lo * 0.9);
+    for (const p of this.panes.slice(1)) {
+      let l = Infinity, h = -Infinity;
+      for (const ln of p.ind!.lines) for (let i = a; i <= b; i++) {
+        const v = ln.v[i]; if (Number.isNaN(v)) continue;
+        if (v < l) l = v; if (v > h) h = v;
+      }
+      for (const lv of p.ind!.def.levels ?? []) { l = Math.min(l, lv); h = Math.max(h, lv); }
+      if (!Number.isFinite(l)) { l = 0; h = 1; }
+      const pd = (h - l) * 0.1 || 1;
+      p.lo = l - pd; p.hi = h + pd;
+    }
+  }
+
+  // ---------- drawing ----------
   private draw() {
-    const { ctx, w, h, dpr, data, theme } = this;
-    const axisW = 56;
-    const plotW = w - axisW;
+    const { ctx, w, h, dpr } = this;
+    const { theme, data } = this.s;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    if (w < 80 || h < 80) return;
+    this.layout();
+    this.computeRanges();
+    const [a, b] = this.visible();
+    ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
+    ctx.textBaseline = 'middle';
 
-    const first = Math.max(0, Math.floor(this.start));
-    const last = Math.min(data.n - 1, Math.ceil(this.start + plotW / this.barW));
-    if (last < first) return;
-
-    // Price range of visible bars.
-    let lo = Infinity, hi = -Infinity;
-    for (let i = first; i <= last; i++) {
-      if (data.l[i] < lo) lo = data.l[i];
-      if (data.h[i] > hi) hi = data.h[i];
+    this.drawGrid();
+    if (data.n) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, this.plotW, this.panes[0].y1 + 4); ctx.clip();
+      if (this.s.volume) this.drawVolume(a, b);
+      this.drawSeries(a, b);
+      this.drawOverlays(a, b);
+      this.drawDrawings();
+      ctx.restore();
+      for (const p of this.panes.slice(1)) this.drawSub(p, a, b);
+      this.drawLastPrice();
     }
-    const pad = (hi - lo) * 0.08 || 1;
-    lo -= pad;
-    hi += pad;
-    const top = 8, bot = h - 8;
-    const y = (p: number) => bot - ((p - lo) / (hi - lo)) * (bot - top);
+    this.drawTimeAxis();
+    void theme;
+  }
 
-    // Grid + price labels.
-    ctx.strokeStyle = theme.grid;
-    ctx.fillStyle = theme.text;
-    ctx.font = '11px ui-monospace, monospace';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let g = 0; g <= 5; g++) {
-      const p = lo + ((hi - lo) * g) / 5;
-      const gy = Math.round(y(p)) + 0.5;
-      ctx.moveTo(0, gy);
-      ctx.lineTo(plotW, gy);
-      ctx.fillText(p.toFixed(2), plotW + 6, gy + 4);
-    }
-    ctx.stroke();
-
-    // Candles, batched by colour (2 stroke + 2 fill calls total).
-    const bw = Math.max(1, Math.floor(this.barW * 0.7));
-    for (const up of [true, false]) {
-      ctx.fillStyle = ctx.strokeStyle = up ? theme.up : theme.down;
+  private drawGrid() {
+    const { ctx } = this;
+    const { theme } = this.s;
+    ctx.strokeStyle = theme.grid; ctx.fillStyle = theme.text; ctx.lineWidth = 1;
+    ctx.textAlign = 'left';
+    for (const p of this.panes) {
+      const rows = p.kind === 'main' ? Math.max(3, Math.floor((p.y1 - p.y0) / 70)) : 2;
       ctx.beginPath();
-      for (let i = first; i <= last; i++) {
-        const isUp = data.c[i] >= data.o[i];
-        if (isUp !== up) continue;
-        const cx = Math.round((i - this.start) * this.barW + this.barW / 2) + 0.5;
-        ctx.moveTo(cx, y(data.h[i]));
-        ctx.lineTo(cx, y(data.l[i]));
+      for (let g = 0; g <= rows; g++) {
+        const y = p.y0 + ((p.y1 - p.y0) * g) / rows;
+        const yy = Math.round(y) + 0.5;
+        if (this.s.grid) { ctx.moveTo(0, yy); ctx.lineTo(this.plotW, yy); }
+        const val = p.kind === 'main' ? this.priceOf(y, p) : p.lo + ((p.y1 - y) / (p.y1 - p.y0)) * (p.hi - p.lo);
+        ctx.fillText(p.kind === 'main' ? fmtPrice(val) : val.toFixed(Math.abs(val) < 10 ? 2 : 0), this.plotW + 8, yy);
       }
       ctx.stroke();
+      // separator between panes
+      ctx.strokeStyle = theme.cross; ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(0, p.y1 + 4.5); ctx.lineTo(this.w, p.y1 + 4.5); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.strokeStyle = theme.grid;
+    }
+    // vertical grid at time labels
+    if (this.s.grid) {
       ctx.beginPath();
-      for (let i = first; i <= last; i++) {
-        const isUp = data.c[i] >= data.o[i];
-        if (isUp !== up) continue;
-        const cx = Math.round((i - this.start) * this.barW + this.barW / 2);
-        const yo = y(data.o[i]), yc = y(data.c[i]);
-        ctx.rect(cx - bw / 2, Math.min(yo, yc), bw, Math.max(1, Math.abs(yo - yc)));
+      for (const { x } of this.timeTicks()) { ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, this.h - TIME_H); }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = theme.cross;
+    ctx.beginPath(); ctx.moveTo(this.plotW + 0.5, 0); ctx.lineTo(this.plotW + 0.5, this.h - TIME_H); ctx.stroke();
+  }
+
+  private drawVolume(a: number, b: number) {
+    const { ctx } = this; const d = this.s.data; const m = this.panes[0];
+    let mx = 0;
+    for (let i = a; i <= b; i++) mx = Math.max(mx, d.v[i]);
+    if (!mx) return;
+    const H = (m.y1 - m.y0) * 0.14;
+    const bw = Math.max(1, Math.floor(this.barW * 0.72));
+    for (const up of [true, false]) {
+      ctx.fillStyle = (up ? this.s.theme.up : this.s.theme.down) + '55';
+      ctx.beginPath();
+      for (let i = a; i <= b; i++) {
+        if ((d.c[i] >= d.o[i]) !== up) continue;
+        const hh = (d.v[i] / mx) * H;
+        ctx.rect(Math.round(this.xOf(i) - bw / 2), m.y1 - hh, bw, hh);
       }
       ctx.fill();
     }
   }
+
+  private drawSeries(a: number, b: number) {
+    const { ctx } = this; const d = this.s.data; const { theme, type } = this.s;
+    const y = (p: number) => this.py(p);
+    if (type === 'line' || type === 'area' || type === 'baseline') {
+      const trace = () => { ctx.beginPath(); for (let i = a; i <= b; i++) { const X = this.xOf(i), Y = y(d.c[i]); i === a ? ctx.moveTo(X, Y) : ctx.lineTo(X, Y); } };
+      if (type === 'baseline') {
+        const base = d.c[a]; const by = y(base);
+        for (const up of [true, false]) {
+          ctx.save(); ctx.beginPath();
+          ctx.rect(0, up ? 0 : by, this.plotW, up ? by : this.h); ctx.clip();
+          ctx.strokeStyle = up ? theme.up : theme.down; ctx.lineWidth = 2; trace(); ctx.stroke(); ctx.restore();
+        }
+        ctx.strokeStyle = theme.cross; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(0, by); ctx.lineTo(this.plotW, by); ctx.stroke(); ctx.setLineDash([]);
+        return;
+      }
+      if (type === 'area') {
+        trace(); ctx.lineTo(this.xOf(b), this.panes[0].y1); ctx.lineTo(this.xOf(a), this.panes[0].y1); ctx.closePath();
+        ctx.fillStyle = theme.accent + '26'; ctx.fill();
+      }
+      ctx.strokeStyle = theme.accent; ctx.lineWidth = 2; ctx.lineJoin = 'round'; trace(); ctx.stroke(); ctx.lineWidth = 1;
+      return;
+    }
+    const bw = Math.max(1, Math.floor(this.barW * 0.72)) | 1;
+    if (type === 'bars') {
+      for (const up of [true, false]) {
+        ctx.strokeStyle = up ? theme.up : theme.down; ctx.beginPath();
+        for (let i = a; i <= b; i++) {
+          if ((d.c[i] >= d.o[i]) !== up) continue;
+          const X = Math.round(this.xOf(i)) + 0.5, t = Math.max(2, this.barW * 0.3);
+          ctx.moveTo(X, y(d.h[i])); ctx.lineTo(X, y(d.l[i]));
+          ctx.moveTo(X - t, y(d.o[i])); ctx.lineTo(X, y(d.o[i]));
+          ctx.moveTo(X, y(d.c[i])); ctx.lineTo(X + t, y(d.c[i]));
+        }
+        ctx.stroke();
+      }
+      return;
+    }
+    for (const up of [true, false]) {
+      const col = up ? theme.up : theme.down;
+      ctx.strokeStyle = col; ctx.fillStyle = col;
+      ctx.beginPath();
+      for (let i = a; i <= b; i++) {
+        if ((d.c[i] >= d.o[i]) !== up) continue;
+        const X = Math.round(this.xOf(i)) + 0.5;
+        ctx.moveTo(X, y(d.h[i])); ctx.lineTo(X, y(d.l[i]));
+      }
+      ctx.stroke();
+      const hollow = type === 'hollow' && up;
+      ctx.beginPath();
+      for (let i = a; i <= b; i++) {
+        if ((d.c[i] >= d.o[i]) !== up) continue;
+        const yo = y(d.o[i]), yc = y(d.c[i]);
+        const X = Math.round(this.xOf(i) - bw / 2) + (hollow ? 0.5 : 0);
+        ctx.rect(X, Math.min(yo, yc), hollow ? bw - 1 : bw, Math.max(1, Math.abs(yo - yc)));
+      }
+      hollow ? ctx.stroke() : ctx.fill();
+    }
+  }
+
+  private lineTrace(ln: Float64Array, a: number, b: number, pane: Pane) {
+    const { ctx } = this; let pen = false;
+    ctx.beginPath();
+    for (let i = a; i <= b; i++) {
+      const v = ln[i];
+      if (Number.isNaN(v)) { pen = false; continue; }
+      const X = this.xOf(i), Y = this.py(v, pane);
+      pen ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); pen = true;
+    }
+  }
+
+  private drawOverlays(a: number, b: number) {
+    const { ctx } = this; const m = this.panes[0];
+    for (const ind of this.s.indicators) {
+      if (ind.def.pane !== 'price') continue;
+      for (const ln of ind.lines) {
+        if (ln.kind === 'band' && ln.v2) {
+          ctx.beginPath();
+          for (let i = a; i <= b; i++) if (!Number.isNaN(ln.v[i])) ctx.lineTo(this.xOf(i), this.py(ln.v[i], m));
+          for (let i = b; i >= a; i--) if (!Number.isNaN(ln.v2[i])) ctx.lineTo(this.xOf(i), this.py(ln.v2[i], m));
+          ctx.closePath(); ctx.fillStyle = ln.color + '1a'; ctx.fill();
+          continue;
+        }
+        ctx.strokeStyle = ln.color; ctx.lineWidth = 1.5;
+        this.lineTrace(ln.v, a, b, m); ctx.stroke();
+      }
+    }
+    ctx.lineWidth = 1;
+  }
+
+  private drawSub(p: Pane, a: number, b: number) {
+    const { ctx } = this; const { theme } = this.s;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, p.y0, this.plotW, p.y1 - p.y0); ctx.clip();
+    for (const lv of p.ind!.def.levels ?? []) {
+      ctx.strokeStyle = theme.cross; ctx.setLineDash([3, 4]);
+      const y = Math.round(this.py(lv, p)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(this.plotW, y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    for (const ln of p.ind!.lines) {
+      if (ln.kind === 'hist') {
+        const zero = this.py(0, p);
+        for (const pos of [true, false]) {
+          ctx.fillStyle = pos ? theme.up + 'aa' : theme.down + 'aa'; ctx.beginPath();
+          for (let i = a; i <= b; i++) {
+            const v = ln.v[i]; if (Number.isNaN(v) || (v >= 0) !== pos) continue;
+            const y = this.py(v, p);
+            ctx.rect(Math.round(this.xOf(i) - this.barW * 0.35), Math.min(y, zero), Math.max(1, this.barW * 0.7), Math.abs(y - zero));
+          }
+          ctx.fill();
+        }
+        continue;
+      }
+      ctx.strokeStyle = ln.color; ctx.lineWidth = 1.5; this.lineTrace(ln.v, a, b, p); ctx.stroke();
+    }
+    ctx.restore(); ctx.lineWidth = 1;
+  }
+
+  private drawLastPrice() {
+    const { ctx } = this; const d = this.s.data; const { theme } = this.s;
+    const i = d.n - 1; const price = d.c[i]; const up = d.c[i] >= d.o[i];
+    const y = this.py(price); const m = this.panes[0];
+    if (y < m.y0 - 20 || y > m.y1 + 20) return;
+    const col = up ? theme.up : theme.down;
+    ctx.strokeStyle = col; ctx.globalAlpha = 0.6; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(this.plotW, Math.round(y) + 0.5); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    this.axisLabel(fmtPrice(price), y, col, '#000');
+  }
+
+  private axisLabel(text: string, y: number, bg: string, fg: string) {
+    const { ctx } = this;
+    ctx.fillStyle = bg; ctx.fillRect(this.plotW + 1, Math.round(y) - 10, AXIS_W - 1, 20);
+    ctx.fillStyle = fg; ctx.textAlign = 'left'; ctx.fillText(text, this.plotW + 8, Math.round(y) + 1);
+  }
+
+  private timeTicks(): Array<{ x: number; label: string; major: boolean }> {
+    const out: Array<{ x: number; label: string; major: boolean }> = [];
+    const d = this.s.data; if (!d.n) return out;
+    const nice = [1, 2, 3, 5, 10, 15, 20, 30, 60, 120, 240, 480, 1000, 2000, 5000];
+    const need = Math.ceil(110 / this.barW);
+    const stepBars = nice.find((n) => n >= need) ?? 10000;
+    const [a, b] = this.visible();
+    const intraday = this.s.step < 86400;
+    let prev: Date | null = null;
+    for (let i = Math.floor(a / stepBars) * stepBars; i <= b + stepBars; i += stepBars) {
+      if (i < 0 || i >= d.n) continue;
+      const dt = new Date(d.t[i] * 1000);
+      let label: string, major = false;
+      if (intraday) {
+        if (!prev || prev.getDate() !== dt.getDate()) { label = String(dt.getDate()); major = true; }
+        else label = dt.toTimeString().slice(0, 5);
+      } else if (!prev || prev.getFullYear() !== dt.getFullYear()) { label = String(dt.getFullYear()); major = true; }
+      else if (prev.getMonth() !== dt.getMonth()) { label = dt.toLocaleString('en', { month: 'short' }); major = true; }
+      else label = String(dt.getDate());
+      prev = dt;
+      out.push({ x: this.xOf(i), label, major });
+    }
+    return out;
+  }
+
+  private drawTimeAxis() {
+    const { ctx } = this; const { theme } = this.s;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const t of this.timeTicks()) {
+      if (t.x < 10 || t.x > this.plotW - 10) continue;
+      ctx.fillStyle = t.major ? theme.textStrong : theme.text;
+      ctx.fillText(t.label, t.x, this.h - TIME_H / 2);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  // ---------- drawings ----------
+  private allDrawings(): Drawing[] { return this.draft ? [...this.s.drawings, this.draft] : this.s.drawings; }
+
+  private screen(pt: DrawPt) { return { x: this.xOf(this.timeToIdx(pt.t)), y: this.py(pt.p) }; }
+
+  private drawDrawings() {
+    const { ctx } = this; const { theme } = this.s;
+    for (const dr of this.allDrawings()) {
+      const sel = dr.id === this.selected;
+      const P = dr.pts.map((p) => this.screen(p));
+      ctx.strokeStyle = dr.color; ctx.fillStyle = dr.color; ctx.lineWidth = sel ? 2.5 : 1.5;
+      const x1 = P[0]?.x, y1 = P[0]?.y, x2 = P[1]?.x, y2 = P[1]?.y;
+      switch (dr.type) {
+        case 'trend': case 'arrow': case 'ray': {
+          if (!P[1]) break;
+          let ex = x2, ey = y2;
+          if (dr.type === 'ray' && x2 !== x1) { const k = (y2 - y1) / (x2 - x1); ex = this.plotW + 50; ey = y1 + k * (ex - x1); if (x2 < x1) { ex = -50; ey = y1 + k * (ex - x1); } }
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(ex, ey); ctx.stroke();
+          if (dr.type === 'arrow') { const ang = Math.atan2(y2 - y1, x2 - x1); ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - 10 * Math.cos(ang - 0.4), y2 - 10 * Math.sin(ang - 0.4)); ctx.lineTo(x2 - 10 * Math.cos(ang + 0.4), y2 - 10 * Math.sin(ang + 0.4)); ctx.closePath(); ctx.fill(); }
+          break;
+        }
+        case 'hline': ctx.beginPath(); ctx.moveTo(0, y1); ctx.lineTo(this.plotW, y1); ctx.stroke(); break;
+        case 'vline': ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, this.panes[0].y1); ctx.stroke(); break;
+        case 'rect': if (P[1]) { ctx.globalAlpha = 0.14; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.globalAlpha = 1; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); } break;
+        case 'fib': if (P[1]) {
+          const p1 = dr.pts[0].p, p2 = dr.pts[1].p;
+          ctx.font = '10px ui-monospace, monospace'; ctx.textAlign = 'left';
+          for (const lv of FIB) {
+            const price = p2 + (p1 - p2) * lv; const y = this.py(price);
+            ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.moveTo(Math.min(x1, x2), y); ctx.lineTo(Math.max(x1, x2), y); ctx.stroke();
+            ctx.globalAlpha = 1; ctx.fillText(`${lv} (${fmtPrice(price)})`, Math.min(x1, x2) + 4, y - 7);
+          }
+          ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+        } break;
+        case 'text': ctx.font = '13px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(dr.text ?? 'Text', x1, y1); break;
+        case 'measure': if (P[1]) {
+          const dp = dr.pts[1].p - dr.pts[0].p; const pct = (dp / dr.pts[0].p) * 100;
+          const bars = Math.round(this.timeToIdx(dr.pts[1].t) - this.timeToIdx(dr.pts[0].t));
+          ctx.globalAlpha = 0.16; ctx.fillStyle = dp >= 0 ? theme.up : theme.down; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.globalAlpha = 1;
+          ctx.strokeStyle = dp >= 0 ? theme.up : theme.down; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+          const txt = `${dp >= 0 ? '+' : ''}${fmtPrice(dp)} (${pct.toFixed(2)}%)  ${bars} bars`;
+          ctx.font = '11px ui-monospace, monospace'; const tw = ctx.measureText(txt).width + 14;
+          ctx.fillStyle = theme.panel; ctx.fillRect((x1 + x2) / 2 - tw / 2, Math.min(y1, y2) - 26, tw, 20);
+          ctx.fillStyle = theme.textStrong; ctx.textAlign = 'center'; ctx.fillText(txt, (x1 + x2) / 2, Math.min(y1, y2) - 15); ctx.textAlign = 'left';
+        } break;
+      }
+      if (sel) { ctx.fillStyle = theme.accent; for (const q of P) { ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, 7); ctx.fill(); } }
+      ctx.lineWidth = 1;
+    }
+  }
+
+  private hit(x: number, y: number): Drawing | null {
+    const dist = (px: number, py: number, ax: number, ay: number, bx: number, by: number) => {
+      const dx = bx - ax, dy = by - ay; const l2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+      return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    };
+    for (const dr of [...this.s.drawings].reverse()) {
+      const P = dr.pts.map((p) => this.screen(p));
+      let ok = false;
+      switch (dr.type) {
+        case 'trend': case 'arrow': case 'ray': case 'fib': case 'measure': ok = !!P[1] && (dr.type === 'fib' || dr.type === 'measure'
+          ? x >= Math.min(P[0].x, P[1].x) - 5 && x <= Math.max(P[0].x, P[1].x) + 5 && y >= Math.min(P[0].y, P[1].y) - 5 && y <= Math.max(P[0].y, P[1].y) + 5
+          : dist(x, y, P[0].x, P[0].y, P[1].x, P[1].y) < 6); break;
+        case 'hline': ok = Math.abs(y - P[0].y) < 6; break;
+        case 'vline': ok = Math.abs(x - P[0].x) < 6; break;
+        case 'rect': ok = !!P[1] && x >= Math.min(P[0].x, P[1].x) - 4 && x <= Math.max(P[0].x, P[1].x) + 4 && y >= Math.min(P[0].y, P[1].y) - 4 && y <= Math.max(P[0].y, P[1].y) + 4; break;
+        case 'text': ok = x >= P[0].x - 2 && x <= P[0].x + 90 && Math.abs(y - P[0].y) < 10; break;
+      }
+      if (ok) return dr;
+    }
+    return null;
+  }
+
+  private snap(x: number, y: number): DrawPt {
+    let i = this.idxOf(x); let p = this.priceOf(y);
+    if (this.s.magnet) {
+      const k = Math.max(0, Math.min(this.s.data.n - 1, Math.round(i)));
+      const d = this.s.data;
+      const cand = [d.o[k], d.h[k], d.l[k], d.c[k]];
+      p = cand.reduce((best, c) => (Math.abs(this.py(c) - y) < Math.abs(this.py(best) - y) ? c : best), cand[0]);
+      i = k;
+    }
+    return { t: this.idxToTime(i), p };
+  }
+
+  // ---------- overlay (crosshair) ----------
+  private drawOver() {
+    const { octx: c, w, h, dpr } = this; const { theme, data } = this.s;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    if (!this.panes.length || !data.n) return;
+    c.font = '11px ui-monospace, "JetBrains Mono", monospace'; c.textBaseline = 'middle';
+    let x = -1, y = -1;
+    if (this.mx >= 0 && this.mx < this.plotW && this.my >= 0 && this.my < this.h - TIME_H) { x = this.mx; y = this.my; }
+    else if (this.externalT !== null) x = this.xOf(this.timeToIdx(this.externalT));
+    if (x < 0) return;
+    const i = Math.max(0, Math.min(data.n - 1, Math.round(this.idxOf(x))));
+    x = Math.round(this.xOf(i)) + 0.5;
+    c.strokeStyle = theme.cross; c.setLineDash([4, 4]); c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x, 0); c.lineTo(x, this.h - TIME_H); if (y >= 0) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(this.plotW, Math.round(y) + 0.5); } c.stroke();
+    c.setLineDash([]);
+    // time label
+    const dt = new Date(data.t[i] * 1000);
+    const lbl = this.s.step >= 86400
+      ? dt.toLocaleDateString('en', { day: '2-digit', month: 'short', year: 'numeric' })
+      : dt.toLocaleDateString('en', { day: '2-digit', month: 'short' }) + ' ' + dt.toTimeString().slice(0, 5);
+    const tw = c.measureText(lbl).width + 16;
+    c.fillStyle = theme.accent; c.fillRect(Math.min(Math.max(x - tw / 2, 0), this.plotW - tw), this.h - TIME_H + 2, tw, 20);
+    c.fillStyle = '#fff'; c.textAlign = 'center'; c.fillText(lbl, Math.min(Math.max(x, tw / 2), this.plotW - tw / 2), this.h - TIME_H + 13); c.textAlign = 'left';
+    if (y >= 0) {
+      const pane = this.paneAt(y);
+      if (pane) {
+        const val = pane.kind === 'main' ? this.priceOf(y, pane) : pane.lo + ((pane.y1 - y) / (pane.y1 - pane.y0)) * (pane.hi - pane.lo);
+        c.fillStyle = theme.accent; c.fillRect(this.plotW + 1, Math.round(y) - 10, AXIS_W - 1, 20);
+        c.fillStyle = '#fff'; c.fillText(pane.kind === 'main' ? fmtPrice(val) : val.toFixed(2), this.plotW + 8, Math.round(y) + 1);
+      }
+    }
+  }
+
+  // ---------- input ----------
+  private bind() {
+    const el = this.over;
+    const on = <K extends keyof HTMLElementEventMap>(t: K, f: (e: HTMLElementEventMap[K]) => void, opts?: AddEventListenerOptions) => {
+      el.addEventListener(t, f as EventListener, opts); this.cleanup.push(() => el.removeEventListener(t, f as EventListener));
+    };
+    const pos = (e: MouseEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const region = (x: number, y: number) => (x > this.plotW ? 'paxis' : y > this.h - TIME_H ? 'taxis' : 'plot');
+
+    on('pointerdown', (e) => {
+      const { x, y } = pos(e); el.setPointerCapture(e.pointerId);
+      const reg = region(x, y);
+      if (reg === 'paxis') { const m = this.panes[0]; this.drag = { kind: 'paxis', x, y, lo: m.lo, hi: m.hi }; return; }
+      if (reg === 'taxis') { this.drag = { kind: 'taxis', x, y }; return; }
+      const tool = this.s.tool;
+      if (tool !== 'cursor') {
+        const pt = this.snap(x, y);
+        if (!this.draft) {
+          this.draft = { id: crypto.randomUUID(), type: tool, pts: [pt], color: this.s.theme.accent };
+          if (POINTS[tool] === 1) this.finishDraft();
+          else this.draft.pts.push(pt);
+        } else { this.draft.pts[this.draft.pts.length - 1] = pt; this.finishDraft(); }
+        this.invalidate(); return;
+      }
+      const hit = this.hit(x, y);
+      this.selected = hit?.id ?? null;
+      if (hit) this.drag = { kind: 'move', x, y, orig: hit.pts.map((p) => ({ ...p })) };
+      else { const m = this.panes[0]; this.drag = { kind: 'pan', x, y, lo: m.lo, hi: m.hi }; }
+      this.invalidate();
+    });
+    on('pointermove', (e) => {
+      const { x, y } = pos(e); this.mx = x; this.my = y;
+      const i = Math.max(0, Math.min(this.s.data.n - 1, Math.round(this.idxOf(x))));
+      this.hooks.onHover(x < this.plotW && y < this.h - TIME_H ? i : null, this.s.data.n ? this.s.data.t[i] : null);
+      el.style.cursor = this.drag ? (this.drag.kind === 'move' ? 'grabbing' : el.style.cursor)
+        : x > this.plotW ? 'ns-resize' : y > this.h - TIME_H ? 'ew-resize' : this.s.tool !== 'cursor' ? 'crosshair' : this.hit(x, y) ? 'pointer' : 'crosshair';
+      if (this.draft) { this.draft.pts[this.draft.pts.length - 1] = this.snap(x, y); this.invalidate(); return; }
+      const d = this.drag;
+      if (d) {
+        if (d.kind === 'pan') {
+          this.start -= e.movementX / this.barW; this.clampStart();
+          if (Math.abs(y - d.y) > 3 || this.manual) {
+            const m = this.panes[0]; const span = (d.hi! - d.lo!);
+            const dp = ((y - d.y) / (m.y1 - m.y0)) * span;
+            if (Math.abs(y - d.y) > 3) this.manual = { lo: d.lo! + dp, hi: d.hi! + dp };
+          }
+          if (this.start < 20) this.hooks.onNeedHistory();
+          this.hooks.onViewChange();
+        } else if (d.kind === 'paxis') {
+          const f = Math.exp((y - d.y) * 0.006); const mid = (d.hi! + d.lo!) / 2; const half = ((d.hi! - d.lo!) / 2) * f;
+          this.manual = { lo: mid - half, hi: mid + half };
+        } else if (d.kind === 'taxis') {
+          this.zoomBars(Math.exp(e.movementX * 0.006), this.plotW / 2);
+        } else if (d.kind === 'move' && this.selected) {
+          const dr = this.s.drawings.find((q) => q.id === this.selected);
+          if (dr && d.orig) {
+            const di = this.idxOf(x) - this.idxOf(d.x); const dp = this.priceOf(y) - this.priceOf(d.y);
+            dr.pts = d.orig.map((p) => ({ t: this.idxToTime(this.timeToIdx(p.t) + di), p: p.p + dp }));
+          }
+        }
+      }
+      this.invalidate();
+    });
+    on('pointerup', () => {
+      if (this.drag?.kind === 'move') this.hooks.onDrawings([...this.s.drawings]);
+      this.drag = null;
+    });
+    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hooks.onHover(null, null); this.invalidateOver(); });
+    on('dblclick', (e) => {
+      const { x, y } = pos(e);
+      if (region(x, y) === 'paxis') { this.manual = null; this.invalidate(); }
+      else if (region(x, y) === 'taxis') this.resetView();
+    });
+    on('wheel', (e) => {
+      e.preventDefault();
+      const { x } = pos(e);
+      if (e.shiftKey) { this.start += (e.deltaY + e.deltaX) / this.barW * 0.5; this.clampStart(); if (this.start < 20) this.hooks.onNeedHistory(); }
+      else this.zoomBars(Math.exp(-e.deltaY * 0.0015), Math.min(x, this.plotW));
+      this.hooks.onViewChange(); this.invalidate();
+    }, { passive: false });
+  }
+
+  private finishDraft() {
+    if (!this.draft) return;
+    const d = this.draft; this.draft = null;
+    this.hooks.onDrawings([...this.s.drawings, d]);
+    this.selected = d.id;
+    this.hooks.onToolDone();
+  }
+
+  cancelDraft() { this.draft = null; this.invalidate(); }
+
+  deleteSelected() {
+    if (!this.selected) return false;
+    this.hooks.onDrawings(this.s.drawings.filter((d) => d.id !== this.selected));
+    this.selected = null; return true;
+  }
+
+  private clampStart() { this.start = Math.min(Math.max(this.start, -(this.plotW / this.barW) * 0.7), this.s.data.n - 3); }
+
+  zoomBars(factor: number, anchorPx: number) {
+    const anchor = this.idxOf(anchorPx);
+    this.barW = Math.min(Math.max(this.barW * factor, 1.2), 80);
+    this.start = anchor - (anchorPx - this.barW / 2) / this.barW;
+    this.clampStart();
+    this.invalidate();
+  }
+
+  panBars(n: number) { this.start += n; this.clampStart(); if (this.start < 20) this.hooks.onNeedHistory(); this.invalidate(); this.hooks.onViewChange(); }
 }
