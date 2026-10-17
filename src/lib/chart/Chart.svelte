@@ -8,7 +8,7 @@
   import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator } from './renderer';
   import { t } from '$lib/i18n';
 
-  let { cfg, index }: { cfg: ChartCfg; index: number } = $props();
+  let { cfg = $bindable(), index }: { cfg: ChartCfg; index: number } = $props();
 
   let main: HTMLCanvasElement, over: HTMLCanvasElement, box: HTMLDivElement;
   let r: ChartRenderer | undefined;

@@ -35,8 +35,8 @@
   <div class="body">
     <LeftBar />
     <main class="grid l{app.layout}">
-      {#each app.charts.slice(0, app.count) as cfg, i (cfg.id)}
-        <Chart {cfg} index={i} />
+      {#each app.charts.slice(0, app.count) as c, i (c.id)}
+        <Chart bind:cfg={app.charts[i]} index={i} />
       {/each}
     </main>
     {#if app.showWatchlist}<Watchlist />{/if}
