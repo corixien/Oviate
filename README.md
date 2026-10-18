@@ -17,6 +17,14 @@ Early development (milestone 1: scaffold + rendering spike).
 - Spotlight-style command bar: `Enter` opens it, `/commands` control everything, plain typing searches tickers and companies
 - English + German UI, dark/light, violet accent
 
+## Scripts
+
+Indicators and strategies are Pine Script files. 94 indicators ship in `indicators/`; add your own with `/ind add new` (paste Pine code, saved as a `.pine` file). Strategies: `/strat add new`. A strategy added to a chart shows its trades as arrows and a report in the Strategy Tester panel, and can trade a paper account.
+
+## Paper trading
+
+Create accounts with capital, leverage and commission; place market, limit, stop, stop-limit and trailing-stop orders with optional take-profit / stop-loss from the Buy / Sell buttons on every chart. Positions, orders, history and statistics live in the panel under the charts.
+
 ## Stack
 
 Tauri 2, Rust core, Svelte 5 + TypeScript, custom WebGL2/Canvas chart renderer.
