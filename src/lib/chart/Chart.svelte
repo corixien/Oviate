@@ -195,12 +195,11 @@
   .sym { pointer-events: auto; background: none; border: 0; color: var(--fg); font: 600 14px system-ui, sans-serif; cursor: pointer; padding: 0; }
   .sym:hover { color: var(--accent); }
   .dim { color: var(--dim); }
-  .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 3px 9px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
-  .pill:hover { border-color: var(--accent); }
+  .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 0; width: fit-content; padding: 3px 9px; border: 1px solid var(--accent); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
   .pill.off { opacity: 0.55; }
   .nm { color: var(--fg); font-family: system-ui, sans-serif; font-weight: 600; }
-  .acts { display: inline-flex; align-items: center; gap: 1px; max-width: 0; opacity: 0; overflow: hidden; transition: max-width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.18s; }
-  .pill:hover .acts, .pill:focus-within .acts { max-width: 160px; opacity: 1; overflow: visible; }
+  .acts { display: inline-flex; align-items: center; gap: 1px; max-width: 0; margin-left: 0; opacity: 0; overflow: hidden; transition: max-width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1), margin-left 0.28s, opacity 0.18s; }
+  .pill:hover .acts, .pill:focus-within .acts { max-width: 160px; margin-left: 8px; opacity: 1; overflow: visible; }
   .acts button { display: grid; place-items: center; width: 22px; height: 22px; background: none; border: 0; color: var(--dim); cursor: pointer; }
   .acts button:hover { color: #fff; background: var(--accent); }
   .mwrap { position: relative; }
