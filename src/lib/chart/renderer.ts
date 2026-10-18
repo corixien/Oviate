@@ -37,6 +37,7 @@ export interface Hooks {
   onNeedHistory(): void;
   onDrawings(d: Drawing[]): void;
   onToolDone(): void;
+  onSelect(id: string | null): void;
 }
 
 const AXIS_W = 66, TIME_H = 26;
@@ -65,7 +66,7 @@ export class ChartRenderer {
   private raf = 0; private oraf = 0;
   private mx = -1; private my = -1;
   private draft: Drawing | null = null;
-  private drag: null | { kind: 'pan' | 'paxis' | 'taxis' | 'move'; x: number; y: number; lo?: number; hi?: number; orig?: DrawPt[] } = null;
+  private drag: null | { kind: 'pan' | 'paxis' | 'taxis' | 'move' | 'point'; idx?: number; x: number; y: number; lo?: number; hi?: number; orig?: DrawPt[] } = null;
   private cleanup: Array<() => void> = [];
 
   constructor(private main: HTMLCanvasElement, private over: HTMLCanvasElement, private hooks: Hooks, s: RenderState) {
@@ -75,10 +76,16 @@ export class ChartRenderer {
     this.bind();
   }
 
+  private select(id: string | null) {
+    if (this.selected === id) return;
+    this.selected = id;
+    this.hooks.onSelect(id);
+  }
+
   // ---------- public ----------
   setState(patch: Partial<RenderState>) {
     this.s = { ...this.s, ...patch };
-    if (patch.tool && patch.tool !== 'cursor') this.selected = null;
+    if (patch.tool && patch.tool !== 'cursor') this.select(null);
     if (patch.tool === 'cursor') this.draft = null;
     this.invalidate();
   }
@@ -529,6 +536,17 @@ export class ChartRenderer {
     return null;
   }
 
+  /** Handle (control point) of the selected drawing under the cursor. */
+  private handleAt(x: number, y: number): { idx: number } | null {
+    const dr = this.s.drawings.find((q) => q.id === this.selected);
+    if (!dr || dr.pts.length < 2) return null;
+    for (let i = 0; i < dr.pts.length; i++) {
+      const q = this.screen(dr.pts[i]);
+      if (Math.hypot(q.x - x, q.y - y) <= 9) return { idx: i };
+    }
+    return null;
+  }
+
   private snap(x: number, y: number): DrawPt {
     let i = this.idxOf(x); let p = this.priceOf(y);
     if (this.s.magnet) {
@@ -584,7 +602,15 @@ export class ChartRenderer {
     const region = (x: number, y: number) => (x > this.plotW ? 'paxis' : y > this.h - TIME_H ? 'taxis' : 'plot');
 
     on('pointerdown', (e) => {
-      const { x, y } = pos(e); el.setPointerCapture(e.pointerId);
+      const { x, y } = pos(e);
+      if (e.button === 1) {
+        // Middle click deletes the drawing under the cursor.
+        e.preventDefault();
+        const h = this.hit(x, y);
+        if (h) { this.hooks.onDrawings(this.s.drawings.filter((d) => d.id !== h.id)); if (this.selected === h.id) this.select(null); }
+        return;
+      }
+      el.setPointerCapture(e.pointerId);
       const reg = region(x, y);
       if (reg === 'paxis') { const m = this.panes[0]; this.drag = { kind: 'paxis', x, y, lo: m.lo, hi: m.hi }; return; }
       if (reg === 'taxis') { this.drag = { kind: 'taxis', x, y }; return; }
@@ -598,8 +624,10 @@ export class ChartRenderer {
         } else { this.draft.pts[this.draft.pts.length - 1] = pt; this.finishDraft(); }
         this.invalidate(); return;
       }
+      const handle = this.handleAt(x, y);
+      if (handle) { this.drag = { kind: 'point', idx: handle.idx, x, y }; this.invalidate(); return; }
       const hit = this.hit(x, y);
-      this.selected = hit?.id ?? null;
+      this.select(hit?.id ?? null);
       if (hit) this.drag = { kind: 'move', x, y, orig: hit.pts.map((p) => ({ ...p })) };
       else { const m = this.panes[0]; this.drag = { kind: 'pan', x, y, lo: m.lo, hi: m.hi }; }
       this.invalidate();
@@ -609,6 +637,7 @@ export class ChartRenderer {
       const i = Math.max(0, Math.min(this.s.data.n - 1, Math.round(this.idxOf(x))));
       this.hooks.onHover(x < this.plotW && y < this.h - TIME_H ? i : null, this.s.data.n ? this.s.data.t[i] : null);
       el.style.cursor = this.drag ? (this.drag.kind === 'move' ? 'grabbing' : el.style.cursor)
+        : this.s.tool === 'cursor' && this.handleAt(x, y) ? 'move'
         : x > this.plotW ? 'ns-resize' : y > this.h - TIME_H ? 'ew-resize' : this.s.tool !== 'cursor' ? 'crosshair' : this.hit(x, y) ? 'pointer' : 'crosshair';
       if (this.draft) { this.draft.pts[this.draft.pts.length - 1] = this.snap(x, y); this.invalidate(); return; }
       const d = this.drag;
@@ -627,6 +656,9 @@ export class ChartRenderer {
           this.manual = { lo: mid - half, hi: mid + half };
         } else if (d.kind === 'taxis') {
           this.zoomBars(Math.exp(e.movementX * 0.006), this.plotW / 2);
+        } else if (d.kind === 'point' && this.selected) {
+          const dr = this.s.drawings.find((q) => q.id === this.selected);
+          if (dr && d.idx !== undefined) dr.pts[d.idx] = this.snap(x, y);
         } else if (d.kind === 'move' && this.selected) {
           const dr = this.s.drawings.find((q) => q.id === this.selected);
           if (dr && d.orig) {
@@ -638,7 +670,7 @@ export class ChartRenderer {
       this.invalidate();
     });
     on('pointerup', () => {
-      if (this.drag?.kind === 'move') this.hooks.onDrawings([...this.s.drawings]);
+      if (this.drag?.kind === 'move' || this.drag?.kind === 'point') this.hooks.onDrawings([...this.s.drawings]);
       this.drag = null;
     });
     on('pointerleave', () => { this.mx = -1; this.my = -1; this.hooks.onHover(null, null); this.invalidateOver(); });
@@ -668,7 +700,7 @@ export class ChartRenderer {
     if (!this.draft) return;
     const d = this.draft; this.draft = null;
     this.hooks.onDrawings([...this.s.drawings, d]);
-    this.selected = d.id;
+    this.select(d.id);
     this.hooks.onToolDone();
   }
 
@@ -677,7 +709,7 @@ export class ChartRenderer {
   deleteSelected() {
     if (!this.selected) return false;
     this.hooks.onDrawings(this.s.drawings.filter((d) => d.id !== this.selected));
-    this.selected = null; return true;
+    this.select(null); return true;
   }
 
   private clampStart() { this.start = Math.min(Math.max(this.start, -(this.plotW / this.barW) * 0.7), this.s.data.n - 3); }

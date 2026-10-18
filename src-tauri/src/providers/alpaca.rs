@@ -45,8 +45,6 @@ pub async fn candles(
         format!("https://data.alpaca.markets/v2/stocks/{symbol}/bars")
     };
     let fmt = |t: i64| DateTime::<Utc>::from_timestamp(t, 0).unwrap_or_default().to_rfc3339();
-    // Free plan: the latest 15 minutes of SIP data are unavailable; clamp the end.
-    let to = if crypto { to } else { to.min(Utc::now().timestamp() - 16 * 60) };
     if from >= to {
         return Ok(Candles::default());
     }

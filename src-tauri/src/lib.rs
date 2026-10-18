@@ -1,6 +1,7 @@
 mod cache;
 mod model;
 mod providers;
+mod stream;
 
 use cache::Cache;
 use model::{Candles, Error, Result, SymbolHit, Timeframe};
@@ -12,6 +13,7 @@ const KEYRING_SERVICE: &str = "oviate";
 
 struct AppState {
     cache: Cache,
+    streams: stream::Streams,
     http: reqwest::Client,
 }
 
@@ -21,7 +23,7 @@ fn keyring_entry(name: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, name).map_err(|e| Error::Keyring(e.to_string()))
 }
 
-fn load_keys() -> Option<alpaca::Keys> {
+pub(crate) fn load_keys() -> Option<alpaca::Keys> {
     let id = keyring_entry("alpaca_key_id").ok()?.get_password().ok()?;
     let secret = keyring_entry("alpaca_secret").ok()?.get_password().ok()?;
     (!id.is_empty() && !secret.is_empty()).then_some(alpaca::Keys { id, secret })
@@ -97,6 +99,11 @@ fn alpaca_keys_set() -> bool {
 }
 
 #[tauri::command]
+fn stream_symbols(st: State<'_>, symbols: Vec<String>) {
+    st.streams.set(symbols);
+}
+
+#[tauri::command]
 fn kv_get(st: State<'_>, key: String) -> Result<Option<String>> {
     st.cache.kv_get(&key)
 }
@@ -117,7 +124,8 @@ pub fn run() {
             let http = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()?;
-            app.manage(Arc::new(AppState { cache, http }));
+            let streams = stream::Streams::start(app.handle().clone());
+            app.manage(Arc::new(AppState { cache, http, streams }));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -126,6 +134,7 @@ pub fn run() {
             save_alpaca_keys,
             clear_alpaca_keys,
             alpaca_keys_set,
+            stream_symbols,
             kv_get,
             kv_set
         ])

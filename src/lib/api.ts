@@ -59,3 +59,12 @@ export async function kvSet(key: string, value: string): Promise<void> {
   if (inTauri) return call<void>('kv_set', { key, value });
   try { localStorage.setItem('oviate:' + key, value); } catch { /* ignore */ }
 }
+
+export const streamSymbols = (symbols: string[]) => (inTauri ? call<void>('stream_symbols', { symbols }) : Promise.resolve());
+
+export interface Tick { symbol: string; price: number; size: number; t: number }
+export async function onTick(cb: (t: Tick) => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<Tick>('tick', (e) => cb(e.payload));
+}

@@ -19,6 +19,7 @@
   let hover = $state<number | null>(null);
   let exhausted = false, loadingMore = false;
   let menuFor = $state('');
+  let selectedId = $state<string | null>(null);
 
   const lookback: Record<string, number> = {
     '1m': 5, '5m': 25, '15m': 60, '30m': 90, '1h': 400, '4h': 700, '1d': 3650, '1w': 7300, '1M': 14600
@@ -92,7 +93,8 @@
       onViewChange: () => {},
       onNeedHistory: () => loadMore(),
       onDrawings: (d) => { cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))]; app.persist(); },
-      onToolDone: () => { app.tool = 'cursor'; }
+      onToolDone: () => { app.tool = 'cursor'; },
+      onSelect: (id) => { selectedId = id; }
     }, {
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume, grid: app.grid, magnet: app.magnet, tool: app.tool
@@ -110,6 +112,30 @@
     lastKey = key;
     untrack(() => { load(true); });
   });
+
+  // Live ticks: batch to ~5 updates/s so indicators are not recomputed per trade.
+  let tickTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const tk = app.ticks[cfg.symbol];
+    if (!tk || tickTimer) return;
+    tickTimer = setTimeout(() => { tickTimer = undefined; const l = app.ticks[cfg.symbol]; if (l) applyTick(l.p, l.s, l.t); }, 200);
+  });
+
+  function applyTick(p: number, size: number, t: number) {
+    if (!raw.n) return;
+    const last = raw.n - 1;
+    if (t < raw.t[last]) return;
+    if (step < 86400 && t >= raw.t[last] + step) {
+      const bt = Math.floor(t / step) * step;
+      raw = mergeCandles(raw, { n: 1, t: Float64Array.of(bt), o: Float64Array.of(p), h: Float64Array.of(p), l: Float64Array.of(p), c: Float64Array.of(p), v: Float64Array.of(size) });
+    } else {
+      raw.c[last] = p;
+      if (p > raw.h[last]) raw.h[last] = p;
+      if (p < raw.l[last]) raw.l[last] = p;
+      raw.v[last] += size;
+      raw = { ...raw };
+    }
+  }
 
   $effect(() => {
     r?.setState({
@@ -179,6 +205,13 @@
     {/each}
   </div>
 
+  {#if selectedId}
+    <div class="seltools">
+      <span>Drawing</span>
+      <button title="Delete drawing (Del / middle click)" onclick={() => r?.deleteSelected()}><Icons name="trash" size={15} /> Delete</button>
+    </div>
+  {/if}
+
   {#if status !== 'ok'}
     <div class="state">{status === 'loading' ? t('loading', app.lang) : status === 'empty' ? t('noData', app.lang) : errMsg}</div>
   {/if}
@@ -205,5 +238,9 @@
   .mwrap { position: relative; }
   .mmenu { position: absolute; top: 26px; right: 0; z-index: 30; min-width: 160px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--glass-line); }
   .mmenu button { width: auto; height: auto; padding: 8px 12px; text-align: left; color: var(--fg); font: 12px system-ui, sans-serif; }
+  .seltools { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; background: var(--glass); border: 1px solid var(--accent); font: 12px system-ui, sans-serif; color: var(--dim); animation: st 0.2s ease both; }
+  .seltools button { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--fg); padding: 5px 10px; cursor: pointer; font: 600 12px system-ui, sans-serif; }
+  .seltools button:hover { background: var(--down); color: #fff; }
+  @keyframes st { from { opacity: 0; transform: translate(-50%, -6px); } }
   .state { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 13px; pointer-events: none; }
 </style>

@@ -1,15 +1,23 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { app } from '$lib/app.svelte';
+  import { onTick, streamSymbols } from '$lib/api';
   import Chart from '$lib/chart/Chart.svelte';
   import TopBar from '$lib/ui/TopBar.svelte';
   import LeftBar from '$lib/ui/LeftBar.svelte';
   import Watchlist from '$lib/ui/Watchlist.svelte';
+  import Analysis from '$lib/ui/Analysis.svelte';
   import Spotlight from '$lib/ui/Spotlight.svelte';
   import Settings from '$lib/ui/Settings.svelte';
   import IndicatorDialog from '$lib/ui/IndicatorDialog.svelte';
 
-  onMount(() => { app.load(); });
+  onMount(() => {
+    app.load();
+    let off = () => {};
+    onTick((t) => { app.ticks[t.symbol] = { p: t.price, s: t.size, t: t.t }; }).then((f) => (off = f));
+    return () => off();
+  });
+  $effect(() => { if (app.ready) streamSymbols([...new Set(app.charts.slice(0, app.count).map((c) => c.symbol))]); });
 
   $effect(() => {
     document.documentElement.dataset.theme = app.theme;
@@ -40,7 +48,7 @@
         <Chart bind:cfg={app.charts[i]} index={i} />
       {/each}
     </main>
-    {#if app.showWatchlist}<Watchlist />{/if}
+    {#if app.showWatchlist}<div class="rcol"><Watchlist /><Analysis /></div>{/if}
   </div>
   {#if app.toast}<div class="toast">{app.toast}</div>{/if}
 </div>
@@ -66,6 +74,7 @@
   .app { display: flex; flex-direction: column; height: 100vh; }
   .body { flex: 1; display: flex; min-height: 0; }
   .grid { flex: 1; display: grid; gap: 10px; padding: 12px; background: var(--bg); min-width: 0; min-height: 0; }
+  .rcol { width: 290px; flex: none; display: flex; flex-direction: column; gap: 10px; margin: 12px 12px 12px 2px; min-height: 0; }
   .l1 { grid-template: 1fr / 1fr; }
   .l2v { grid-template: 1fr / 1fr 1fr; }
   .l2h { grid-template: 1fr 1fr / 1fr; }

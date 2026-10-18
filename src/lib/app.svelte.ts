@@ -41,6 +41,7 @@ class App {
   indDialog = $state<{ uid: string; mode: 'settings' | 'code' } | null>(null);
   crossT = $state<{ t: number | null; from: string }>({ t: null, from: '' });
   toast = $state('');
+  ticks = $state<Record<string, { p: number; s: number; t: number }>>({});
   ready = $state(false);
 
   get chart(): ChartCfg { return this.charts[this.active]; }
