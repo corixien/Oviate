@@ -154,24 +154,11 @@
   <canvas bind:this={over} class="layer top"></canvas>
 
   <div class="legend">
-    <div class="row head">
-      <button class="sym" onclick={() => (app.spotlight = { open: true, seed: '' })}>{cfg.symbol}</button>
-      <span class="dim">· {cfg.tf.toUpperCase()}</span>
-      {#if bar >= 0}
-        <span class="dim">O</span><span style:color={col}>{fmtPrice(display.o[bar])}</span>
-        <span class="dim">H</span><span style:color={col}>{fmtPrice(display.h[bar])}</span>
-        <span class="dim">L</span><span style:color={col}>{fmtPrice(display.l[bar])}</span>
-        <span class="dim">C</span><span style:color={col}>{fmtPrice(display.c[bar])}</span>
-        <span style:color={col}>{chg >= 0 ? '+' : ''}{fmtPrice(chg)} ({chgPct.toFixed(2)}%)</span>
-      {/if}
-    </div>
     {#each cfg.indicators as ind (ind.uid)}
       {@const def = indicatorById(ind.id)}
-      {@const lines = active.find((a) => a.id === ind.uid)?.lines ?? []}
       <div class="pill" class:off={ind.hidden}>
         <span class="nm">{def?.label.replace(/ \(.*\)/, '')}</span>
         {#if ind.showParams ?? app.showParams}<span class="dim">{Object.values(ind.params).join(' ')}</span>{/if}
-        {#if !ind.hidden}{#each lines as ln}{#if bar >= 0 && !Number.isNaN(ln.v[bar]) && ln.kind !== 'band'}<span style:color={ln.color}>{ln.v[bar].toFixed(2)}</span>{/if}{/each}{/if}
         <span class="acts">
           <button title={ind.hidden ? 'Show' : 'Hide'} onclick={() => { ind.hidden = !ind.hidden; app.persist(); }}><Icons name={ind.hidden ? 'eyeoff' : 'eye'} size={14} /></button>
           <button title="Settings" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'settings' })}><Icons name="gear" size={14} /></button>
@@ -208,12 +195,12 @@
   .sym { pointer-events: auto; background: none; border: 0; color: var(--fg); font: 600 14px system-ui, sans-serif; cursor: pointer; padding: 0; }
   .sym:hover { color: var(--accent); }
   .dim { color: var(--dim); }
-  .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 3px 4px 3px 9px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
+  .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 3px 9px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
   .pill:hover { border-color: var(--accent); }
   .pill.off { opacity: 0.55; }
   .nm { color: var(--fg); font-family: system-ui, sans-serif; font-weight: 600; }
-  .acts { display: inline-flex; align-items: center; gap: 1px; opacity: 0; transition: opacity 0.12s; }
-  .pill:hover .acts, .pill:focus-within .acts { opacity: 1; }
+  .acts { display: inline-flex; align-items: center; gap: 1px; max-width: 0; opacity: 0; overflow: hidden; transition: max-width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.18s; }
+  .pill:hover .acts, .pill:focus-within .acts { max-width: 160px; opacity: 1; overflow: visible; }
   .acts button { display: grid; place-items: center; width: 22px; height: 22px; background: none; border: 0; color: var(--dim); cursor: pointer; }
   .acts button:hover { color: #fff; background: var(--accent); }
   .mwrap { position: relative; }
