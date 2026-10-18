@@ -120,7 +120,10 @@ export interface PendingOrder {
   exitLimit?: number;
 }
 
+export interface StrategyConfig { qtyType: 'fixed' | 'cash' | 'percent_of_equity'; qtyValue: number; pyramiding: number; initialCapital: number }
+
 export interface StrategyResult {
+  config: StrategyConfig;
   /** orders still waiting after the last bar (they fill on the next bar) */
   pending: PendingOrder[];
   trades: TradeRec[];

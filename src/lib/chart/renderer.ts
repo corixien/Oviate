@@ -7,6 +7,9 @@ export const DRAW_TOOLS: DrawTool[] = ['cursor', 'trend', 'ray', 'arrow', 'hline
 const POINTS: Record<DrawTool, number> = { cursor: 0, trend: 2, ray: 2, arrow: 2, hline: 1, vline: 1, rect: 2, fib: 2, text: 1, measure: 2 };
 
 export interface DrawPt { t: number; p: number }
+export interface TradeMark { t: number; price: number; side: 'buy' | 'sell'; text?: string }
+export interface PriceLine { price: number; color: string; label: string; dash?: boolean }
+
 export interface NewsMark { t: number; ids: string[]; titles: string[] }
 
 export interface Drawing { id: string; type: DrawTool; pts: DrawPt[]; color: string; text?: string; sym?: string }
@@ -32,6 +35,8 @@ export interface RenderState {
   magnet: boolean;
   tool: DrawTool;
   news: NewsMark[];
+  trades: TradeMark[];
+  lines: PriceLine[];
 }
 
 export interface Hooks {
@@ -259,6 +264,8 @@ export class ChartRenderer {
       this.drawSeries(a, b);
       this.drawOverlays(a, b);
       this.drawDrawings();
+      this.drawLines();
+      this.drawTrades();
       this.drawNews();
       ctx.restore();
       for (const p of this.panes.slice(1)) this.drawSub(p, a, b);
@@ -618,6 +625,44 @@ export class ChartRenderer {
       ctx.fillText(t.label, t.x, this.h - TIME_H / 2);
     }
     ctx.textAlign = 'left';
+  }
+
+  // ---------- trade arrows and price lines ----------
+  private drawTrades() {
+    const { ctx } = this; const { theme } = this.s;
+    for (const m of this.s.trades) {
+      const x = this.xOf(this.timeToIdx(m.t));
+      if (x < -10 || x > this.plotW + 10) continue;
+      const y = this.py(m.price);
+      const buy = m.side === 'buy';
+      const col = buy ? theme.up : theme.down;
+      ctx.fillStyle = col; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+      ctx.shadowColor = col; ctx.shadowBlur = 8;
+      ctx.beginPath();
+      // buy: arrow below the fill price pointing up; sell: arrow above pointing down
+      if (buy) { ctx.moveTo(x, y + 1); ctx.lineTo(x + 6, y + 11); ctx.lineTo(x + 2.5, y + 11); ctx.lineTo(x + 2.5, y + 17); ctx.lineTo(x - 2.5, y + 17); ctx.lineTo(x - 2.5, y + 11); ctx.lineTo(x - 6, y + 11); }
+      else { ctx.moveTo(x, y - 1); ctx.lineTo(x + 6, y - 11); ctx.lineTo(x + 2.5, y - 11); ctx.lineTo(x + 2.5, y - 17); ctx.lineTo(x - 2.5, y - 17); ctx.lineTo(x - 2.5, y - 11); ctx.lineTo(x - 6, y - 11); }
+      ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0; ctx.stroke();
+      if (m.text) { ctx.font = '10px ui-monospace, monospace'; ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.fillText(m.text, x, buy ? y + 28 : y - 24); ctx.textAlign = 'left'; ctx.font = '11px ui-monospace, "JetBrains Mono", monospace'; }
+    }
+  }
+
+  private drawLines() {
+    const { ctx } = this; const { theme } = this.s; const m = this.panes[0];
+    for (const l of this.s.lines) {
+      const y = this.py(l.price);
+      if (y < m.y0 - 4 || y > m.y1 + 4) continue;
+      const yy = Math.round(y) + 0.5;
+      ctx.strokeStyle = l.color; ctx.lineWidth = 1; ctx.setLineDash(l.dash ? [6, 4] : []);
+      ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(this.plotW, yy); ctx.stroke(); ctx.setLineDash([]);
+      ctx.font = '10.5px ui-monospace, monospace';
+      const tw = ctx.measureText(l.label).width + 12;
+      const x0 = this.plotW - tw - 6;
+      ctx.fillStyle = theme.panel; ctx.fillRect(x0, yy - 17, tw, 15);
+      ctx.strokeStyle = l.color; ctx.strokeRect(x0 + 0.5, yy - 16.5, tw - 1, 14);
+      ctx.fillStyle = l.color; ctx.textBaseline = 'middle'; ctx.fillText(l.label, x0 + 6, yy - 9);
+      ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
+    }
   }
 
   // ---------- news markers ----------

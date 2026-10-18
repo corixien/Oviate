@@ -10,6 +10,10 @@
   import NewsPage from '$lib/ui/NewsPage.svelte';
   import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
   import { library } from '$lib/library.svelte';
+  import PaperPanel from '$lib/ui/PaperPanel.svelte';
+  import OrderDialog from '$lib/ui/OrderDialog.svelte';
+  import AccountDialog from '$lib/ui/AccountDialog.svelte';
+  import { paper } from '$lib/paper/paper.svelte';
   import Spotlight from '$lib/ui/Spotlight.svelte';
   import Settings from '$lib/ui/Settings.svelte';
   import IndicatorDialog from '$lib/ui/IndicatorDialog.svelte';
@@ -50,6 +54,7 @@
   onMount(() => {
     app.load();
     library.load();
+    paper.load();
     let off = () => {};
     onTick((t) => { app.ticks[t.symbol] = { p: t.price, s: t.size, t: t.t }; }).then((f) => (off = f));
     return () => off();
@@ -82,7 +87,8 @@
   {#if app.page === 'editor'}<ScriptEditor />{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
-    <div class="center" bind:this={center}>
+    <div class="center">
+     <div class="chartarea" bind:this={center}>
       <main class="grid l{app.layout}" style:grid-template-columns={cols} style:grid-template-rows={rows}>
         {#each app.charts.slice(0, app.count) as c, i (c.id)}
           <Chart bind:cfg={app.charts[i]} index={i} />
@@ -101,6 +107,8 @@
           <div class="hh" style:top="calc((100% - 10px) * {app.split.r})" role="separator" aria-orientation="horizontal" onpointerdown={(e) => startDrag(e, 'r')}></div>
         </div>
       {/if}
+     </div>
+     <PaperPanel />
     </div>
     {#if app.showWatchlist}
       <div class="vsplit" role="separator" aria-orientation="vertical" onpointerdown={startRightDrag}></div>
@@ -117,6 +125,8 @@
 <Spotlight />
 <Settings />
 <IndicatorDialog />
+<OrderDialog />
+<AccountDialog />
 
 <style>
   :global(:root), :global(:root[data-theme='dark']) {
@@ -135,7 +145,8 @@
   .app { display: flex; flex-direction: column; height: 100vh; }
   .body { flex: 1; display: flex; min-height: 0; }
   .body.hid { display: none; }
-  .center { flex: 1; position: relative; min-width: 0; min-height: 0; display: flex; }
+  .center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .chartarea { flex: 1; position: relative; min-width: 0; min-height: 0; display: flex; }
   .grid { flex: 1; display: grid; gap: 10px; padding: 12px; background: var(--bg); min-width: 0; min-height: 0; }
   .rcol { flex: none; display: grid; margin: 12px 12px 12px 0; min-height: 0; min-width: 0; }
   .vsplit { width: 8px; flex: none; margin: 12px 0; cursor: col-resize; position: relative; }

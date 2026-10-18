@@ -4,7 +4,7 @@
   import { describeScript } from '$lib/pine/describe.ts';
 
   const ind = $derived(app.chart.indicators.find((i) => i.uid === app.indDialog?.uid));
-  const file = $derived(ind ? library.get('indicators', ind.id) : undefined);
+  const file = $derived(ind ? library.get(ind.strategy ? 'strategies' : 'indicators', ind.id) : undefined);
   const info = $derived(file ? describeScript(file.code) : null);
   let copied = $state(false);
 
@@ -31,7 +31,7 @@
   }
   function edit() {
     if (!ind) return;
-    app.editor = { kind: 'indicators', name: ind.id };
+    app.editor = { kind: ind.strategy ? 'strategies' : 'indicators', name: ind.id };
     app.page = 'editor';
     close();
   }

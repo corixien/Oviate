@@ -271,10 +271,19 @@ export class Broker {
     }));
     const pending: PendingOrder[] = [
       ...this.orders.map((o): PendingOrder => ({ id: o.id, kind: o.kind, dir: o.dir, qty: o.qty, limit: o.limit, stop: o.stop, comment: o.comment })),
-      ...this.exits.map((e): PendingOrder => ({ id: e.id, kind: 'exit', dir: '', qty: e.qty, fromEntry: e.from, comment: e.comment, exitStop: e.stop, exitLimit: e.limit })),
+      ...this.exits.map((e): PendingOrder => {
+        // tick-based exits are relative to the matching lot's entry price
+        const lot = this.lots.find((l) => !e.from || l.id === e.from);
+        const long = lot?.dir === 'long';
+        const tick = this.tick();
+        const stop = e.stop ?? (lot && e.lossTicks !== undefined ? (long ? lot.price - e.lossTicks * tick : lot.price + e.lossTicks * tick) : undefined);
+        const limit = e.limit ?? (lot && e.profitTicks !== undefined ? (long ? lot.price + e.profitTicks * tick : lot.price - e.profitTicks * tick) : undefined);
+        return { id: e.id, kind: 'exit', dir: '', qty: e.qty, fromEntry: e.from, comment: e.comment, exitStop: stop, exitLimit: limit };
+      }),
     ];
     const size = this.positionSize;
     return {
+      config: { qtyType: this.cfg.qtyType, qtyValue: this.cfg.qtyValue, pyramiding: this.cfg.pyramiding, initialCapital: this.cfg.initialCapital },
       pending, trades: [...this.closed, ...open], equity: this.equityArr, netProfit: this.realized + this.openProfit(), initialCapital: this.cfg.initialCapital,
       openPosition: size === 0 ? null : { dir: size > 0 ? 'long' : 'short', qty: Math.abs(size), avg: this.avgPrice },
     };

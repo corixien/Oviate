@@ -4,6 +4,7 @@
   import { searchSymbols, TIMEFRAMES, type SymbolHit } from '$lib/api';
   import { CHART_TYPES } from '$lib/chart/transforms';
   import { library } from '$lib/library.svelte';
+  import { paper } from '$lib/paper/paper.svelte';
   import { DRAW_TOOLS } from '$lib/chart/renderer';
   import { t } from '$lib/i18n';
 
@@ -25,6 +26,15 @@
     { key: 'strat add new create pine strategy editor', title: 'New strategy (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'strategy', run: () => { app.editor = { kind: 'strategies', name: null }; app.page = 'editor'; } },
     ...library.indicators.map((f) => ({ key: `ind add ${f.name} ${f.title}`, title: `Add ${f.title}`, sub: f.name, tag: 'indicator',
       run: () => { app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: f.name, params: {} }]; } })),
+    ...library.strategies.map((f) => ({ key: `strat add ${f.name} ${f.title}`, title: `Add strategy: ${f.title}`, sub: f.name, tag: 'strategy',
+      run: () => { app.chart.indicators = [...app.chart.indicators.filter((i) => !i.strategy), { uid: crypto.randomUUID(), id: f.name, params: {}, strategy: true }]; paper.panelOpen = true; paper.panelTab = 'tester'; paper.persist(); } })),
+    { key: 'strat remove delete strategy', title: 'Remove strategy from chart', tag: 'strategy', run: () => { app.chart.indicators = app.chart.indicators.filter((i) => !i.strategy); } },
+    { key: 'paper new account create', title: 'New paper account', tag: 'paper', run: () => { paper.accountDialog = true; } },
+    { key: 'paper panel toggle trading', title: 'Toggle paper trading panel', tag: 'paper', run: () => { paper.panelOpen = !paper.panelOpen; paper.persist(); } },
+    { key: `buy ${app.chart.symbol} paper order`, title: `Buy ${app.chart.symbol}`, tag: 'paper', run: () => { paper.orderDialog = { open: true, side: 'buy', symbol: app.chart.symbol }; } },
+    { key: `sell ${app.chart.symbol} paper order`, title: `Sell ${app.chart.symbol}`, tag: 'paper', run: () => { paper.orderDialog = { open: true, side: 'sell', symbol: app.chart.symbol }; } },
+    { key: 'paper tester strategy panel', title: 'Open Strategy Tester', tag: 'paper', run: () => { paper.panelTab = 'tester'; paper.panelOpen = true; paper.persist(); } },
+    ...paper.accounts.map((a) => ({ key: `paper account ${a.name}`, title: `Paper account: ${a.name}`, tag: 'paper', run: () => { paper.activeId = a.id; paper.panelTab = 'paper'; paper.panelOpen = true; paper.persist(); } })),
     { key: 'ind clear remove all indicators', title: 'Remove all indicators', tag: 'indicator', run: () => { app.chart.indicators = []; } },
     ...(['1', '2v', '2h', '3', '4'] as const).map((l) => ({ key: `layout ${l}`, title: `Layout: ${l === '1' ? 'single chart' : l === '2v' ? '2 charts side by side' : l === '2h' ? '2 charts stacked' : l + ' charts'}`, tag: 'layout', run: () => { app.setLayout(l); } })),
     ...DRAW_TOOLS.map((d) => ({ key: `draw ${d}`, title: `Draw: ${d}`, tag: 'draw', run: () => { app.tool = d; } })),

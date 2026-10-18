@@ -2,13 +2,14 @@ import { kvGet, kvSet, type Tf } from './api';
 import type { ChartType } from './chart/transforms';
 import type { Drawing, DrawTool } from './chart/renderer';
 import type { Lang } from './i18n';
+import type { PineResult } from './pine/types.ts';
 
 export interface ChartCfg {
   id: string;
   symbol: string;
   tf: Tf;
   type: ChartType;
-  indicators: { uid: string; id: string; params: Record<string, number | string | boolean>; hidden?: boolean; showParams?: boolean; colors?: string[] }[];
+  indicators: { uid: string; id: string; params: Record<string, number | string | boolean>; hidden?: boolean; showParams?: boolean; colors?: string[]; strategy?: boolean; account?: string }[];
   drawings: Drawing[];
   log: boolean;
   volume: boolean;
@@ -53,6 +54,8 @@ class App {
   tool = $state<DrawTool>('cursor');
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
+  /** Latest backtest per chart (for the Strategy Tester panel). */
+  strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult }>>({});
   page = $state<'chart' | 'news' | 'editor'>('chart');
   /** Script editor target: an existing script or a new one (name null). */
   editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null }>({ kind: 'indicators', name: null });

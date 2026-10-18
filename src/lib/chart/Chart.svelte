@@ -8,7 +8,9 @@
   import { runScript } from '$lib/pine/runner.ts';
   import type { PineResult } from '$lib/pine/types.ts';
   import Icons from '$lib/ui/Icons.svelte';
-  import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark } from './renderer';
+  import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type PriceLine } from './renderer';
+  import { paper } from '$lib/paper/paper.svelte';
+  import * as PE from '$lib/paper/engine.ts';
   import { t } from '$lib/i18n';
 
   let { cfg = $bindable(), index }: { cfg: ChartCfg; index: number } = $props();
@@ -47,6 +49,35 @@
     }
     return [...groups.values()];
   });
+  // ----- paper trading overlays: fills as arrows, open position and working orders as price lines -----
+  const tradeMarks = $derived.by<TradeMark[]>(() => {
+    const acc = paper.active;
+    const out: TradeMark[] = [];
+    if (acc) {
+      for (const o of acc.orders) if (o.symbol === cfg.symbol && o.status === 'filled' && o.filledAt && o.fillPrice) out.push({ t: o.filledAt, price: o.fillPrice, side: o.side });
+    }
+    for (const t of stratTrades) out.push(t);
+    return out;
+  });
+  const priceLines = $derived.by<PriceLine[]>(() => {
+    const acc = paper.active;
+    if (!acc) return [];
+    const out: PriceLine[] = [];
+    const pos = PE.positionOf(acc, cfg.symbol);
+    const last = acc.lastPrices[cfg.symbol];
+    if (pos) {
+      const pnl = pos.qty * ((last ?? pos.avgPrice) - pos.avgPrice);
+      out.push({ price: pos.avgPrice, color: pos.qty > 0 ? theme.up : theme.down, label: `${pos.qty > 0 ? 'LONG' : 'SHORT'} ${Math.abs(pos.qty)} @ ${fmtPrice(pos.avgPrice)}  ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}` });
+    }
+    for (const o of acc.orders) {
+      if (o.symbol !== cfg.symbol || o.status !== 'open') continue;
+      const px = o.type === 'stop_limit' && !o.triggered ? o.stop : o.limit ?? o.stop;
+      if (px) out.push({ price: px, color: theme.accent, dash: true, label: `${o.side.toUpperCase()} ${o.type.replace('_', ' ')} ${o.qty}${o.note ? ' · ' + o.note : ''}` });
+    }
+    return out;
+  });
+  let stratTrades = $state<TradeMark[]>([]);
+
   let lastPoll = $state(0);
   let nowMs = $state(Date.now());
   const liveAge = $derived(Math.max(0, nowMs - Math.max(lastPoll, (app.ticks[cfg.symbol]?.t ?? 0) * 1000)));
@@ -92,11 +123,13 @@
         const list = $state.snapshot(cfg.indicators).filter((i) => !i.hidden);
         const out: Record<string, PineResult> = {};
         await Promise.all(list.map(async (i) => {
-          const file = library.get('indicators', i.id);
+          const file = library.get(i.strategy ? 'strategies' : 'indicators', i.id);
           if (!file) return;
           out[i.uid] = await runScript(file.code, d, { params: i.params, step: st, symbol: sym });
         }));
         pineResults = out;
+        publishStrategy(list, out, sym);
+        liveSignals(list);
       } while (pineDirty);
     } finally { pineRunning = false; }
   }
@@ -110,10 +143,48 @@
     });
   });
 
+  /** Backtest result of the first strategy on this chart: feeds the tester panel and the trade arrows. */
+  function publishStrategy(list: typeof cfg.indicators, out: Record<string, PineResult>, sym: string) {
+    const s = list.find((i) => i.strategy && out[i.uid]?.strategy && !out[i.uid]?.error);
+    if (!s) { delete app.strategyResults[cfg.id]; stratTrades = []; return; }
+    const res = out[s.uid];
+    app.strategyResults[cfg.id] = { uid: s.uid, name: s.id, symbol: sym, tf: cfg.tf, result: res };
+    const marks: TradeMark[] = [];
+    for (const t of res.strategy!.trades) {
+      const long = t.dir === 'long';
+      marks.push({ t: t.entryTime, price: t.entryPrice, side: long ? 'buy' : 'sell' });
+      if (!t.open) marks.push({ t: t.exitTime, price: t.exitPrice, side: long ? 'sell' : 'buy' });
+    }
+    stratTrades = marks;
+  }
+
+  /** Strategies attached to a paper account: act on the orders the strategy has pending after each newly closed bar. */
+  const liveBars = new Map<string, number>();
+  async function liveSignals(list: typeof cfg.indicators) {
+    for (const i of list) {
+      if (!i.strategy || !i.account || raw.n < 3) continue;
+      const file = library.get('strategies', i.id);
+      const acc = paper.accounts.find((a) => a.id === i.account);
+      if (!file || !acc) continue;
+      const closed = raw.n - 2; // the last bar is still forming
+      const barTime = raw.t[closed];
+      const key = i.uid + '|' + i.account;
+      const seen = liveBars.get(key);
+      if (seen === undefined) { liveBars.set(key, barTime); continue; } // baseline: only future bar closes trade
+      if (barTime <= seen) continue;
+      liveBars.set(key, barTime);
+      const sliced = transform(raw, cfg.type);
+      const n = sliced.n - 1;
+      const cut = { n, t: sliced.t.subarray(0, n), o: sliced.o.subarray(0, n), h: sliced.h.subarray(0, n), l: sliced.l.subarray(0, n), c: sliced.c.subarray(0, n), v: sliced.v.subarray(0, n) };
+      const res = await runScript(file.code, cut, { params: $state.snapshot(i.params), step, symbol: cfg.symbol });
+      if (res.strategy && !res.error) paper.applySignals(acc.id, cfg.symbol, res.strategy.pending, res.strategy.config, file.title);
+    }
+  }
+
   const active = $derived<ActiveIndicator[]>(cfg.indicators.flatMap((i) => {
     const r = pineResults[i.uid];
     if (!r || i.hidden) return [];
-    const file = library.get('indicators', i.id);
+    const file = library.get(i.strategy ? 'strategies' : 'indicators', i.id);
     const result = i.colors?.some(Boolean) ? { ...r, plots: r.plots.map((p, k) => (i.colors?.[k] ? { ...p, color: i.colors[k]!, colors: undefined } : p)) } : r;
     return [{ id: i.uid, title: file?.shortTitle ?? i.id, overlay: r.error ? true : r.meta.overlay, result }];
   }));
@@ -128,6 +199,7 @@
       if (sym !== cfg.symbol || tf !== cfg.tf) return;
       raw = c;
       status = c.n ? 'ok' : 'empty';
+      if (c.n) paper.feed(sym, { last: c.c[c.n - 1], t: Math.floor(Date.now() / 1000) });
       await tick();
       if (reset) r?.resetView();
     } catch (e) { if (sym === cfg.symbol) { status = 'error'; errMsg = String(e); } }
@@ -152,7 +224,7 @@
     try {
       const to = Math.floor(Date.now() / 1000) + step;
       const c = await getCandles(cfg.symbol, cfg.tf, to - step * 6, to);
-      if (c.n) { raw = mergeCandles(raw, c); lastPoll = Date.now(); }
+      if (c.n) { raw = mergeCandles(raw, c); lastPoll = Date.now(); paper.feed(cfg.symbol, { last: raw.c[raw.n - 1], t: Math.floor(Date.now() / 1000) }); }
     } catch (e) { console.warn('poll failed', e); }
   }
 
@@ -167,7 +239,7 @@
       onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0])
     }, {
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
-      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks
+      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, trades: tradeMarks, lines: priceLines
     });
     const ro = new ResizeObserver(([e]) => r!.resize(e.contentRect.width, e.contentRect.height));
     ro.observe(box);
@@ -201,6 +273,7 @@
       const bt = Math.floor(t / step) * step;
       raw = mergeCandles(raw, { n: 1, t: Float64Array.of(bt), o: Float64Array.of(p), h: Float64Array.of(p), l: Float64Array.of(p), c: Float64Array.of(p), v: Float64Array.of(size) });
     } else {
+      paper.feed(cfg.symbol, { last: p, t: Math.floor(Date.now() / 1000) });
       raw.c[last] = p;
       if (p > raw.h[last]) raw.h[last] = p;
       if (p < raw.l[last]) raw.l[last] = p;
@@ -213,7 +286,7 @@
     r?.setState({
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet,
-      tool: app.active === index ? app.tool : 'cursor', news: newsMarks
+      tool: app.active === index ? app.tool : 'cursor', news: newsMarks, trades: tradeMarks, lines: priceLines
     });
   });
 
@@ -261,6 +334,7 @@
   <canvas bind:this={over} class="layer top"></canvas>
 
   <div class="legend">
+   <div class="top">
     <div class="pill tk">
       <span class="dot" class:live={liveAge < 20000} title={liveAge < 20000 ? 'Live' : 'No update for ' + Math.round(liveAge / 1000) + 's'}></span>
       <span class="nm">{cfg.symbol}</span><span class="dim">{cfg.tf.toUpperCase()}</span>
@@ -268,6 +342,11 @@
         <button title="Change symbol" onclick={() => (app.spotlight = { open: true, seed: '' })}><Icons name="search" size={14} /></button>
       </span>
     </div>
+    <div class="trade">
+      <button class="b" title="Buy {cfg.symbol} (paper)" onclick={() => { app.active = index; paper.orderDialog = { open: true, side: 'buy', symbol: cfg.symbol }; }}>Buy</button>
+      <button class="s" title="Sell {cfg.symbol} (paper)" onclick={() => { app.active = index; paper.orderDialog = { open: true, side: 'sell', symbol: cfg.symbol }; }}>Sell</button>
+    </div>
+   </div>
     {#if cfg.volume}
       <div class="pill" class:off={cfg.volumeVisible === false}>
         <span class="nm">Volume</span>
@@ -278,10 +357,12 @@
       </div>
     {/if}
     {#each cfg.indicators as ind (ind.uid)}
-      {@const file = library.get('indicators', ind.id)}
+      {@const file = library.get(ind.strategy ? 'strategies' : 'indicators', ind.id)}
       {@const res = pineResults[ind.uid]}
       <div class="pill" class:off={ind.hidden} class:bad={!!res?.error || !file} title={res?.error ? res.error.message : !file ? 'Script not found: ' + ind.id : ''}>
+        {#if ind.strategy}<span class="sbadge" title="Strategy">S</span>{/if}
         <span class="nm">{file?.shortTitle ?? ind.id}</span>
+        {#if ind.account}<span class="live" title="Trading on paper account {paper.accounts.find((a) => a.id === ind.account)?.name ?? '?'}">LIVE</span>{/if}
         {#if ind.showParams ?? app.showParams}<span class="dim">{res ? res.inputs.map((i) => ind.params[i.id] ?? i.def).join(' ') : ''}</span>{/if}
         <span class="acts">
           <button title={ind.hidden ? 'Show' : 'Hide'} onclick={() => { ind.hidden = !ind.hidden; app.persist(); }}><Icons name={ind.hidden ? 'eyeoff' : 'eye'} size={14} /></button>
@@ -295,7 +376,15 @@
                 <button onclick={() => { ind.showParams = !(ind.showParams ?? app.showParams); menuFor = ''; app.persist(); }}>{ind.showParams ?? app.showParams ? 'Hide parameters' : 'Show parameters'}</button>
                 <button onclick={() => { cfg.indicators = [...cfg.indicators, { ...$state.snapshot(ind), uid: crypto.randomUUID() }]; menuFor = ''; app.persist(); }}>Duplicate</button>
                 <button onclick={() => { ind.params = {}; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
-                <button onclick={() => { app.editor = { kind: 'indicators', name: ind.id }; app.page = 'editor'; menuFor = ''; }}>Edit source</button>
+                <button onclick={() => { app.editor = { kind: ind.strategy ? 'strategies' : 'indicators', name: ind.id }; app.page = 'editor'; menuFor = ''; }}>Edit source</button>
+                {#if ind.strategy}
+                  <button class="hd2" disabled>Trade on paper account</button>
+                  {#each paper.accounts as acc (acc.id)}
+                    <button onclick={() => { ind.account = ind.account === acc.id ? undefined : acc.id; liveBars.clear(); menuFor = ''; app.persist(); }}>{ind.account === acc.id ? '● ' : '○ '}{acc.name}</button>
+                  {:else}
+                    <button onclick={() => { paper.accountDialog = true; menuFor = ''; }}>Create paper account…</button>
+                  {/each}
+                {/if}
               </div>
             {/if}
           </span>
@@ -330,6 +419,14 @@
   .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 0; width: fit-content; padding: 3px 9px; border: 1px solid var(--accent); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
   .pill.off { opacity: 0.55; }
   .pill.bad { border-color: var(--down); }
+  .sbadge { font: 800 9px system-ui, sans-serif; background: var(--accent); color: #fff; padding: 1px 4px; margin-right: 6px; }
+  .live { font: 800 8.5px system-ui, sans-serif; border: 1px solid var(--up); color: var(--up); padding: 0 4px; margin-left: 6px; letter-spacing: 0.06em; }
+  .hd2 { color: var(--dim) !important; font-size: 10.5px !important; text-transform: uppercase; letter-spacing: 0.08em; }
+  .trade { display: inline-flex; gap: 4px; pointer-events: auto; }
+  .trade button { background: #000; border: 1px solid; padding: 3px 12px; font: 800 11px system-ui, sans-serif; letter-spacing: 0.06em; cursor: pointer; text-transform: uppercase; }
+  .trade .b { color: var(--up); border-color: var(--up); } .trade .b:hover { background: var(--up); color: #000; }
+  .trade .s { color: var(--down); border-color: var(--down); } .trade .s:hover { background: var(--down); color: #000; }
+  .top { display: flex; gap: 8px; align-items: center; }
   .pill.bad .nm { color: var(--down); }
   .tk .dim { margin-left: 8px; }
   .dot { width: 7px; height: 7px; margin-right: 8px; background: var(--dim); flex: none; }
