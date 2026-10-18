@@ -69,6 +69,7 @@ async fn worker(app: AppHandle, url: &'static str, mut rx: watch::Receiver<Vec<S
 async fn run(app: &AppHandle, url: &str, keys: &alpaca::Keys, rx: &mut watch::Receiver<Vec<String>>) -> Result<()> {
     let other = |e: String| crate::model::Error::Other(e);
     let (mut ws, _) = connect_async(url).await.map_err(|e| other(e.to_string()))?;
+    eprintln!("stream {url}: connected");
     ws.send(Message::text(json!({"action":"auth","key":keys.id,"secret":keys.secret}).to_string()))
         .await
         .map_err(|e| other(e.to_string()))?;
@@ -83,7 +84,7 @@ async fn run(app: &AppHandle, url: &str, keys: &alpaca::Keys, rx: &mut watch::Re
                 let Ok(Value::Array(items)) = serde_json::from_str::<Value>(&text) else { continue };
                 for it in items {
                     match it["T"].as_str() {
-                        Some("success") if it["msg"] == "authenticated" => authed = true,
+                        Some("success") if it["msg"] == "authenticated" => { authed = true; eprintln!("stream {url}: authenticated"); }
                         Some("error") => return Err(other(format!("alpaca stream: {}", it["msg"]))),
                         Some("t") => {
                             if let (Some(s), Some(p)) = (it["S"].as_str(), it["p"].as_f64()) {
@@ -107,6 +108,7 @@ async fn run(app: &AppHandle, url: &str, keys: &alpaca::Keys, rx: &mut watch::Re
             if !del.is_empty() {
                 ws.send(Message::text(json!({"action":"unsubscribe","trades":del}).to_string())).await.map_err(|e| other(e.to_string()))?;
             }
+            if !add.is_empty() { eprintln!("stream {url}: subscribed {:?}", add); }
             subscribed = want;
         }
     }

@@ -42,10 +42,10 @@
   <div class="menuwrap">
     <button class="ib" onclick={() => toggle('layout')} title="Layout"><Icons name="layout" /> <span>{app.layout}</span></button>
     {#if menu === 'layout'}
-      <div class="menu right">{#each layouts as l}<button class:on={app.layout === l} onclick={() => { app.layout = l; if (app.active >= app.count) app.active = 0; app.persist(); menu = ''; }}>{l === '1' ? 'Single' : l === '2v' ? '2 side by side' : l === '2h' ? '2 stacked' : l + ' charts'}</button>{/each}</div>
+      <div class="menu right">{#each layouts as l}<button class:on={app.layout === l} onclick={() => { app.setLayout(l); menu = ''; }}>{l === '1' ? 'Single' : l === '2v' ? '2 side by side' : l === '2h' ? '2 stacked' : l + ' charts'}</button>{/each}</div>
     {/if}
   </div>
-  <button class="ib sq" class:on={app.sync} onclick={() => { app.sync = !app.sync; app.persist(); }} title="Sync crosshair"><Icons name="sync" /></button>
+  <button class="ib sq" class:on={app.sync} onclick={() => { app.sync = !app.sync; app.persist(); }} title="Sync crosshair between charts"><Icons name="crosshair" /></button>
   <button class="ib sq" class:on={app.showWatchlist} onclick={() => { app.showWatchlist = !app.showWatchlist; app.persist(); }} title="Watchlist"><Icons name="list" /></button>
   <button class="ib sq" onclick={() => (app.settingsOpen = true)} title="Settings"><Icons name="gear" /></button>
 </header>

@@ -12,7 +12,19 @@ export interface ChartCfg {
   drawings: Drawing[];
   log: boolean;
   volume: boolean;
+  volumeVisible?: boolean;
 }
+
+export interface Watchlist { id: string; name: string; symbols: string[] }
+
+export interface CustomColors {
+  upBody: string; upBorder: string; upWick: string;
+  downBody: string; downBorder: string; downWick: string;
+}
+export const DEFAULT_CUSTOM: CustomColors = {
+  upBody: '#22e5ff', upBorder: '#22e5ff', upWick: '#22e5ff',
+  downBody: '#ff2d95', downBorder: '#ff2d95', downWick: '#ff2d95'
+};
 
 export type LayoutId = '1' | '2v' | '2h' | '3' | '4';
 export const LAYOUT_COUNT: Record<LayoutId, number> = { '1': 1, '2v': 2, '2h': 2, '3': 3, '4': 4 };
@@ -28,11 +40,15 @@ class App {
   theme = $state<'dark' | 'light'>('dark');
   lang = $state<Lang>('en');
   anim = $state(true);
-  palette = $state<'neon' | 'mono' | 'classic'>('neon');
+  palette = $state<'neon' | 'mono' | 'classic' | 'custom'>('neon');
+  custom = $state<CustomColors>({ ...DEFAULT_CUSTOM });
   grid = $state(true);
   magnet = $state(false);
   sync = $state(true);
-  watchlist = $state<string[]>(['AAPL', 'MSFT', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'BTC/USD', 'ETH/USD']);
+  watchlists = $state<Watchlist[]>([{ id: 'default', name: 'Main', symbols: ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'BTC/USD', 'ETH/USD'] }]);
+  activeList = $state('default');
+  /** Grid split fractions (first column / first row) and side column sizes. */
+  split = $state({ c: 0.5, r: 0.5, rightW: 290, listFrac: 0.4 });
   showWatchlist = $state(true);
   tool = $state<DrawTool>('cursor');
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
@@ -45,6 +61,23 @@ class App {
   ready = $state(false);
 
   get chart(): ChartCfg { return this.charts[this.active]; }
+  get list(): Watchlist { return this.watchlists.find((w) => w.id === this.activeList) ?? this.watchlists[0]; }
+
+  /** Switch layout; charts that become visible start with the active chart's indicators (copied, not synced). */
+  setLayout(l: LayoutId) {
+    const from = this.count, src = this.chart;
+    this.layout = l;
+    for (let i = from; i < LAYOUT_COUNT[l]; i++) {
+      const c = this.charts[i];
+      c.indicators = $state.snapshot(src.indicators).map((x) => ({ ...x, uid: crypto.randomUUID() }));
+      c.volume = src.volume;
+      c.volumeVisible = src.volumeVisible;
+      c.type = src.type;
+      c.tf = src.tf;
+    }
+    if (this.active >= this.count) this.active = 0;
+    this.persist();
+  }
   get count() { return LAYOUT_COUNT[this.layout]; }
 
   notify(msg: string) {
@@ -68,7 +101,11 @@ class App {
         this.grid = s.grid ?? true;
         this.magnet = s.magnet ?? false;
         this.sync = s.sync ?? true;
-        this.watchlist = s.watchlist ?? this.watchlist;
+        if (Array.isArray(s.watchlists) && s.watchlists.length) this.watchlists = s.watchlists;
+        else if (Array.isArray(s.watchlist)) this.watchlists = [{ id: 'default', name: 'Main', symbols: s.watchlist }];
+        this.activeList = s.activeList ?? this.watchlists[0].id;
+        if (s.custom) this.custom = { ...DEFAULT_CUSTOM, ...s.custom };
+        if (s.split) this.split = { ...this.split, ...s.split };
         this.showWatchlist = s.showWatchlist ?? true;
       }
     } catch { /* corrupt state: keep defaults */ }
@@ -82,7 +119,7 @@ class App {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
         lang: this.lang, anim: this.anim, palette: this.palette, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
-        watchlist: this.watchlist, showWatchlist: this.showWatchlist
+        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist
       }));
     }, 400);
   }

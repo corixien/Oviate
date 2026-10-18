@@ -10,7 +10,7 @@ export interface DrawPt { t: number; p: number }
 export interface Drawing { id: string; type: DrawTool; pts: DrawPt[]; color: string; text?: string; sym?: string }
 
 export interface Theme {
-  up: string; down: string; grid: string; text: string; textStrong: string;
+  up: string; down: string; upBody: string; upBorder: string; upWick: string; downBody: string; downBorder: string; downWick: string; grid: string; text: string; textStrong: string;
   accent: string; cross: string; axisBg: string; panel: string;
 }
 
@@ -314,7 +314,7 @@ export class ChartRenderer {
     const bw = Math.max(1, Math.floor(this.barW * 0.72)) | 1;
     if (type === 'bars') {
       for (const up of [true, false]) {
-        ctx.strokeStyle = up ? theme.up : theme.down; ctx.beginPath();
+        ctx.strokeStyle = up ? theme.upWick : theme.downWick; ctx.beginPath();
         for (let i = a; i <= b; i++) {
           if ((d.c[i] >= d.o[i]) !== up) continue;
           const X = Math.round(this.xOf(i)) + 0.5, t = Math.max(2, this.barW * 0.3);
@@ -327,8 +327,8 @@ export class ChartRenderer {
       return;
     }
     for (const up of [true, false]) {
-      const col = up ? theme.up : theme.down;
-      ctx.strokeStyle = col; ctx.fillStyle = col;
+      const wick = up ? theme.upWick : theme.downWick, body = up ? theme.upBody : theme.downBody, border = up ? theme.upBorder : theme.downBorder;
+      ctx.strokeStyle = wick;
       ctx.beginPath();
       for (let i = a; i <= b; i++) {
         if ((d.c[i] >= d.o[i]) !== up) continue;
@@ -337,14 +337,24 @@ export class ChartRenderer {
       }
       ctx.stroke();
       const hollow = type === 'hollow' && up;
-      ctx.beginPath();
-      for (let i = a; i <= b; i++) {
-        if ((d.c[i] >= d.o[i]) !== up) continue;
-        const yo = y(d.o[i]), yc = y(d.c[i]);
-        const X = Math.round(this.xOf(i) - bw / 2) + (hollow ? 0.5 : 0);
-        ctx.rect(X, Math.min(yo, yc), hollow ? bw - 1 : bw, Math.max(1, Math.abs(yo - yc)));
+      if (!hollow) {
+        ctx.fillStyle = body; ctx.beginPath();
+        for (let i = a; i <= b; i++) {
+          if ((d.c[i] >= d.o[i]) !== up) continue;
+          const yo = y(d.o[i]), yc = y(d.c[i]);
+          ctx.rect(Math.round(this.xOf(i) - bw / 2), Math.min(yo, yc), bw, Math.max(1, Math.abs(yo - yc)));
+        }
+        ctx.fill();
       }
-      hollow ? ctx.stroke() : ctx.fill();
+      if (bw >= 3) {
+        ctx.strokeStyle = border; ctx.beginPath();
+        for (let i = a; i <= b; i++) {
+          if ((d.c[i] >= d.o[i]) !== up) continue;
+          const yo = y(d.o[i]), yc = y(d.c[i]);
+          ctx.rect(Math.round(this.xOf(i) - bw / 2) + 0.5, Math.min(yo, yc) + 0.5, bw - 1, Math.max(1, Math.abs(yo - yc)) - 1);
+        }
+        ctx.stroke();
+      }
     }
   }
 

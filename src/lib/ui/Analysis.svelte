@@ -160,7 +160,7 @@
 </section>
 
 <style>
-  section { flex: 1 1 60%; min-height: 0; overflow-y: auto; border: 1px solid var(--line); background: var(--bar); padding: 12px 14px 16px; }
+  section { min-height: 0; min-width: 0; overflow-y: auto; border: 1px solid var(--line); background: var(--bar); padding: 12px 14px 16px; }
   .hd { display: flex; justify-content: space-between; align-items: center; font: 700 12px system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
   .st { padding: 2px 8px; border: 1px solid var(--line); font-size: 10.5px; letter-spacing: 0.04em; }
   .st.open { color: var(--up); border-color: var(--up); } .st.pre { color: var(--accent); border-color: var(--accent); } .st.closed { color: var(--dim); }

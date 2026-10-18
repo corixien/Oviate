@@ -20,24 +20,31 @@
   let exhausted = false, loadingMore = false;
   let menuFor = $state('');
   let selectedId = $state<string | null>(null);
+  let lastPoll = $state(0);
+  let nowMs = $state(Date.now());
+  const liveAge = $derived(Math.max(0, nowMs - Math.max(lastPoll, (app.ticks[cfg.symbol]?.t ?? 0) * 1000)));
 
   const lookback: Record<string, number> = {
     '1m': 5, '5m': 25, '15m': 60, '30m': 90, '1h': 400, '4h': 700, '1d': 3650, '1w': 7300, '1M': 14600
   };
   const step = $derived(TF_SECONDS[cfg.tf]);
 
-  const PAL = {
+  const PAL: Record<string, { up: string; down: string }> = {
     neon: { up: '#22e5ff', down: '#ff2d95' },
     mono: { up: '#e9e1ff', down: '#8a35ff' },
     classic: { up: '#2ee6a6', down: '#ff4d6a' }
   };
+  const candleColors = $derived(app.palette === 'custom'
+    ? { ...app.custom, up: app.custom.upBody, down: app.custom.downBody }
+    : { up: PAL[app.palette].up, down: PAL[app.palette].down, upBody: PAL[app.palette].up, upBorder: PAL[app.palette].up, upWick: PAL[app.palette].up,
+        downBody: PAL[app.palette].down, downBorder: PAL[app.palette].down, downWick: PAL[app.palette].down });
   const theme = $derived<Theme>({
     ...(app.theme === 'dark'
       ? { grid: 'rgba(157,77,255,0.10)', text: 'rgba(214,196,255,0.55)', textStrong: 'rgba(240,232,255,0.95)',
           accent: '#9d4dff', cross: 'rgba(190,140,255,0.45)', axisBg: '#000', panel: '#150a26' }
       : { grid: 'rgba(100,40,200,0.09)', text: 'rgba(40,20,80,0.6)', textStrong: 'rgba(20,10,40,0.9)',
           accent: '#7a2cf0', cross: 'rgba(90,40,180,0.4)', axisBg: '#fff', panel: '#efe6ff' }),
-    ...PAL[app.palette]
+    ...candleColors
   });
 
   const symDrawings = $derived(cfg.drawings.filter((d) => d.sym === cfg.symbol));
@@ -83,8 +90,8 @@
     try {
       const to = Math.floor(Date.now() / 1000) + step;
       const c = await getCandles(cfg.symbol, cfg.tf, to - step * 6, to);
-      if (c.n) raw = mergeCandles(raw, c);
-    } catch { /* keep showing cached data */ }
+      if (c.n) { raw = mergeCandles(raw, c); lastPoll = Date.now(); }
+    } catch (e) { console.warn('poll failed', e); }
   }
 
   onMount(() => {
@@ -97,12 +104,13 @@
       onSelect: (id) => { selectedId = id; }
     }, {
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
-      log: cfg.log, volume: cfg.volume, grid: app.grid, magnet: app.magnet, tool: app.tool
+      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool
     });
     const ro = new ResizeObserver(([e]) => r!.resize(e.contentRect.width, e.contentRect.height));
     ro.observe(box);
-    const iv = setInterval(poll, 5000);
-    return () => { clearInterval(iv); ro.disconnect(); r?.destroy(); };
+    const iv = setInterval(poll, step < 3600 ? 2500 : 6000);
+    const clock = setInterval(() => (nowMs = Date.now()), 1000);
+    return () => { clearInterval(iv); clearInterval(clock); ro.disconnect(); r?.destroy(); };
   });
 
   let lastKey = '';
@@ -140,7 +148,7 @@
   $effect(() => {
     r?.setState({
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
-      log: cfg.log, volume: cfg.volume, grid: app.grid, magnet: app.magnet,
+      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet,
       tool: app.active === index ? app.tool : 'cursor'
     });
   });
@@ -180,6 +188,22 @@
   <canvas bind:this={over} class="layer top"></canvas>
 
   <div class="legend">
+    <div class="pill tk">
+      <span class="dot" class:live={liveAge < 20000} title={liveAge < 20000 ? 'Live' : 'No update for ' + Math.round(liveAge / 1000) + 's'}></span>
+      <span class="nm">{cfg.symbol}</span><span class="dim">{cfg.tf.toUpperCase()}</span>
+      <span class="acts">
+        <button title="Change symbol" onclick={() => (app.spotlight = { open: true, seed: '' })}><Icons name="search" size={14} /></button>
+      </span>
+    </div>
+    {#if cfg.volume}
+      <div class="pill" class:off={cfg.volumeVisible === false}>
+        <span class="nm">Volume</span>
+        <span class="acts">
+          <button title={cfg.volumeVisible === false ? 'Show' : 'Hide'} onclick={() => { cfg.volumeVisible = cfg.volumeVisible === false; app.persist(); }}><Icons name={cfg.volumeVisible === false ? 'eyeoff' : 'eye'} size={14} /></button>
+          <button title="Remove" onclick={() => { cfg.volume = false; app.persist(); }}><Icons name="trash" size={14} /></button>
+        </span>
+      </div>
+    {/if}
     {#each cfg.indicators as ind (ind.uid)}
       {@const def = indicatorById(ind.id)}
       <div class="pill" class:off={ind.hidden}>
@@ -230,6 +254,9 @@
   .dim { color: var(--dim); }
   .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 0; width: fit-content; padding: 3px 9px; border: 1px solid var(--accent); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
   .pill.off { opacity: 0.55; }
+  .tk .dim { margin-left: 8px; }
+  .dot { width: 7px; height: 7px; margin-right: 8px; background: var(--dim); flex: none; }
+  .dot.live { background: var(--up); box-shadow: 0 0 8px var(--up); }
   .nm { color: var(--fg); font-family: system-ui, sans-serif; font-weight: 600; }
   .acts { display: inline-flex; align-items: center; gap: 1px; max-width: 0; margin-left: 0; opacity: 0; overflow: hidden; transition: max-width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1), margin-left 0.28s, opacity 0.18s; }
   .pill:hover .acts, .pill:focus-within .acts { max-width: 160px; margin-left: 8px; opacity: 1; overflow: visible; }

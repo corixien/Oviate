@@ -26,22 +26,22 @@
     ...app.chart.indicators.map((i) => ({ key: `ind remove ${i.id}`, title: `Remove ${i.id.toUpperCase()}`, tag: 'indicator',
       run: () => { app.chart.indicators = app.chart.indicators.filter((x) => x.uid !== i.uid); } })),
     { key: 'ind clear remove all indicators', title: 'Remove all indicators', tag: 'indicator', run: () => { app.chart.indicators = []; } },
-    ...(['1', '2v', '2h', '3', '4'] as const).map((l) => ({ key: `layout ${l}`, title: `Layout: ${l === '1' ? 'single chart' : l === '2v' ? '2 charts side by side' : l === '2h' ? '2 charts stacked' : l + ' charts'}`, tag: 'layout', run: () => { app.layout = l; if (app.active >= app.count) app.active = 0; } })),
+    ...(['1', '2v', '2h', '3', '4'] as const).map((l) => ({ key: `layout ${l}`, title: `Layout: ${l === '1' ? 'single chart' : l === '2v' ? '2 charts side by side' : l === '2h' ? '2 charts stacked' : l + ' charts'}`, tag: 'layout', run: () => { app.setLayout(l); } })),
     ...DRAW_TOOLS.map((d) => ({ key: `draw ${d}`, title: `Draw: ${d}`, tag: 'draw', run: () => { app.tool = d; } })),
     { key: 'draw clear delete all drawings', title: 'Delete all drawings', tag: 'draw', run: () => { app.chart.drawings = app.chart.drawings.filter((d) => d.sym !== app.chart.symbol); } },
-    ...(['neon', 'mono', 'classic'] as const).map((pl) => ({ key: `palette candles colors ${pl}`, title: `Candle colors: ${pl}`, tag: 'ui', run: () => { app.palette = pl; } })),
+    ...(['neon', 'mono', 'classic', 'custom'] as const).map((pl) => ({ key: `palette candles colors ${pl}`, title: `Candle colors: ${pl}`, tag: 'ui', run: () => { app.palette = pl; } })),
     { key: 'theme dark', title: 'Theme: dark', tag: 'ui', run: () => { app.theme = 'dark'; } },
     { key: 'theme light', title: 'Theme: light', tag: 'ui', run: () => { app.theme = 'light'; } },
     { key: 'lang en english', title: 'Language: English', tag: 'ui', run: () => { app.lang = 'en'; } },
     { key: 'lang de deutsch', title: 'Sprache: Deutsch', tag: 'ui', run: () => { app.lang = 'de'; } },
     { key: 'settings alpaca keys', title: t('settings', app.lang), sub: 'Alpaca keys, theme, language', tag: 'ui', run: () => { app.settingsOpen = true; } },
     { key: 'log logarithmic scale', title: 'Toggle log scale', tag: 'chart', run: () => { app.chart.log = !app.chart.log; } },
-    { key: 'volume toggle', title: 'Toggle volume', tag: 'chart', run: () => { app.chart.volume = !app.chart.volume; } },
+    { key: 'volume toggle add', title: 'Volume indicator: toggle', tag: 'indicator', run: () => { app.chart.volume = !app.chart.volume; app.chart.volumeVisible = true; } },
     { key: 'grid toggle', title: 'Toggle grid', tag: 'chart', run: () => { app.grid = !app.grid; } },
     { key: 'magnet toggle', title: 'Toggle magnet', tag: 'chart', run: () => { app.magnet = !app.magnet; } },
     { key: 'sync crosshair toggle', title: 'Toggle crosshair sync', tag: 'chart', run: () => { app.sync = !app.sync; } },
     { key: 'anim animations toggle', title: 'Toggle animations', tag: 'ui', run: () => { app.anim = !app.anim; } },
-    { key: 'watch add watchlist', title: `Add ${app.chart.symbol} to watchlist`, tag: 'watch', run: () => { if (!app.watchlist.includes(app.chart.symbol)) app.watchlist = [...app.watchlist, app.chart.symbol]; } },
+    { key: 'watch add watchlist', title: `Add ${app.chart.symbol} to watchlist`, tag: 'watch', run: () => { if (!app.list.symbols.includes(app.chart.symbol)) app.list.symbols = [...app.list.symbols, app.chart.symbol]; } },
     { key: 'watch toggle watchlist panel', title: 'Toggle watchlist panel', tag: 'watch', run: () => { app.showWatchlist = !app.showWatchlist; } },
     { key: 'reset chart view', title: 'Reset chart', tag: 'chart', run: () => { const c = newChart(app.chart.symbol, app.chart.tf); Object.assign(app.chart, { indicators: [], drawings: [], type: 'candles', log: false, volume: true, id: c.id }); } }
   ]);
@@ -52,7 +52,7 @@
       const words = q.slice(1).toLowerCase().split(/\s+/).filter(Boolean);
       return commands.filter((c) => words.every((w) => c.key.toLowerCase().includes(w))).slice(0, 40);
     }
-    const local = app.watchlist.filter((s) => q && s.toLowerCase().includes(q.toLowerCase())).map((s) => ({ key: s, title: s, sub: 'Watchlist', tag: 'symbol', run: () => setSymbol(s) }));
+    const local = app.list.symbols.filter((s) => q && s.toLowerCase().includes(q.toLowerCase())).map((s) => ({ key: s, title: s, sub: 'Watchlist', tag: 'symbol', run: () => setSymbol(s) }));
     const remote = hits.filter((h) => !local.some((l) => l.key === h.symbol)).map((h) => ({ key: h.symbol, title: h.symbol, sub: `${h.name}${h.exchange ? ' · ' + h.exchange : ''}`, tag: h.kind.toLowerCase() || 'symbol', run: () => setSymbol(h.symbol) }));
     return [...local, ...remote];
   });

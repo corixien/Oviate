@@ -36,6 +36,23 @@
         </div>
       </section>
 
+      {#if app.palette === 'custom'}
+        <section>
+          <h3>Custom candles</h3>
+          <div class="cc">
+            <span></span><b>Body</b><b>Border</b><b>Wick</b>
+            <span>Bullish</span>
+            <input type="color" bind:value={app.custom.upBody} oninput={() => app.persist()} />
+            <input type="color" bind:value={app.custom.upBorder} oninput={() => app.persist()} />
+            <input type="color" bind:value={app.custom.upWick} oninput={() => app.persist()} />
+            <span>Bearish</span>
+            <input type="color" bind:value={app.custom.downBody} oninput={() => app.persist()} />
+            <input type="color" bind:value={app.custom.downBorder} oninput={() => app.persist()} />
+            <input type="color" bind:value={app.custom.downWick} oninput={() => app.persist()} />
+          </div>
+        </section>
+      {/if}
+
       <section class="grid2">
         <div>
           <h3>{t('theme', app.lang)}</h3>
@@ -54,7 +71,7 @@
         <div>
           <h3>Candles</h3>
           <div class="seg">
-            {#each ['neon', 'mono', 'classic'] as pl}
+            {#each ['neon', 'mono', 'classic', 'custom'] as pl}
               <button class:on={app.palette === pl} onclick={() => { app.palette = pl as typeof app.palette; app.persist(); }}>{pl}</button>
             {/each}
           </div>
@@ -97,6 +114,9 @@
   button { font: 600 13px system-ui, sans-serif; padding: 9px 16px; border-radius: 2px; border: 1px solid var(--glass-line); background: rgba(255, 255, 255, 0.05); color: var(--fg); cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; } button:disabled { opacity: 0.4; cursor: default; }
+  .cc { display: grid; grid-template-columns: 80px repeat(3, 1fr); gap: 8px 10px; align-items: center; font-size: 12px; color: var(--dim); }
+  .cc b { font-weight: 600; text-align: center; }
+  .cc input[type='color'] { width: 100%; height: 30px; padding: 0; margin: 0; border: 1px solid var(--glass-line); background: none; cursor: pointer; }
   .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0 18px; }
   .seg { display: flex; border: 1px solid var(--glass-line); border-radius: 2px; overflow: hidden; }
   .seg button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px 10px; }
