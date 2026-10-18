@@ -1,11 +1,27 @@
 <script lang="ts">
   import { app } from '$lib/app.svelte';
-  import { alpacaKeysSet, saveAlpacaKeys, clearAlpacaKeys, inTauri } from '$lib/api';
+  import { alpacaKeysSet, saveAlpacaKeys, clearAlpacaKeys, inTauri, newsStatus, saveNewsKey, liquidLogin, liquidLogout, type NewsStatus } from '$lib/api';
   import { t } from '$lib/i18n';
 
   let keyId = $state(''), secret = $state(''), has = $state(false), msg = $state('');
 
-  $effect(() => { if (app.settingsOpen) alpacaKeysSet().then((v) => (has = v)); });
+  let ns = $state<NewsStatus>({ finnhub: false, newsapi: false, alpaca: false, liquid: false });
+  let fhKey = $state(''), naKey = $state(''), liquidBusy = $state(false), newsMsg = $state('');
+  const refreshNews = () => newsStatus().then((v) => (ns = v));
+
+  $effect(() => { if (app.settingsOpen) { alpacaKeysSet().then((v) => (has = v)); refreshNews(); } });
+
+  async function saveKey(p: 'finnhub' | 'newsapi', v: string) {
+    try { await saveNewsKey(p, v); if (p === 'finnhub') fhKey = ''; else naKey = ''; newsMsg = ''; await refreshNews(); app.notify(v.trim() ? 'Key saved' : 'Key removed'); }
+    catch (e) { newsMsg = String(e); }
+  }
+  async function connectLiquid() {
+    liquidBusy = true; newsMsg = '';
+    try { await liquidLogin(); await refreshNews(); app.notify('Liquid connected'); }
+    catch (e) { newsMsg = String(e); }
+    finally { liquidBusy = false; }
+  }
+  async function disconnectLiquid() { await liquidLogout(); await refreshNews(); app.notify('Liquid disconnected'); }
 
   async function save() {
     if (!keyId.trim() || !secret.trim()) return;
@@ -34,6 +50,32 @@
           <button class="primary" onclick={save} disabled={!keyId.trim() || !secret.trim()}>{t('save', app.lang)}</button>
           {#if has}<button onclick={clear}>{t('clear', app.lang)}</button>{/if}
         </div>
+      </section>
+
+      <section>
+        <h3>News providers</h3>
+        <p class="status">Always on, no key: Google News, Yahoo Finance, Fed, ECB, MarketWatch, CNBC, Tagesschau, Handelsblatt, Seeking Alpha.{ns.alpaca ? ' Alpaca News uses your Alpaca keys.' : ''}</p>
+        <label>Finnhub API key <span class="st" class:ok={ns.finnhub}>{ns.finnhub ? 'saved' : 'not set'}</span>
+          <input type="password" bind:value={fhKey} autocomplete="off" placeholder={ns.finnhub ? '••••••••' : 'Key from finnhub.io'} /></label>
+        <div class="btns">
+          <button class="primary" disabled={!fhKey.trim()} onclick={() => saveKey('finnhub', fhKey)}>{t('save', app.lang)}</button>
+          {#if ns.finnhub}<button onclick={() => saveKey('finnhub', '')}>{t('clear', app.lang)}</button>{/if}
+        </div>
+        <label>NewsAPI key <span class="st" class:ok={ns.newsapi}>{ns.newsapi ? 'saved' : 'not set'}</span>
+          <input type="password" bind:value={naKey} autocomplete="off" placeholder={ns.newsapi ? '••••••••' : 'Key from newsapi.org'} /></label>
+        <div class="btns">
+          <button class="primary" disabled={!naKey.trim()} onclick={() => saveKey('newsapi', naKey)}>{t('save', app.lang)}</button>
+          {#if ns.newsapi}<button onclick={() => saveKey('newsapi', '')}>{t('clear', app.lang)}</button>{/if}
+        </div>
+        <label>Liquid MCP <span class="st" class:ok={ns.liquid}>{ns.liquid ? 'connected' : 'not connected'}</span></label>
+        <div class="btns">
+          {#if ns.liquid}
+            <button onclick={disconnectLiquid}>Disconnect</button>
+          {:else}
+            <button class="primary" disabled={liquidBusy || !inTauri} onclick={connectLiquid}>{liquidBusy ? 'Waiting for browser login…' : 'Connect (opens browser)'}</button>
+          {/if}
+        </div>
+        {#if newsMsg}<p class="warn">{newsMsg}</p>{/if}
       </section>
 
       {#if app.palette === 'custom'}
@@ -108,6 +150,7 @@
   label { display: block; font-size: 12px; color: var(--dim); margin-top: 10px; }
   input { display: block; width: 100%; box-sizing: border-box; margin-top: 5px; padding: 10px 12px; border-radius: 2px; border: 1px solid var(--glass-line); background: rgba(0, 0, 0, 0.35); color: var(--fg); font: 14px ui-monospace, monospace; outline: none; }
   input:focus { border-color: var(--accent); }
+  .st { color: var(--dim); font-size: 11px; margin-left: 8px; } .st.ok { color: var(--up); }
   .status { margin: 0; font-size: 13px; color: var(--dim); } .status.ok { color: var(--up); }
   .warn { color: var(--down); font-size: 12.5px; margin: 8px 0 0; }
   .btns { display: flex; gap: 10px; margin-top: 14px; }

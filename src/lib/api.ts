@@ -68,3 +68,16 @@ export async function onTick(cb: (t: Tick) => void): Promise<() => void> {
   const { listen } = await import('@tauri-apps/api/event');
   return listen<Tick>('tick', (e) => cb(e.payload));
 }
+
+export interface NewsItem { id: string; headline: string; source: string; provider: string; summary: string; url: string; ts: number; symbols: string[] }
+export interface NewsResult { items: NewsItem[]; errors: { provider: string; error: string }[] }
+export interface NewsStatus { finnhub: boolean; newsapi: boolean; alpaca: boolean; liquid: boolean }
+export interface Unusual { symbol: string; multiple: number; volume: string }
+
+export const newsStatus = () => (inTauri ? call<NewsStatus>('news_status') : Promise.resolve({ finnhub: false, newsapi: false, alpaca: false, liquid: false }));
+/** Empty value clears the key. */
+export const saveNewsKey = (provider: 'finnhub' | 'newsapi', value: string) => (inTauri ? call<void>('save_news_key', { provider, value }) : Promise.resolve());
+export const liquidLogin = () => (inTauri ? call<void>('liquid_login') : Promise.reject('Liquid login needs the desktop app'));
+export const liquidLogout = () => (inTauri ? call<void>('liquid_logout') : Promise.resolve());
+export const getNews = (symbol: string | null, limit = 60) => (inTauri ? call<NewsResult>('get_news', { symbol, limit }) : Promise.resolve({ items: [], errors: [] } as NewsResult));
+export const liquidUnusual = () => (inTauri ? call<Unusual[]>('liquid_unusual') : Promise.resolve([] as Unusual[]));
