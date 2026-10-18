@@ -53,6 +53,9 @@ class App {
   tool = $state<DrawTool>('cursor');
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
+  page = $state<'chart' | 'news'>('chart');
+  newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
+  showNews = $state(true);
   showParams = $state(false);
   indDialog = $state<{ uid: string; mode: 'settings' | 'code' } | null>(null);
   crossT = $state<{ t: number | null; y: number | null; from: string }>({ t: null, y: null, from: '' });
@@ -81,6 +84,11 @@ class App {
   }
   get count() { return LAYOUT_COUNT[this.layout]; }
 
+  openNews(symbol: string | null = null, id: string | null = null) {
+    this.newsFocus = { symbol, id };
+    this.page = 'news';
+  }
+
   notify(msg: string) {
     this.toast = msg;
     setTimeout(() => { if (this.toast === msg) this.toast = ''; }, 2200);
@@ -97,6 +105,7 @@ class App {
         this.theme = s.theme ?? 'dark';
         this.lang = s.lang ?? 'en';
         this.anim = s.anim ?? true;
+        this.showNews = s.showNews ?? true;
         this.showParams = s.showParams ?? false;
         this.palette = s.palette ?? 'neon';
         this.grid = s.grid ?? true;
@@ -119,7 +128,7 @@ class App {
     this.timer = setTimeout(() => {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
-        lang: this.lang, anim: this.anim, palette: this.palette, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
+        lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
         watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist
       }));
     }, 400);

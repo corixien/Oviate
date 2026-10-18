@@ -7,6 +7,7 @@
   import LeftBar from '$lib/ui/LeftBar.svelte';
   import Watchlist from '$lib/ui/Watchlist.svelte';
   import Analysis from '$lib/ui/Analysis.svelte';
+  import NewsPage from '$lib/ui/NewsPage.svelte';
   import Spotlight from '$lib/ui/Spotlight.svelte';
   import Settings from '$lib/ui/Settings.svelte';
   import IndicatorDialog from '$lib/ui/IndicatorDialog.svelte';
@@ -74,7 +75,8 @@
 
 <div class="app">
   <TopBar />
-  <div class="body">
+  {#if app.page === 'news'}<NewsPage />{/if}
+  <div class="body" class:hid={app.page === 'news'}>
     <LeftBar />
     <div class="center" bind:this={center}>
       <main class="grid l{app.layout}" style:grid-template-columns={cols} style:grid-template-rows={rows}>
@@ -128,6 +130,7 @@
   :global(:root[data-anim='0'] *) { animation-duration: 0s !important; transition-duration: 0s !important; }
   .app { display: flex; flex-direction: column; height: 100vh; }
   .body { flex: 1; display: flex; min-height: 0; }
+  .body.hid { display: none; }
   .center { flex: 1; position: relative; min-width: 0; min-height: 0; display: flex; }
   .grid { flex: 1; display: grid; gap: 10px; padding: 12px; background: var(--bg); min-width: 0; min-height: 0; }
   .rcol { flex: none; display: grid; margin: 12px 12px 12px 0; min-height: 0; min-width: 0; }

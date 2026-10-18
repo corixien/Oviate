@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, untrack, tick } from 'svelte';
   import { app, type ChartCfg } from '$lib/app.svelte';
-  import { getCandles, TF_SECONDS } from '$lib/api';
+  import { getCandles, newsWindow, TF_SECONDS, type NewsItem } from '$lib/api';
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
   import { indicatorById } from './indicators';
   import Icons from '$lib/ui/Icons.svelte';
-  import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator } from './renderer';
+  import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark } from './renderer';
   import { t } from '$lib/i18n';
 
   let { cfg = $bindable(), index }: { cfg: ChartCfg; index: number } = $props();
@@ -20,6 +20,31 @@
   let exhausted = false, loadingMore = false;
   let menuFor = $state('');
   let selectedId = $state<string | null>(null);
+  let news = $state<NewsItem[]>([]);
+
+  async function loadNews() {
+    const sym = cfg.symbol;
+    const to = Math.floor(Date.now() / 1000);
+    try {
+      const res = await newsWindow(sym, to - 30 * 86400, to);
+      if (sym === cfg.symbol) news = res.items;
+    } catch { /* markers are optional */ }
+  }
+
+  /** Group news onto the bar they fall into (bar start <= time < next bar start). */
+  const newsMarks = $derived.by<NewsMark[]>(() => {
+    if (!app.showNews || !raw.n || !news.length) return [];
+    const groups = new Map<number, NewsMark>();
+    for (const it of news) {
+      if (it.ts < raw.t[0]) continue;
+      let lo = 0, hi = raw.n - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (raw.t[m] <= it.ts) lo = m; else hi = m - 1; }
+      const g = groups.get(lo) ?? { t: raw.t[lo], ids: [], titles: [] };
+      g.ids.push(it.id); g.titles.push(it.headline);
+      groups.set(lo, g);
+    }
+    return [...groups.values()];
+  });
   let lastPoll = $state(0);
   let nowMs = $state(Date.now());
   const liveAge = $derived(Math.max(0, nowMs - Math.max(lastPoll, (app.ticks[cfg.symbol]?.t ?? 0) * 1000)));
@@ -101,10 +126,11 @@
       onNeedHistory: () => loadMore(),
       onDrawings: (d) => { cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))]; app.persist(); },
       onToolDone: () => { app.tool = 'cursor'; },
-      onSelect: (id) => { selectedId = id; }
+      onSelect: (id) => { selectedId = id; },
+      onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0])
     }, {
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
-      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool
+      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks
     });
     const ro = new ResizeObserver(([e]) => r!.resize(e.contentRect.width, e.contentRect.height));
     ro.observe(box);
@@ -118,8 +144,9 @@
     const key = cfg.symbol + '|' + cfg.tf;
     if (key === lastKey) return;
     lastKey = key;
-    untrack(() => { load(true); });
+    untrack(() => { load(true); news = []; loadNews(); });
   });
+  $effect(() => { const iv = setInterval(loadNews, 10 * 60 * 1000); return () => clearInterval(iv); });
 
   // Live ticks: batch to ~5 updates/s so indicators are not recomputed per trade.
   let tickTimer: ReturnType<typeof setTimeout> | undefined;
@@ -149,7 +176,7 @@
     r?.setState({
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet,
-      tool: app.active === index ? app.tool : 'cursor'
+      tool: app.active === index ? app.tool : 'cursor', news: newsMarks
     });
   });
 

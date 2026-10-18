@@ -5,14 +5,14 @@
 
   let keyId = $state(''), secret = $state(''), has = $state(false), msg = $state('');
 
-  let ns = $state<NewsStatus>({ finnhub: false, newsapi: false, alpaca: false, liquid: false });
-  let fhKey = $state(''), naKey = $state(''), liquidBusy = $state(false), newsMsg = $state('');
+  let ns = $state<NewsStatus>({ finnhub: false, newsapi: false, alpaca: false, liquid: false, groq: false });
+  let fhKey = $state(''), naKey = $state(''), gqKey = $state(''), liquidBusy = $state(false), newsMsg = $state('');
   const refreshNews = () => newsStatus().then((v) => (ns = v));
 
   $effect(() => { if (app.settingsOpen) { alpacaKeysSet().then((v) => (has = v)); refreshNews(); } });
 
-  async function saveKey(p: 'finnhub' | 'newsapi', v: string) {
-    try { await saveNewsKey(p, v); if (p === 'finnhub') fhKey = ''; else naKey = ''; newsMsg = ''; await refreshNews(); app.notify(v.trim() ? 'Key saved' : 'Key removed'); }
+  async function saveKey(p: 'finnhub' | 'newsapi' | 'groq', v: string) {
+    try { await saveNewsKey(p, v); if (p === 'finnhub') fhKey = ''; else if (p === 'newsapi') naKey = ''; else gqKey = ''; newsMsg = ''; await refreshNews(); app.notify(v.trim() ? 'Key saved' : 'Key removed'); }
     catch (e) { newsMsg = String(e); }
   }
   async function connectLiquid() {
@@ -66,6 +66,12 @@
         <div class="btns">
           <button class="primary" disabled={!naKey.trim()} onclick={() => saveKey('newsapi', naKey)}>{t('save', app.lang)}</button>
           {#if ns.newsapi}<button onclick={() => saveKey('newsapi', '')}>{t('clear', app.lang)}</button>{/if}
+        </div>
+        <label>Groq API key (AI summaries) <span class="st" class:ok={ns.groq}>{ns.groq ? 'saved' : 'not set'}</span>
+          <input type="password" bind:value={gqKey} autocomplete="off" placeholder={ns.groq ? '••••••••' : 'Key from console.groq.com'} /></label>
+        <div class="btns">
+          <button class="primary" disabled={!gqKey.trim()} onclick={() => saveKey('groq', gqKey)}>{t('save', app.lang)}</button>
+          {#if ns.groq}<button onclick={() => saveKey('groq', '')}>{t('clear', app.lang)}</button>{/if}
         </div>
         <label>Liquid MCP <span class="st" class:ok={ns.liquid}>{ns.liquid ? 'connected' : 'not connected'}</span></label>
         <div class="btns">

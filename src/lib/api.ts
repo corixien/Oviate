@@ -71,13 +71,25 @@ export async function onTick(cb: (t: Tick) => void): Promise<() => void> {
 
 export interface NewsItem { id: string; headline: string; source: string; provider: string; summary: string; url: string; ts: number; symbols: string[] }
 export interface NewsResult { items: NewsItem[]; errors: { provider: string; error: string }[] }
-export interface NewsStatus { finnhub: boolean; newsapi: boolean; alpaca: boolean; liquid: boolean }
+export interface NewsStatus { finnhub: boolean; newsapi: boolean; alpaca: boolean; liquid: boolean; groq: boolean }
 export interface Unusual { symbol: string; multiple: number; volume: string }
 
-export const newsStatus = () => (inTauri ? call<NewsStatus>('news_status') : Promise.resolve({ finnhub: false, newsapi: false, alpaca: false, liquid: false }));
+export const newsStatus = () => (inTauri ? call<NewsStatus>('news_status') : Promise.resolve({ finnhub: false, newsapi: false, alpaca: false, liquid: false, groq: false }));
 /** Empty value clears the key. */
-export const saveNewsKey = (provider: 'finnhub' | 'newsapi', value: string) => (inTauri ? call<void>('save_news_key', { provider, value }) : Promise.resolve());
+export const saveNewsKey = (provider: 'finnhub' | 'newsapi' | 'groq', value: string) => (inTauri ? call<void>('save_news_key', { provider, value }) : Promise.resolve());
 export const liquidLogin = () => (inTauri ? call<void>('liquid_login') : Promise.reject('Liquid login needs the desktop app'));
 export const liquidLogout = () => (inTauri ? call<void>('liquid_logout') : Promise.resolve());
-export const getNews = (symbol: string | null, limit = 60) => (inTauri ? call<NewsResult>('get_news', { symbol, limit }) : Promise.resolve({ items: [], errors: [] } as NewsResult));
+/** News in [from, to] (unix seconds); symbol null = market-wide. Cached locally by the backend. */
+export const newsWindow = (symbol: string | null, from: number, to: number) =>
+  inTauri ? call<NewsResult>('news_window', { symbol, from, to }) : Promise.resolve({ items: [], errors: [] } as NewsResult);
+
+export interface AiSummary { what: string; impact: string; direction: 'bullish' | 'bearish' | 'neutral' | 'mixed'; intensity: number; assets: string[]; horizon: string; model: string }
+export const aiSummary = (id: string, lang: string, force = false) =>
+  inTauri ? call<AiSummary>('ai_summary', { id, lang, force }) : Promise.reject('AI summaries need the desktop app');
+
+export async function openUrl(url: string) {
+  if (!inTauri) { window.open(url, '_blank'); return; }
+  const m = await import('@tauri-apps/plugin-opener');
+  await m.openUrl(url);
+}
 export const liquidUnusual = () => (inTauri ? call<Unusual[]>('liquid_unusual') : Promise.resolve([] as Unusual[]));

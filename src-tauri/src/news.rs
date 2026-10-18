@@ -149,10 +149,11 @@ fn ymd(d: DateTime<Utc>) -> String { d.format("%Y-%m-%d").to_string() }
 
 // ---------- providers ----------
 
-pub async fn finnhub_company(http: &reqwest::Client, key: &str, symbol: &str, days: i64) -> Result<Vec<NewsItem>> {
-    let now = Utc::now();
+fn at(t: i64) -> DateTime<Utc> { DateTime::<Utc>::from_timestamp(t, 0).unwrap_or_default() }
+
+pub async fn finnhub_company(http: &reqwest::Client, key: &str, symbol: &str, from: i64, to: i64) -> Result<Vec<NewsItem>> {
     let v = get_json(http, "https://finnhub.io/api/v1/company-news", &[
-        ("symbol", symbol.into()), ("from", ymd(now - Duration::days(days))), ("to", ymd(now)), ("token", key.into()),
+        ("symbol", symbol.into()), ("from", ymd(at(from))), ("to", ymd(at(to))), ("token", key.into()),
     ], &[]).await?;
     Ok(finnhub_rows(&v, "finnhub", Some(symbol)))
 }
@@ -170,10 +171,13 @@ fn finnhub_rows(v: &Value, provider: &str, sym: Option<&str>) -> Vec<NewsItem> {
     }).collect()).unwrap_or_default()
 }
 
-pub async fn newsapi(http: &reqwest::Client, key: &str, query: &str, days: i64) -> Result<Vec<NewsItem>> {
-    let from = ymd(Utc::now() - Duration::days(days.min(29)));
+pub async fn newsapi(http: &reqwest::Client, key: &str, query: &str, from: i64, to: i64) -> Result<Vec<NewsItem>> {
+    // Free plan: only the last ~30 days are available.
+    let oldest = Utc::now() - Duration::days(29);
+    let from_d = at(from).max(oldest);
+    if from_d >= at(to) { return Ok(vec![]); }
     let v = get_json(http, "https://newsapi.org/v2/everything", &[
-        ("q", query.into()), ("from", from), ("sortBy", "publishedAt".into()), ("pageSize", "30".into()), ("language", "en".into()),
+        ("q", query.into()), ("from", ymd(from_d)), ("to", ymd(at(to) + Duration::days(1))), ("sortBy", "publishedAt".into()), ("pageSize", "50".into()), ("language", "en".into()),
     ], &[("X-Api-Key", key)]).await?;
     if v["status"] != "ok" { return Err(Error::Other(format!("newsapi: {}", v["code"].as_str().unwrap_or("error")))); }
     Ok(v["articles"].as_array().map(|a| a.iter().filter_map(|r| {
@@ -193,8 +197,8 @@ pub async fn newsapi_headlines(http: &reqwest::Client, key: &str) -> Result<Vec<
     }).collect()).unwrap_or_default())
 }
 
-pub async fn google_news(http: &reqwest::Client, query: &str, days: i64) -> Result<Vec<NewsItem>> {
-    let q = format!("{query} when:{days}d");
+pub async fn google_news(http: &reqwest::Client, query: &str, from: i64, to: i64) -> Result<Vec<NewsItem>> {
+    let q = format!("{query} after:{} before:{}", ymd(at(from)), ymd(at(to) + Duration::days(1)));
     let xml = get_text(http, "https://news.google.com/rss/search", &[("q", q), ("hl", "en".into()), ("gl", "US".into()), ("ceid", "US:en".into())]).await?;
     parse_rss(&xml, "google", "Google News")
 }
@@ -211,8 +215,8 @@ pub async fn rss_feed(http: &reqwest::Client, name: &str, url: &str) -> Result<V
     parse_rss(&xml, name, name)
 }
 
-pub async fn alpaca_news(http: &reqwest::Client, keys: &alpaca::Keys, symbols: Option<&str>, limit: usize) -> Result<Vec<NewsItem>> {
-    let mut q: Vec<(&str, String)> = vec![("limit", limit.to_string()), ("sort", "desc".into())];
+pub async fn alpaca_news(http: &reqwest::Client, keys: &alpaca::Keys, symbols: Option<&str>, from: i64, to: i64) -> Result<Vec<NewsItem>> {
+    let mut q: Vec<(&str, String)> = vec![("limit", "50".into()), ("sort", "desc".into()), ("start", at(from).to_rfc3339()), ("end", at(to).to_rfc3339())];
     if let Some(s) = symbols { q.push(("symbols", s.replace('/', ""))); }
     let v = get_json(http, "https://data.alpaca.markets/v1beta1/news", &q, &[("APCA-API-KEY-ID", &keys.id), ("APCA-API-SECRET-KEY", &keys.secret)]).await?;
     Ok(v["news"].as_array().map(|a| a.iter().filter_map(|r| {
@@ -230,33 +234,45 @@ fn query_for(symbol: &str) -> String { symbol.replace(['/', '-'], " ") }
 
 type Job<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = (String, Result<Vec<NewsItem>>)> + Send + 'a>>;
 
-/// Query every configured provider concurrently. `symbol = None` returns market-wide news.
-pub async fn fetch_all(http: &reqwest::Client, keys: &NewsKeys, symbol: Option<&str>, extra: Vec<NewsItem>, limit: usize) -> NewsResult {
+/// Query every configured provider for the window [from, to] concurrently.
+/// Providers without date filters (RSS feeds, Yahoo, Finnhub market, Liquid) only run when the window reaches "now".
+/// `symbol = None` returns market-wide news.
+pub async fn fetch_window(http: &reqwest::Client, keys: &NewsKeys, symbol: Option<&str>, from: i64, to: i64, extra: Vec<NewsItem>, limit: usize) -> NewsResult {
+    let recent = to >= Utc::now().timestamp() - 2 * 86400;
     let mut jobs: Vec<Job> = Vec::new();
     macro_rules! job { ($name:expr, $fut:expr) => { jobs.push(Box::pin(async move { ($name.to_string(), $fut.await) })) }; }
     match symbol {
         Some(sym) => {
             let q = query_for(sym);
-            if let Some(k) = &keys.finnhub { if finnhub_ok(sym) { let k = k.clone(); let s = sym.to_string(); let h = http.clone(); job!("finnhub", async move { finnhub_company(&h, &k, &s, 7).await }); } }
-            if let Some(k) = &keys.newsapi { let k = k.clone(); let q = q.clone(); let h = http.clone(); job!("newsapi", async move { newsapi(&h, &k, &q, 7).await }); }
-            if let Some(k) = &keys.alpaca { if alpaca::supports(sym) { let k = k.clone(); let s = sym.to_string(); let h = http.clone(); job!("alpaca", async move { alpaca_news(&h, &k, Some(&s), 30).await }); } }
-            { let q = format!("{q} stock"); let h = http.clone(); job!("google", async move { google_news(&h, &q, 7).await }); }
-            { let s = sym.replace('/', "-"); let h = http.clone(); job!("yahoo", async move { yahoo_rss(&h, &s).await }); }
+            if let Some(k) = &keys.finnhub { if finnhub_ok(sym) { let k = k.clone(); let s = sym.to_string(); let h = http.clone(); job!("finnhub", async move { finnhub_company(&h, &k, &s, from, to).await }); } }
+            if let Some(k) = &keys.newsapi { let k = k.clone(); let q = q.clone(); let h = http.clone(); job!("newsapi", async move { newsapi(&h, &k, &q, from, to).await }); }
+            if let Some(k) = &keys.alpaca { if alpaca::supports(sym) { let k = k.clone(); let s = sym.to_string(); let h = http.clone(); job!("alpaca", async move { alpaca_news(&h, &k, Some(&s), from, to).await }); } }
+            { let q = format!("{q} stock"); let h = http.clone(); job!("google", async move { google_news(&h, &q, from, to).await }); }
+            if recent { let s = sym.replace('/', "-"); let h = http.clone(); job!("yahoo", async move { yahoo_rss(&h, &s).await }); }
         }
         None => {
-            if let Some(k) = &keys.finnhub { let k = k.clone(); let h = http.clone(); job!("finnhub", async move { finnhub_market(&h, &k, "general").await }); }
-            if let Some(k) = &keys.newsapi { let k = k.clone(); let h = http.clone(); job!("newsapi", async move { newsapi_headlines(&h, &k).await }); }
-            if let Some(k) = &keys.alpaca { let k = k.clone(); let h = http.clone(); job!("alpaca", async move { alpaca_news(&h, &k, None, 30).await }); }
-            { let h = http.clone(); job!("google", async move { google_news(&h, "stock market OR economy", 2).await }); }
-            for (name, url) in RSS_FEEDS { let h = http.clone(); let (n, u) = (*name, *url); job!(n, async move { rss_feed(&h, n, u).await }); }
+            if let Some(k) = &keys.newsapi { let k = k.clone(); let h = http.clone(); job!("newsapi", async move { newsapi(&h, &k, "stock market OR economy OR Federal Reserve", from, to).await }); }
+            if let Some(k) = &keys.alpaca { let k = k.clone(); let h = http.clone(); job!("alpaca", async move { alpaca_news(&h, &k, None, from, to).await }); }
+            { let h = http.clone(); job!("google", async move { google_news(&h, "stock market OR economy OR Federal Reserve", from, to).await }); }
+            if recent {
+                if let Some(k) = &keys.finnhub { let k = k.clone(); let h = http.clone(); job!("finnhub", async move { finnhub_market(&h, &k, "general").await }); }
+                for (name, url) in RSS_FEEDS { let h = http.clone(); let (n, u) = (*name, *url); job!(n, async move { rss_feed(&h, n, u).await }); }
+            }
         }
     }
     let results = futures_util::future::join_all(jobs).await;
+    let now = Utc::now().timestamp();
     let mut all = extra;
     let mut errors = Vec::new();
     for (provider, r) in results {
         match r { Ok(v) => all.extend(v), Err(e) => errors.push(ProviderError { provider, error: e.to_string() }) }
     }
+    for it in &mut all {
+        if it.ts <= 0 { it.ts = now; }
+        if let Some(s) = symbol { if it.symbols.is_empty() { it.symbols = vec![s.to_string()]; } }
+    }
+    // Keep only items inside the window (feeds return their latest items regardless of dates).
+    all.retain(|i| i.ts >= from && i.ts <= to + 3600);
     NewsResult { items: dedupe(all, limit), errors }
 }
 
@@ -301,10 +317,27 @@ mod tests {
     async fn live_keyless() {
         let http = reqwest::Client::new();
         for sym in [None, Some("AAPL"), Some("BTC/USD")] {
-            let r = fetch_all(&http, &NewsKeys::default(), sym, vec![], 40).await;
+            let now = Utc::now().timestamp();
+            let r = fetch_window(&http, &NewsKeys::default(), sym, now - 7 * 86400, now, vec![], 40).await;
             println!("{:?}: {} items, errors: {:?}", sym, r.items.len(), r.errors.iter().map(|e| format!("{}: {}", e.provider, e.error)).collect::<Vec<_>>());
             for i in r.items.iter().take(3) { println!("  [{}] {} ({}) ts={}", i.provider, i.headline, i.source, i.ts); }
             assert!(!r.items.is_empty());
+        }
+    }
+
+    /// Past windows must come from date-ranged providers only: `cargo test live_past -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_past_window() {
+        let http = reqwest::Client::new();
+        let now = Utc::now().timestamp();
+        let (from, to) = (now - 21 * 86400, now - 14 * 86400);
+        for sym in [None, Some("NVDA")] {
+            let r = fetch_window(&http, &NewsKeys::default(), sym, from, to, vec![], 100).await;
+            println!("{:?}: {} items, errors {:?}", sym, r.items.len(), r.errors.len());
+            assert!(!r.items.is_empty());
+            assert!(r.items.iter().all(|i| i.ts >= from && i.ts <= to + 3600));
+            assert!(r.items.iter().all(|i| i.provider == "google"));
         }
     }
 }

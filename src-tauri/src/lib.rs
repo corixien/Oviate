@@ -1,3 +1,4 @@
+mod ai;
 mod cache;
 mod mcp;
 mod model;
@@ -122,18 +123,18 @@ fn save_liquid_tokens(t: &mcp::Tokens) -> Result<()> {
 }
 
 #[derive(serde::Serialize)]
-struct NewsStatus { finnhub: bool, newsapi: bool, alpaca: bool, liquid: bool }
+struct NewsStatus { finnhub: bool, newsapi: bool, alpaca: bool, liquid: bool, groq: bool }
 
 #[tauri::command]
 fn news_status() -> NewsStatus {
     let k = news_keys();
-    NewsStatus { finnhub: k.finnhub.is_some(), newsapi: k.newsapi.is_some(), alpaca: k.alpaca.is_some(), liquid: liquid_tokens().is_some() }
+    NewsStatus { finnhub: k.finnhub.is_some(), newsapi: k.newsapi.is_some(), alpaca: k.alpaca.is_some(), liquid: liquid_tokens().is_some(), groq: secret_get("groq_key").is_some() }
 }
 
 /// Save (non-empty value) or clear (empty value) a news provider key: `finnhub` or `newsapi`.
 #[tauri::command]
 fn save_news_key(provider: String, value: String) -> Result<()> {
-    let name = match provider.as_str() { "finnhub" => "finnhub_key", "newsapi" => "newsapi_key", p => return Err(Error::Other(format!("unknown provider {p}"))) };
+    let name = match provider.as_str() { "finnhub" => "finnhub_key", "newsapi" => "newsapi_key", "groq" => "groq_key", p => return Err(Error::Other(format!("unknown provider {p}"))) };
     let e = keyring_entry(name)?;
     if value.trim().is_empty() { let _ = e.delete_credential(); Ok(()) } else { e.set_password(value.trim()).map_err(|e| Error::Keyring(e.to_string())) }
 }
@@ -158,18 +159,54 @@ async fn liquid_brief(st: &AppState) -> Result<(Vec<news::NewsItem>, Vec<mcp::Un
     Ok(mcp::parse_liquid(&text))
 }
 
-/// Aggregated news. `symbol = None` returns market-wide news (and the Liquid brief when logged in).
+/// News in [from, to] (unix seconds). `symbol = None` is market-wide. Fetches only what the local cache is missing.
 #[tauri::command]
-async fn get_news(st: State<'_>, symbol: Option<String>, limit: Option<usize>) -> Result<news::NewsResult> {
-    let limit = limit.unwrap_or(60).clamp(1, 200);
-    let mut extra = Vec::new();
-    let mut liquid_err = None;
-    if symbol.is_none() && liquid_tokens().is_some() {
-        match liquid_brief(&st).await { Ok((n, _)) => extra = n, Err(e) => liquid_err = Some(e.to_string()) }
+async fn news_window(st: State<'_>, symbol: Option<String>, from: i64, to: i64, limit: Option<usize>) -> Result<news::NewsResult> {
+    let now = chrono::Utc::now().timestamp();
+    let key = symbol.clone().unwrap_or_else(|| "*".into());
+    let ttl = if symbol.is_some() { 3600 } else { 600 };
+    let mut errors = Vec::new();
+    if !st.cache.news_window_covered(&key, from, to, now, ttl)? {
+        let mut extra = Vec::new();
+        if symbol.is_none() && to >= now - 2 * 86400 && liquid_tokens().is_some() {
+            match liquid_brief(&st).await {
+                Ok((n, _)) => extra = n,
+                Err(e) => errors.push(news::ProviderError { provider: "liquid".into(), error: e.to_string() }),
+            }
+        }
+        let res = news::fetch_window(&st.http, &news_keys(), symbol.as_deref(), from, to, extra, 500).await;
+        st.cache.news_put(&res.items)?;
+        // Do not mark the window fetched when every provider failed (e.g. offline), so it is retried.
+        if !res.items.is_empty() || res.errors.is_empty() { st.cache.news_window_mark(&key, from, to, now)?; }
+        errors.extend(res.errors);
     }
-    let mut res = news::fetch_all(&st.http, &news_keys(), symbol.as_deref(), extra, limit).await;
-    if let Some(error) = liquid_err { res.errors.push(news::ProviderError { provider: "liquid".into(), error }); }
-    Ok(res)
+    let items = news::dedupe(st.cache.news_query(symbol.as_deref(), from, to, 800)?, limit.unwrap_or(400));
+    Ok(news::NewsResult { items, errors })
+}
+
+/// Short AI summary of a cached news item (Groq). Cached per item and language.
+#[tauri::command]
+async fn ai_summary(st: State<'_>, id: String, lang: String, force: Option<bool>) -> Result<ai::AiSummary> {
+    let ck = format!("{id}:{lang}");
+    if !force.unwrap_or(false) {
+        if let Some(body) = st.cache.ai_get(&ck)? {
+            if let Ok(s) = serde_json::from_str::<ai::AiSummary>(&body) { return Ok(s); }
+        }
+    }
+    let key = secret_get("groq_key").ok_or_else(|| Error::Other("Groq API key not set (Settings)".into()))?;
+    let item = st.cache.news_get(&id)?.ok_or_else(|| Error::Other("news item not found".into()))?;
+    let mut model = match st.cache.kv_get("groq_model")? { Some(m) => m, None => ai::pick_model(&st.http, &key).await? };
+    let summary = match ai::summarize(&st.http, &key, &model, &item, &lang).await {
+        Ok(s) => s,
+        Err(_) => {
+            // Model may have been retired: re-pick once and retry.
+            model = ai::pick_model(&st.http, &key).await?;
+            ai::summarize(&st.http, &key, &model, &item, &lang).await?
+        }
+    };
+    st.cache.kv_set("groq_model", &model)?;
+    st.cache.ai_put(&ck, &serde_json::to_string(&summary).map_err(|e| Error::Other(e.to_string()))?, chrono::Utc::now().timestamp())?;
+    Ok(summary)
 }
 
 /// Liquid "unusual activity" list (needs a Liquid login).
@@ -214,7 +251,8 @@ pub fn run() {
             save_news_key,
             liquid_login,
             liquid_logout,
-            get_news,
+            news_window,
+            ai_summary,
             liquid_unusual,
             kv_get,
             kv_set

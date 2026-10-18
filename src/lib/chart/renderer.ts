@@ -7,6 +7,8 @@ export const DRAW_TOOLS: DrawTool[] = ['cursor', 'trend', 'ray', 'arrow', 'hline
 const POINTS: Record<DrawTool, number> = { cursor: 0, trend: 2, ray: 2, arrow: 2, hline: 1, vline: 1, rect: 2, fib: 2, text: 1, measure: 2 };
 
 export interface DrawPt { t: number; p: number }
+export interface NewsMark { t: number; ids: string[]; titles: string[] }
+
 export interface Drawing { id: string; type: DrawTool; pts: DrawPt[]; color: string; text?: string; sym?: string }
 
 export interface Theme {
@@ -29,6 +31,7 @@ export interface RenderState {
   grid: boolean;
   magnet: boolean;
   tool: DrawTool;
+  news: NewsMark[];
 }
 
 export interface Hooks {
@@ -38,6 +41,7 @@ export interface Hooks {
   onDrawings(d: Drawing[]): void;
   onToolDone(): void;
   onSelect(id: string | null): void;
+  onNewsClick(mark: NewsMark): void;
 }
 
 const AXIS_W = 66, TIME_H = 26;
@@ -58,6 +62,7 @@ export class ChartRenderer {
   selected: string | null = null;
   externalT: number | null = null;
   externalY: number | null = null;
+  private hoverNews: NewsMark | null = null;
 
   private ctx: CanvasRenderingContext2D;
   private octx: CanvasRenderingContext2D;
@@ -248,6 +253,7 @@ export class ChartRenderer {
       this.drawSeries(a, b);
       this.drawOverlays(a, b);
       this.drawDrawings();
+      this.drawNews();
       ctx.restore();
       for (const p of this.panes.slice(1)) this.drawSub(p, a, b);
       this.drawLastPrice();
@@ -487,6 +493,41 @@ export class ChartRenderer {
     ctx.textAlign = 'left';
   }
 
+  // ---------- news markers ----------
+  private newsPos(m: NewsMark) { return { x: this.xOf(this.timeToIdx(m.t)), y: this.panes[0].y1 - 11 }; }
+
+  private drawNews() {
+    const { ctx } = this; const { theme } = this.s;
+    for (const m of this.s.news) {
+      const { x, y } = this.newsPos(m);
+      if (x < -10 || x > this.plotW + 10) continue;
+      const hot = m === this.hoverNews;
+      ctx.fillStyle = hot ? theme.accent : '#000';
+      ctx.strokeStyle = theme.accent; ctx.lineWidth = 1.5;
+      ctx.shadowColor = theme.accent; ctx.shadowBlur = hot ? 12 : 6;
+      ctx.fillRect(x - 7, y - 7, 14, 14); ctx.strokeRect(x - 7, y - 7, 14, 14);
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = hot ? '#fff' : theme.accent; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x - 4, y - 3.5); ctx.lineTo(x + 4, y - 3.5); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x - 4, y + 3.5); ctx.lineTo(x + 1, y + 3.5); ctx.stroke();
+      if (m.ids.length > 1) {
+        ctx.fillStyle = theme.accent; ctx.fillRect(x + 4, y - 12, 12, 10);
+        ctx.fillStyle = '#fff'; ctx.font = '9px ui-monospace, monospace'; ctx.textAlign = 'center';
+        ctx.fillText(String(Math.min(m.ids.length, 99)), x + 10, y - 6.5); ctx.textAlign = 'left';
+        ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
+      }
+    }
+    ctx.lineWidth = 1;
+  }
+
+  private newsAt(x: number, y: number): NewsMark | null {
+    if (!this.panes.length) return null;
+    for (const m of this.s.news) {
+      const p = this.newsPos(m);
+      if (Math.abs(x - p.x) <= 9 && Math.abs(y - p.y) <= 9) return m;
+    }
+    return null;
+  }
+
   // ---------- drawings ----------
   private allDrawings(): Drawing[] { return this.draft ? [...this.s.drawings, this.draft] : this.s.drawings; }
 
@@ -599,6 +640,15 @@ export class ChartRenderer {
       const m0 = this.panes[0];
       if (this.externalY !== null && m0) y = m0.y0 + this.externalY * (m0.y1 - m0.y0);
     }
+    if (this.hoverNews && this.mx >= 0) {
+      const p = this.newsPos(this.hoverNews);
+      const txt = this.hoverNews.titles[0].slice(0, 90) + (this.hoverNews.ids.length > 1 ? `  (+${this.hoverNews.ids.length - 1})` : '');
+      const tw = Math.min(c.measureText(txt).width + 18, this.plotW - 8);
+      const bx = Math.min(Math.max(p.x - tw / 2, 4), this.plotW - tw - 4), by = p.y - 40;
+      c.fillStyle = theme.panel; c.fillRect(bx, by, tw, 22);
+      c.strokeStyle = theme.accent; c.strokeRect(bx + 0.5, by + 0.5, tw - 1, 21);
+      c.fillStyle = theme.textStrong; c.textAlign = 'left'; c.save(); c.beginPath(); c.rect(bx, by, tw, 22); c.clip(); c.fillText(txt, bx + 9, by + 11); c.restore();
+    }
     if (x < 0) return;
     const i = Math.max(0, Math.min(data.n - 1, Math.round(this.idxOf(x))));
     x = Math.round(this.xOf(i)) + 0.5;
@@ -645,6 +695,8 @@ export class ChartRenderer {
       const reg = region(x, y);
       if (reg === 'paxis') { const m = this.panes[0]; this.drag = { kind: 'paxis', x, y, lo: m.lo, hi: m.hi }; return; }
       if (reg === 'taxis') { this.drag = { kind: 'taxis', x, y }; return; }
+      const nm = this.newsAt(x, y);
+      if (nm && this.s.tool === 'cursor') { this.hooks.onNewsClick(nm); return; }
       const tool = this.s.tool;
       if (tool !== 'cursor') {
         const pt = this.snap(x, y);
@@ -669,7 +721,9 @@ export class ChartRenderer {
       const inPlot = x < this.plotW && y < this.h - TIME_H;
       const m0 = this.panes[0];
       this.hooks.onHover(inPlot ? i : null, this.s.data.n ? this.s.data.t[i] : null, inPlot && m0 && y >= m0.y0 && y <= m0.y1 ? (y - m0.y0) / (m0.y1 - m0.y0) : null);
-      el.style.cursor = this.drag ? (this.drag.kind === 'move' ? 'grabbing' : el.style.cursor)
+      const hn = this.drag ? null : this.newsAt(x, y);
+      if (hn !== this.hoverNews) { this.hoverNews = hn; this.invalidate(); }
+      el.style.cursor = hn ? 'pointer' : this.drag ? (this.drag.kind === 'move' ? 'grabbing' : el.style.cursor)
         : this.s.tool === 'cursor' && this.handleAt(x, y) ? 'move'
         : x > this.plotW ? 'ns-resize' : y > this.h - TIME_H ? 'ew-resize' : this.s.tool !== 'cursor' ? 'crosshair' : this.hit(x, y) ? 'pointer' : 'crosshair';
       if (this.draft) { this.draft.pts[this.draft.pts.length - 1] = this.snap(x, y); this.invalidate(); return; }
@@ -706,7 +760,7 @@ export class ChartRenderer {
       if (this.drag?.kind === 'move' || this.drag?.kind === 'point') this.hooks.onDrawings([...this.s.drawings]);
       this.drag = null;
     });
-    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hooks.onHover(null, null, null); this.invalidateOver(); });
+    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hooks.onHover(null, null, null); this.invalidateOver(); });
     on('dblclick', (e) => {
       const { x, y } = pos(e);
       if (region(x, y) === 'paxis') { this.manual = null; this.invalidate(); }

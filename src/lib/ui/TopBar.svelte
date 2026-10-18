@@ -39,6 +39,7 @@
   </div>
   <button class="ib" onclick={() => (app.spotlight = { open: true, seed: '/ind add ' })} title="Indicators"><Icons name="ind" /> <span>Indicators</span></button>
   <div class="grow"></div>
+  <button class="ib" class:on={app.page === 'news'} onclick={() => (app.page = app.page === 'news' ? 'chart' : 'news')} title="News"><Icons name="news" /> <span>News</span></button>
   <div class="menuwrap">
     <button class="ib" onclick={() => toggle('layout')} title="Layout"><Icons name="layout" /> <span>{app.layout}</span></button>
     {#if menu === 'layout'}

@@ -43,6 +43,10 @@
     { key: 'anim animations toggle', title: 'Toggle animations', tag: 'ui', run: () => { app.anim = !app.anim; } },
     { key: 'watch add watchlist', title: `Add ${app.chart.symbol} to watchlist`, tag: 'watch', run: () => { if (!app.list.symbols.includes(app.chart.symbol)) app.list.symbols = [...app.list.symbols, app.chart.symbol]; } },
     { key: 'watch toggle watchlist panel', title: 'Toggle watchlist panel', tag: 'watch', run: () => { app.showWatchlist = !app.showWatchlist; } },
+    { key: 'news open page headlines', title: 'Open news', sub: 'All markets, last weeks', tag: 'news', run: () => { app.openNews(null, null); } },
+    { key: `news symbol ${app.chart.symbol}`, title: `News for ${app.chart.symbol}`, tag: 'news', run: () => { app.openNews(app.chart.symbol, null); } },
+    { key: 'news markers toggle chart', title: 'Toggle news markers on charts', tag: 'news', run: () => { app.showNews = !app.showNews; } },
+    { key: 'charts back close news', title: 'Back to charts', tag: 'news', run: () => { app.page = 'chart'; } },
     { key: 'reset chart view', title: 'Reset chart', tag: 'chart', run: () => { const c = newChart(app.chart.symbol, app.chart.tf); Object.assign(app.chart, { indicators: [], drawings: [], type: 'candles', log: false, volume: true, id: c.id }); } }
   ]);
 
