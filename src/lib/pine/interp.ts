@@ -4,6 +4,7 @@ import type { Expr, Stmt } from './parser.ts';
 import { NATIVES, CONSTS, VARS, SERIES_NAMES, NOOP_NAMESPACES, isNa, truthy, registerSourceInput } from './natives.ts';
 import type { Ctx, Native } from './natives.ts';
 import type { PineCandles, PineResult, PineMeta } from './types.ts';
+import './strategy.ts';
 
 const NaN_ = Number.NaN;
 
@@ -58,7 +59,9 @@ export class Interp {
     const frame: Frame = { scope: this.global, path: '' };
     for (let b = 0; b < x.n; b++) {
       x.bar = b;
+      x.broker?.beginBar(b);
       this.program(frame);
+      x.broker?.endBar(b);
       for (const [name, cell] of this.global.m) {
         if (cell.hist) {
           while (cell.hist.length < b) cell.hist.push(NaN_);

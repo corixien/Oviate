@@ -106,7 +106,23 @@ export interface TradeRec {
   mae: number;
 }
 
+export interface PendingOrder {
+  id: string;
+  kind: 'entry' | 'order' | 'close' | 'close_all' | 'exit';
+  dir: 'long' | 'short' | '';
+  qty: number;
+  limit?: number;
+  stop?: number;
+  fromEntry?: string;
+  comment: string;
+  /** exit targets (absolute prices) for kind 'exit' */
+  exitStop?: number;
+  exitLimit?: number;
+}
+
 export interface StrategyResult {
+  /** orders still waiting after the last bar (they fill on the next bar) */
+  pending: PendingOrder[];
   trades: TradeRec[];
   equity: Float64Array;
   /** realised + unrealised equity per bar */
