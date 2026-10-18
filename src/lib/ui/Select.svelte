@@ -35,7 +35,7 @@
 
 <style>
   .sel { position: relative; display: inline-block; min-width: 90px; }
-  .btn { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 7px 10px; font: 12.5px system-ui, sans-serif; cursor: pointer; text-align: left; }
+  .btn { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 0 10px; height: 30px; box-sizing: border-box; font: 12.5px system-ui, sans-serif; cursor: pointer; text-align: left; }
   .btn:hover, .btn.open { border-color: var(--accent); }
   .btn svg { color: var(--accent); flex: none; transition: transform 0.15s; } .btn.open svg { transform: rotate(180deg); }
   .list { position: absolute; top: calc(100% + 2px); left: 0; min-width: 100%; z-index: 300; background: #07040d; border: 1px solid var(--accent); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); max-height: 260px; overflow-y: auto; }

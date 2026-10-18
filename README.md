@@ -2,36 +2,26 @@
 
 **O**ptimal **V**isions **I**nspire **A**ccurate **T**rade **E**ntries
 
-Fast, keyboard-first desktop charting tool with a liquid-glass UI. Linux first, portable to Windows/macOS.
+Fast, keyboard-first desktop charting tool with a black and purple UI. Linux first, designed to port to Windows and macOS.
 
-## Status
+## Features
 
-Early development (milestone 1: scaffold + rendering spike).
-
-## Planned
-
-- Candle data from Alpaca (primary) and yfinance/Yahoo (fallback), cached locally in SQLite
-- Up to 4 simultaneous charts, live streaming, chart types (candles, Heikin-Ashi, Renko, line, area)
-- Pine Script (v5/v6 subset) indicators and strategies, simple strategy tester
-- Full drawing tools, watchlists, price alerts, saved layouts, Alpaca paper orders
-- Spotlight-style command bar: `Enter` opens it, `/commands` control everything, plain typing searches tickers and companies
-- English + German UI, dark/light, violet accent
-
-## Scripts
-
-Indicators and strategies are Pine Script files. 94 indicators ship in `indicators/`; add your own with `/ind add new` (paste Pine code, saved as a `.pine` file). Strategies: `/strat add new`. A strategy added to a chart shows its trades as arrows and a report in the Strategy Tester panel, and can trade a paper account.
-
-## Paper trading
-
-Create accounts with capital, leverage and commission; place market, limit, stop, stop-limit and trailing-stop orders with optional take-profit / stop-loss from the Buy / Sell buttons on every chart. Positions, orders, history and statistics live in the panel under the charts.
+- **Charts:** 1, 2, 3 or 4 charts with draggable splits, 8 chart types (candles, hollow, bars, line, area, baseline, Heikin-Ashi, Renko), log scale, volume, crosshair/zoom/scroll sync between charts, full drawing tools (trend line, ray, arrow, horizontal/vertical line, rectangle, Fibonacci, text, measure).
+- **Data:** Alpaca (primary, live WebSocket for stocks and crypto) with Yahoo Finance as fallback. Candles and news are cached locally in SQLite, only missing ranges are fetched.
+- **Command bar:** `Enter` (or typing a letter) opens it. Plain text searches tickers and companies, `/` runs commands (timeframe, chart type, layout, indicators, strategies, news, paper trading, settings).
+- **Indicators and strategies:** Pine Script (v5/v6 subset) files. 94 indicators ship in `indicators/`, strategies are user-written. Add your own with `/ind add new` and `/strat add new` (paste Pine code, saved as a `.pine` file).
+- **Strategy tester:** a strategy on a chart shows its trades as arrows and a report (statistics, equity curve, trade list) in the panel under the charts.
+- **Paper trading:** multiple accounts (capital, leverage, commission), market/limit/stop orders with optional take-profit and stop-loss, positions, orders, history, statistics and equity curve in the panel under the charts. Strategies can trade a paper account.
+- **News:** markers on the chart for news about the symbol, a `/news` page with all headlines (week by week, cached locally), AI summary per headline via Groq.
+- **Watchlists, analysis panel, English and German UI, dark and light theme, custom candle colors.**
 
 ## Stack
 
-Tauri 2, Rust core, Svelte 5 + TypeScript, custom WebGL2/Canvas chart renderer.
+Tauri 2, Rust core (data providers, SQLite cache, news, keyring, Pine file storage), Svelte 5 + TypeScript UI, custom Canvas2D chart renderer, Pine engine in TypeScript running in a Web Worker.
 
 ## Development
 
-Requirements: Node 22+, Rust stable, Tauri Linux deps (webkit2gtk-4.1, libsoup3, gtk3, openssl).
+Requirements: Node 22.18+ (tests run TypeScript directly), Rust stable, Tauri Linux dependencies (webkit2gtk-4.1, libsoup3, gtk3, openssl).
 
 ```bash
 npm install
@@ -40,11 +30,25 @@ npm run tauri dev
 
 | Command | Purpose |
 |---|---|
-| `npm run check` | Svelte/TS type check |
-| `npm test` | Rust unit tests |
+| `npm run tauri dev` | Run the app |
+| `npm run check` | Svelte/TypeScript type check |
+| `npm test` | Pine engine, indicator library, strategy and paper engine tests (Node), then Rust tests |
 | `npm run tauri build` | Release bundle |
 
-Alpaca API keys are entered in the app's Settings and stored in the OS keyring. Never commit keys.
+## Configuration
+
+All secrets are entered in the app's Settings and stored in the OS keyring. Never commit keys.
+
+| Setting | Used for |
+|---|---|
+| Alpaca key id and secret | Candles, live stream, Alpaca News |
+| Finnhub, NewsAPI keys | Additional news providers |
+| Liquid MCP login | Market brief (OAuth in the browser, read-only scope) |
+| Groq key | AI news summaries |
+
+Without any key, Oviate uses Yahoo Finance for candles and Google News, Yahoo and RSS feeds for news.
+
+User scripts live as `.pine` files in the app data folder (`indicators/` and `strategies/`); the folder path is shown in the script editor.
 
 ## License
 

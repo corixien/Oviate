@@ -212,6 +212,7 @@
   .acc { display: flex; align-items: center; gap: 14px; padding: 8px 14px; flex-wrap: wrap; border-bottom: 1px solid var(--line); flex: none; font-size: 12px; }
   .sname { font-size: 13px; } .m { color: var(--dim); } .m b { color: var(--fg); font-family: ui-monospace, monospace; margin-left: 4px; }
   .mini { background: none; border: 1px solid var(--line); color: var(--fg); padding: 4px 10px; font: 600 11px system-ui, sans-serif; cursor: pointer; margin-right: 4px; }
+  .acc .mini { height: 30px; box-sizing: border-box; padding: 0 12px; font-size: 12px; }
   .mini:hover { border-color: var(--accent); color: var(--accent); } .mini.del:hover { border-color: var(--down); color: var(--down); }
   .subs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); flex: none; align-items: center; }
   .subs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); padding: 7px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }

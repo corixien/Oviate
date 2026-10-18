@@ -198,7 +198,7 @@
   input[type='number'] { background: #000; border: 1px solid var(--line); color: var(--fg); padding: 7px 9px; font: 13px ui-monospace, monospace; outline: none; min-width: 0; }
   input[type='number'] { flex: 1; } input:focus, select:focus { border-color: var(--accent); }
   .qty { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-  .mini { background: none; border: 1px solid var(--line); color: var(--dim); padding: 4px 9px; font: 600 11px system-ui, sans-serif; cursor: pointer; }
+  .mini { background: none; border: 1px solid var(--line); color: var(--dim); padding: 0 12px; height: 30px; box-sizing: border-box; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .mini:hover { border-color: var(--accent); color: var(--fg); }
   .calc { font-size: 12px; color: var(--dim); } .calc b { color: var(--fg); font-size: 14px; font-family: ui-monospace, monospace; } .calc em { font-size: 11px; opacity: 0.8; }
   .chk { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; } .chk input { accent-color: var(--accent); width: 15px; height: 15px; }
