@@ -55,7 +55,8 @@ class App {
   settingsOpen = $state(false);
   showParams = $state(false);
   indDialog = $state<{ uid: string; mode: 'settings' | 'code' } | null>(null);
-  crossT = $state<{ t: number | null; from: string }>({ t: null, from: '' });
+  crossT = $state<{ t: number | null; y: number | null; from: string }>({ t: null, y: null, from: '' });
+  view = $state<{ l: number; r: number; from: string } | null>(null);
   toast = $state('');
   ticks = $state<Record<string, { p: number; s: number; t: number }>>({});
   ready = $state(false);

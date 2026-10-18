@@ -96,8 +96,8 @@
 
   onMount(() => {
     r = new ChartRenderer(main, over, {
-      onHover: (i, tm) => { hover = i; if (app.sync) app.crossT = { t: tm, from: cfg.id }; },
-      onViewChange: () => {},
+      onHover: (i, tm, yf) => { hover = i; if (app.sync) app.crossT = { t: tm, y: yf, from: cfg.id }; },
+      onViewChange: () => { if (app.sync && r) { const [l, rr] = r.getTimeRange(); app.view = { l, r: rr, from: cfg.id }; } },
       onNeedHistory: () => loadMore(),
       onDrawings: (d) => { cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))]; app.persist(); },
       onToolDone: () => { app.tool = 'cursor'; },
@@ -155,8 +155,17 @@
 
   $effect(() => {
     if (!r) return;
-    r.externalT = app.sync && app.crossT.from !== cfg.id ? app.crossT.t : null;
+    const ext = app.sync && app.crossT.from !== cfg.id;
+    r.externalT = ext ? app.crossT.t : null;
+    r.externalY = ext ? app.crossT.y : null;
     r.setState({});
+  });
+
+  // Zoom/scroll sync: follow the time window of whichever chart the user is moving.
+  $effect(() => {
+    const v = app.view;
+    if (!r || !app.sync || !v || v.from === cfg.id) return;
+    r.setTimeRange(v.l, v.r);
   });
 
   $effect(() => {

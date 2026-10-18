@@ -32,7 +32,7 @@ export interface RenderState {
 }
 
 export interface Hooks {
-  onHover(idx: number | null, t: number | null): void;
+  onHover(idx: number | null, t: number | null, yFrac: number | null): void;
   onViewChange(): void;
   onNeedHistory(): void;
   onDrawings(d: Drawing[]): void;
@@ -57,6 +57,7 @@ export class ChartRenderer {
   manual: { lo: number; hi: number } | null = null;
   selected: string | null = null;
   externalT: number | null = null;
+  externalY: number | null = null;
 
   private ctx: CanvasRenderingContext2D;
   private octx: CanvasRenderingContext2D;
@@ -100,13 +101,29 @@ export class ChartRenderer {
     this.invalidate();
   }
 
+  /** Visible time window [left, right] in unix seconds. */
+  getTimeRange(): [number, number] {
+    const bars = (this.w - AXIS_W) / this.barW;
+    return [this.idxToTime(this.start - 0.5), this.idxToTime(this.start - 0.5 + bars)];
+  }
+
+  /** Apply a time window from another chart (does not emit onViewChange). */
+  setTimeRange(l: number, r: number) {
+    if (this.w < 100 || !this.s.data.n || r <= l) return;
+    const plot = this.w - AXIS_W;
+    const barsVisible = (r - l) / this.s.step;
+    this.barW = Math.min(Math.max(plot / barsVisible, 1.2), 80);
+    this.start = this.timeToIdx(l) + 0.5;
+    this.clampStart();
+    this.invalidate();
+  }
+
   resetView(bars = 120) {
     if (this.w < 100) { this.pendingReset = true; return; }
     this.start = Math.max(-5, this.s.data.n - bars * 0.85);
     this.barW = Math.max(2, Math.min(40, (this.w - AXIS_W) / bars));
     this.manual = null;
     this.invalidate();
-    this.hooks.onViewChange();
   }
 
   scrollToEnd() {
@@ -577,7 +594,11 @@ export class ChartRenderer {
     c.font = '11px ui-monospace, "JetBrains Mono", monospace'; c.textBaseline = 'middle';
     let x = -1, y = -1;
     if (this.mx >= 0 && this.mx < this.plotW && this.my >= 0 && this.my < this.h - TIME_H) { x = this.mx; y = this.my; }
-    else if (this.externalT !== null) x = this.xOf(this.timeToIdx(this.externalT));
+    else if (this.externalT !== null) {
+      x = this.xOf(this.timeToIdx(this.externalT));
+      const m0 = this.panes[0];
+      if (this.externalY !== null && m0) y = m0.y0 + this.externalY * (m0.y1 - m0.y0);
+    }
     if (x < 0) return;
     const i = Math.max(0, Math.min(data.n - 1, Math.round(this.idxOf(x))));
     x = Math.round(this.xOf(i)) + 0.5;
@@ -645,7 +666,9 @@ export class ChartRenderer {
     on('pointermove', (e) => {
       const { x, y } = pos(e); this.mx = x; this.my = y;
       const i = Math.max(0, Math.min(this.s.data.n - 1, Math.round(this.idxOf(x))));
-      this.hooks.onHover(x < this.plotW && y < this.h - TIME_H ? i : null, this.s.data.n ? this.s.data.t[i] : null);
+      const inPlot = x < this.plotW && y < this.h - TIME_H;
+      const m0 = this.panes[0];
+      this.hooks.onHover(inPlot ? i : null, this.s.data.n ? this.s.data.t[i] : null, inPlot && m0 && y >= m0.y0 && y <= m0.y1 ? (y - m0.y0) / (m0.y1 - m0.y0) : null);
       el.style.cursor = this.drag ? (this.drag.kind === 'move' ? 'grabbing' : el.style.cursor)
         : this.s.tool === 'cursor' && this.handleAt(x, y) ? 'move'
         : x > this.plotW ? 'ns-resize' : y > this.h - TIME_H ? 'ew-resize' : this.s.tool !== 'cursor' ? 'crosshair' : this.hit(x, y) ? 'pointer' : 'crosshair';
@@ -683,11 +706,11 @@ export class ChartRenderer {
       if (this.drag?.kind === 'move' || this.drag?.kind === 'point') this.hooks.onDrawings([...this.s.drawings]);
       this.drag = null;
     });
-    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hooks.onHover(null, null); this.invalidateOver(); });
+    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hooks.onHover(null, null, null); this.invalidateOver(); });
     on('dblclick', (e) => {
       const { x, y } = pos(e);
       if (region(x, y) === 'paxis') { this.manual = null; this.invalidate(); }
-      else if (region(x, y) === 'taxis') this.resetView();
+      else if (region(x, y) === 'taxis') { this.resetView(); this.hooks.onViewChange(); }
     });
     on('wheel', (e) => {
       e.preventDefault();
