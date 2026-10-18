@@ -56,7 +56,7 @@
   .logo span { color: var(--accent); }
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 8px; }
   .grow { flex: 1; }
-  button { background: none; border: 1px solid transparent; color: var(--fg); font: 600 13px system-ui, sans-serif; padding: 6px 10px; border-radius: 8px; cursor: pointer; display: inline-flex; gap: 7px; align-items: center; transition: background 0.12s, color 0.12s; }
+  button { background: none; border: 1px solid transparent; color: var(--fg); font: 600 13px system-ui, sans-serif; padding: 6px 10px; border-radius: 2px; cursor: pointer; display: inline-flex; gap: 7px; align-items: center; transition: background 0.12s, color 0.12s; }
   button:hover { background: var(--hover); }
   button.on { color: var(--accent); background: var(--accent-soft); }
   .sym { border-color: var(--line); padding: 6px 14px; }
@@ -65,10 +65,10 @@
   .ib span { text-transform: capitalize; }
   .sq { padding: 7px; }
   .menuwrap { position: relative; }
-  .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 150px; padding: 6px; border-radius: 14px; display: flex; flex-direction: column;
-    background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%);
+  .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 150px; padding: 6px; border-radius: 2px; display: flex; flex-direction: column;
+    background: var(--glass); border: 1px solid var(--glass-line); -webkit-
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); animation: m 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: top left; }
   .menu.right { left: auto; right: 0; transform-origin: top right; }
   .menu button { justify-content: flex-start; text-transform: capitalize; font-weight: 500; }
-  @keyframes m { from { opacity: 0; transform: scale(0.92) translateY(-6px); filter: blur(6px); } }
+  @keyframes m { from { opacity: 0; transform: scale(0.92) translateY(-6px); } }
 </style>

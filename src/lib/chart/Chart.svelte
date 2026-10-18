@@ -23,11 +23,19 @@
   };
   const step = $derived(TF_SECONDS[cfg.tf]);
 
-  const theme = $derived<Theme>(app.theme === 'dark'
-    ? { up: '#2ee6a6', down: '#ff4d6a', grid: 'rgba(255,255,255,0.045)', text: 'rgba(255,255,255,0.5)', textStrong: 'rgba(255,255,255,0.9)',
-        accent: '#a855f7', cross: 'rgba(255,255,255,0.28)', axisBg: '#000', panel: '#16101f' }
-    : { up: '#0ea371', down: '#e5334f', grid: 'rgba(0,0,0,0.06)', text: 'rgba(0,0,0,0.55)', textStrong: 'rgba(0,0,0,0.9)',
-        accent: '#7c3aed', cross: 'rgba(0,0,0,0.3)', axisBg: '#fff', panel: '#efe9fb' });
+  const PAL = {
+    neon: { up: '#22e5ff', down: '#ff2d95' },
+    mono: { up: '#e9e1ff', down: '#8a35ff' },
+    classic: { up: '#2ee6a6', down: '#ff4d6a' }
+  };
+  const theme = $derived<Theme>({
+    ...(app.theme === 'dark'
+      ? { grid: 'rgba(157,77,255,0.10)', text: 'rgba(214,196,255,0.55)', textStrong: 'rgba(240,232,255,0.95)',
+          accent: '#9d4dff', cross: 'rgba(190,140,255,0.45)', axisBg: '#000', panel: '#150a26' }
+      : { grid: 'rgba(100,40,200,0.09)', text: 'rgba(40,20,80,0.6)', textStrong: 'rgba(20,10,40,0.9)',
+          accent: '#7a2cf0', cross: 'rgba(90,40,180,0.4)', axisBg: '#fff', panel: '#efe6ff' }),
+    ...PAL[app.palette]
+  });
 
   const symDrawings = $derived(cfg.drawings.filter((d) => d.sym === cfg.symbol));
   const display = $derived(transform(raw, cfg.type));
@@ -173,7 +181,7 @@
 
 <style>
   .pane { position: relative; min-width: 0; min-height: 0; background: var(--pane); border: 1px solid var(--line); overflow: hidden; }
-  .pane.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .pane.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 1px var(--accent); }
   .layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .top { touch-action: none; }
   .legend { position: absolute; top: 8px; left: 10px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; font: 12px ui-monospace, 'JetBrains Mono', monospace; max-width: calc(100% - 90px); }

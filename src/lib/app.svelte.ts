@@ -28,6 +28,7 @@ class App {
   theme = $state<'dark' | 'light'>('dark');
   lang = $state<Lang>('en');
   anim = $state(true);
+  palette = $state<'neon' | 'mono' | 'classic'>('neon');
   grid = $state(true);
   magnet = $state(false);
   sync = $state(true);
@@ -59,6 +60,7 @@ class App {
         this.theme = s.theme ?? 'dark';
         this.lang = s.lang ?? 'en';
         this.anim = s.anim ?? true;
+        this.palette = s.palette ?? 'neon';
         this.grid = s.grid ?? true;
         this.magnet = s.magnet ?? false;
         this.sync = s.sync ?? true;
@@ -75,7 +77,7 @@ class App {
     this.timer = setTimeout(() => {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
-        lang: this.lang, anim: this.anim, grid: this.grid, magnet: this.magnet, sync: this.sync,
+        lang: this.lang, anim: this.anim, palette: this.palette, grid: this.grid, magnet: this.magnet, sync: this.sync,
         watchlist: this.watchlist, showWatchlist: this.showWatchlist
       }));
     }, 400);

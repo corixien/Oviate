@@ -15,7 +15,7 @@
   let input = $state<HTMLInputElement>();
   let closing = $state(false);
 
-  const close = () => { if (closing) return; closing = true; setTimeout(() => { app.spotlight = { open: false, seed: '' }; closing = false; q = ''; }, app.anim ? 140 : 0); };
+  const close = () => { if (closing) return; input?.blur(); closing = true; setTimeout(() => { app.spotlight = { open: false, seed: '' }; closing = false; q = ''; }, app.anim ? 140 : 0); };
   const setSymbol = (s: string) => { app.chart.symbol = s; app.persist(); close(); };
 
   const commands = $derived<Item[]>([
@@ -29,6 +29,7 @@
     ...(['1', '2v', '2h', '3', '4'] as const).map((l) => ({ key: `layout ${l}`, title: `Layout: ${l === '1' ? 'single chart' : l === '2v' ? '2 charts side by side' : l === '2h' ? '2 charts stacked' : l + ' charts'}`, tag: 'layout', run: () => { app.layout = l; if (app.active >= app.count) app.active = 0; } })),
     ...DRAW_TOOLS.map((d) => ({ key: `draw ${d}`, title: `Draw: ${d}`, tag: 'draw', run: () => { app.tool = d; } })),
     { key: 'draw clear delete all drawings', title: 'Delete all drawings', tag: 'draw', run: () => { app.chart.drawings = app.chart.drawings.filter((d) => d.sym !== app.chart.symbol); } },
+    ...(['neon', 'mono', 'classic'] as const).map((pl) => ({ key: `palette candles colors ${pl}`, title: `Candle colors: ${pl}`, tag: 'ui', run: () => { app.palette = pl; } })),
     { key: 'theme dark', title: 'Theme: dark', tag: 'ui', run: () => { app.theme = 'dark'; } },
     { key: 'theme light', title: 'Theme: light', tag: 'ui', run: () => { app.theme = 'light'; } },
     { key: 'lang en english', title: 'Language: English', tag: 'ui', run: () => { app.lang = 'en'; } },
@@ -68,7 +69,7 @@
   });
 
   $effect(() => {
-    if (app.spotlight.open) { q = app.spotlight.seed; tick().then(() => { input?.focus(); input?.setSelectionRange(q.length, q.length); }); }
+    if (app.spotlight.open) { q = app.spotlight.seed; tick().then(() => input?.focus()); }
   });
 
   function run(it?: Item) {
@@ -119,30 +120,30 @@
 
 <style>
   .scrim { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh;
-    background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+    background: rgba(0, 0, 0, 0.55); -webkit-
     animation: fade 0.22s ease both; }
   .scrim.out { animation: fadeout 0.14s ease both; }
-  .panel { width: min(680px, calc(100vw - 32px)); max-height: 62vh; display: flex; flex-direction: column; border-radius: 22px; overflow: hidden;
-    background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%);
+  .panel { width: min(680px, calc(100vw - 32px)); max-height: 62vh; display: flex; flex-direction: column; border-radius: 2px; overflow: hidden;
+    background: var(--glass); border: 1px solid var(--glass-line); -webkit-
     box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.25), 0 30px 90px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.12);
     animation: pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: 50% 0; }
   .panel.out { animation: popout 0.14s ease both; }
   .noanim, .noanim .panel { animation: none !important; }
   @keyframes fade { from { opacity: 0 } }
   @keyframes fadeout { to { opacity: 0 } }
-  @keyframes pop { from { opacity: 0; transform: translateY(-14px) scale(0.93); filter: blur(10px); } }
-  @keyframes popout { to { opacity: 0; transform: translateY(-6px) scale(0.97); filter: blur(6px); } }
+  @keyframes pop { from { opacity: 0; transform: translateY(-14px) scale(0.93); } }
+  @keyframes popout { to { opacity: 0; transform: translateY(-6px) scale(0.97); } }
   .field { display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--glass-line); color: var(--dim); }
   .field:focus-within { color: var(--accent); }
   input { flex: 1; background: none; border: 0; outline: 0; color: var(--fg); font: 500 19px system-ui, sans-serif; min-width: 0; }
   input::placeholder { color: var(--dim); }
-  kbd { font: 11px ui-monospace, monospace; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--glass-line); color: var(--dim); background: rgba(255, 255, 255, 0.04); }
+  kbd { font: 11px ui-monospace, monospace; padding: 2px 7px; border-radius: 2px; border: 1px solid var(--glass-line); color: var(--dim); background: rgba(255, 255, 255, 0.04); }
   .list { overflow-y: auto; padding: 8px; }
   .cap { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); padding: 8px 12px 6px; }
-  .sp-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 12px; border: 0; border-radius: 12px; background: none; color: var(--fg); cursor: pointer; font: 14px system-ui, sans-serif; transition: background 0.12s; }
+  .sp-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 12px; border: 0; border-radius: 2px; background: none; color: var(--fg); cursor: pointer; font: 14px system-ui, sans-serif; transition: background 0.12s; }
   .sp-item.sel { background: var(--accent); color: #fff; }
   .sp-item.sel .tag, .sp-item.sel .sub { color: rgba(255, 255, 255, 0.8); border-color: rgba(255, 255, 255, 0.35); }
-  .tag { font: 10.5px ui-monospace, monospace; text-transform: uppercase; color: var(--accent); border: 1px solid var(--glass-line); border-radius: 6px; padding: 2px 6px; min-width: 52px; text-align: center; }
+  .tag { font: 10.5px ui-monospace, monospace; text-transform: uppercase; color: var(--accent); border: 1px solid var(--glass-line); border-radius: 2px; padding: 2px 6px; min-width: 52px; text-align: center; }
   .ti { font-weight: 600; }
   .sub { color: var(--dim); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .sp-item kbd { margin-left: auto; }

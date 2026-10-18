@@ -23,7 +23,7 @@
     if (e.key === 'Enter') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && /[a-z0-9/]/i.test(e.key)) {
-      e.preventDefault(); app.spotlight = { open: true, seed: e.key.toUpperCase() === e.key && e.key !== '/' ? e.key : e.key };
+      e.preventDefault(); app.spotlight = { open: true, seed: e.key };
     }
   }
 </script>
@@ -49,14 +49,14 @@
 
 <style>
   :global(:root), :global(:root[data-theme='dark']) {
-    --bg: #000; --bar: #08060c; --pane: #000; --line: #1c1626; --fg: #ece8f4; --dim: #7d7790;
-    --accent: #a855f7; --accent-soft: rgba(168, 85, 247, 0.16); --hover: rgba(255, 255, 255, 0.06);
-    --up: #2ee6a6; --down: #ff4d6a; --glass: rgba(14, 10, 22, 0.62); --glass-line: rgba(255, 255, 255, 0.12);
+    --bg: #000; --bar: #000; --pane: #000; --line: #2a1250; --fg: #f1eaff; --dim: #8f7fb0;
+    --accent: #9d4dff; --accent-soft: rgba(157, 77, 255, 0.2); --hover: rgba(157, 77, 255, 0.14);
+    --up: #22e5ff; --down: #ff2d95; --glass: #0a0614; --glass-line: #4a1f8f;
   }
   :global(:root[data-theme='light']) {
-    --bg: #fff; --bar: #f7f5fb; --pane: #fff; --line: #e4def0; --fg: #17121f; --dim: #766f87;
-    --accent: #7c3aed; --accent-soft: rgba(124, 58, 237, 0.12); --hover: rgba(0, 0, 0, 0.05);
-    --up: #0ea371; --down: #e5334f; --glass: rgba(255, 255, 255, 0.7); --glass-line: rgba(0, 0, 0, 0.12);
+    --bg: #fff; --bar: #faf7ff; --pane: #fff; --line: #d9c8f5; --fg: #17082e; --dim: #7a68a0;
+    --accent: #7a2cf0; --accent-soft: rgba(122, 44, 240, 0.12); --hover: rgba(122, 44, 240, 0.08);
+    --up: #0891b2; --down: #d61f7c; --glass: #ffffff; --glass-line: #b99af0;
   }
   :global(html), :global(body) { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; }
   :global(*) { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
@@ -70,5 +70,5 @@
   .l3 { grid-template: 1fr 1fr / 1fr 1fr; }
   .l3 :global(.pane:first-child) { grid-row: 1 / span 2; }
   .l4 { grid-template: 1fr 1fr / 1fr 1fr; }
-  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 999px; font-size: 13px; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); z-index: 200; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 2px; font-size: 13px; background: var(--glass); border: 1px solid var(--glass-line); -webkit- z-index: 200; }
 </style>

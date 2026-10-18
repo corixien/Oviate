@@ -16,7 +16,7 @@
 
 <style>
   aside { width: 46px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0; border-right: 1px solid var(--line); background: var(--bar); }
-  button { width: 34px; height: 34px; display: grid; place-items: center; background: none; border: 0; border-radius: 9px; color: var(--dim); cursor: pointer; transition: background 0.12s, color 0.12s; }
+  button { width: 34px; height: 34px; display: grid; place-items: center; background: none; border: 0; border-radius: 2px; color: var(--dim); cursor: pointer; transition: background 0.12s, color 0.12s; }
   button:hover { color: var(--fg); background: var(--hover); }
   button.on { color: #fff; background: var(--accent); }
   i { width: 22px; height: 1px; background: var(--line); margin: 6px 0; }
