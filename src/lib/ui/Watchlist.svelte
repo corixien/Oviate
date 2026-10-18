@@ -40,7 +40,7 @@
 </aside>
 
 <style>
-  aside { width: 270px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bar); }
+  aside { width: 270px; flex: none; display: flex; flex-direction: column; margin: 12px 12px 12px 2px; border: 1px solid var(--line); background: var(--bar); }
   .hd { display: flex; justify-content: space-between; align-items: center; height: 40px; padding: 0 14px; font: 700 12px system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
   .hd button { background: none; border: 1px solid var(--line); color: var(--fg); width: 24px; height: 24px; border-radius: 2px; cursor: pointer; font-size: 16px; line-height: 1; }
   .hd button:hover { border-color: var(--accent); color: var(--accent); }

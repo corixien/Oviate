@@ -464,6 +464,7 @@ export class ChartRenderer {
       const sel = dr.id === this.selected;
       const P = dr.pts.map((p) => this.screen(p));
       ctx.strokeStyle = dr.color; ctx.fillStyle = dr.color; ctx.lineWidth = sel ? 2.5 : 1.5;
+      ctx.shadowColor = dr.color; ctx.shadowBlur = sel ? 16 : 10;
       const x1 = P[0]?.x, y1 = P[0]?.y, x2 = P[1]?.x, y2 = P[1]?.y;
       switch (dr.type) {
         case 'trend': case 'arrow': case 'ray': {
@@ -499,6 +500,7 @@ export class ChartRenderer {
           ctx.fillStyle = theme.textStrong; ctx.textAlign = 'center'; ctx.fillText(txt, (x1 + x2) / 2, Math.min(y1, y2) - 15); ctx.textAlign = 'left';
         } break;
       }
+      ctx.shadowBlur = 0;
       if (sel) { ctx.fillStyle = theme.accent; for (const q of P) { ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, 7); ctx.fill(); } }
       ctx.lineWidth = 1;
     }
@@ -648,7 +650,15 @@ export class ChartRenderer {
     on('wheel', (e) => {
       e.preventDefault();
       const { x } = pos(e);
-      if (e.shiftKey) { this.start += (e.deltaY + e.deltaX) / this.barW * 0.5; this.clampStart(); if (this.start < 20) this.hooks.onNeedHistory(); }
+      if (e.ctrlKey) {
+        // Ctrl+wheel: stretch both axes around the cursor.
+        const f = Math.exp(-e.deltaY * 0.004);
+        const { y } = pos(e); const m = this.panes[0];
+        const cur = this.manual ?? { lo: m.lo, hi: m.hi };
+        const anchor = this.priceOf(Math.min(Math.max(y, m.y0), m.y1));
+        this.manual = { lo: anchor - (anchor - cur.lo) / f, hi: anchor + (cur.hi - anchor) / f };
+        this.zoomBars(f, Math.min(x, this.plotW));
+      } else if (e.shiftKey) { this.start += (e.deltaY + e.deltaX) / this.barW * 0.5; this.clampStart(); if (this.start < 20) this.hooks.onNeedHistory(); }
       else this.zoomBars(Math.exp(-e.deltaY * 0.0015), Math.min(x, this.plotW));
       this.hooks.onViewChange(); this.invalidate();
     }, { passive: false });

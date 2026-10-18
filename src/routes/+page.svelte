@@ -63,7 +63,7 @@
   :global(:root[data-anim='0'] *) { animation-duration: 0s !important; transition-duration: 0s !important; }
   .app { display: flex; flex-direction: column; height: 100vh; }
   .body { flex: 1; display: flex; min-height: 0; }
-  .grid { flex: 1; display: grid; gap: 2px; background: var(--line); min-width: 0; min-height: 0; }
+  .grid { flex: 1; display: grid; gap: 10px; padding: 12px; background: var(--bg); min-width: 0; min-height: 0; }
   .l1 { grid-template: 1fr / 1fr; }
   .l2v { grid-template: 1fr / 1fr 1fr; }
   .l2h { grid-template: 1fr 1fr / 1fr; }
