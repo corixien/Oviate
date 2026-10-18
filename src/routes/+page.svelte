@@ -7,6 +7,7 @@
   import Watchlist from '$lib/ui/Watchlist.svelte';
   import Spotlight from '$lib/ui/Spotlight.svelte';
   import Settings from '$lib/ui/Settings.svelte';
+  import IndicatorDialog from '$lib/ui/IndicatorDialog.svelte';
 
   onMount(() => { app.load(); });
 
@@ -46,6 +47,7 @@
 
 <Spotlight />
 <Settings />
+<IndicatorDialog />
 
 <style>
   :global(:root), :global(:root[data-theme='dark']) {

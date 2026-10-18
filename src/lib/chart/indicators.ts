@@ -213,3 +213,74 @@ export const INDICATORS: IndicatorDef[] = [
 ];
 
 export const indicatorById = (id: string) => INDICATORS.find((d) => d.id === id);
+
+const CODE: Record<string, string> = {
+  sma: `//@version=6
+indicator("Moving Average", overlay = true)
+length = input.int({length}, "Length")
+plot(ta.sma(close, length), "SMA", color.orange)`,
+  ema: `//@version=6
+indicator("Moving Average Exponential", overlay = true)
+length = input.int({length}, "Length")
+plot(ta.ema(close, length), "EMA", color.aqua)`,
+  wma: `//@version=6
+indicator("Weighted Moving Average", overlay = true)
+length = input.int({length}, "Length")
+plot(ta.wma(close, length), "WMA", color.fuchsia)`,
+  bb: `//@version=6
+indicator("Bollinger Bands", overlay = true)
+length = input.int({length}, "Length")
+mult = input.float({mult}, "StdDev")
+basis = ta.sma(close, length)
+dev = mult * ta.stdev(close, length)
+upper = basis + dev
+lower = basis - dev
+plot(basis, "Basis", color.orange)
+p1 = plot(upper, "Upper", color.purple)
+p2 = plot(lower, "Lower", color.purple)
+fill(p1, p2, color.new(color.purple, 90))`,
+  vwap: `//@version=6
+indicator("VWAP", overlay = true)
+plot(ta.vwap(hlc3), "VWAP", color.blue)`,
+  supertrend: `//@version=6
+indicator("Supertrend", overlay = true)
+length = input.int({length}, "ATR Length")
+mult = input.float({mult}, "Factor")
+[st, dir] = ta.supertrend(mult, length)
+plot(st, "Supertrend", color.purple)`,
+  rsi: `//@version=6
+indicator("Relative Strength Index")
+length = input.int({length}, "Length")
+r = ta.rsi(close, length)
+plot(r, "RSI", color.purple)
+hline(70)
+hline(30)`,
+  macd: `//@version=6
+indicator("MACD")
+fast = input.int({fast}, "Fast")
+slow = input.int({slow}, "Slow")
+sig = input.int({signal}, "Signal")
+macd = ta.ema(close, fast) - ta.ema(close, slow)
+signal = ta.ema(macd, sig)
+plot(macd - signal, "Histogram", style = plot.style_histogram)
+plot(macd, "MACD", color.blue)
+plot(signal, "Signal", color.orange)`,
+  stoch: `//@version=6
+indicator("Stochastic")
+k = input.int({k}, "%K")
+d = input.int({d}, "%D")
+kk = ta.stoch(close, high, low, k)
+plot(kk, "%K", color.blue)
+plot(ta.sma(kk, d), "%D", color.orange)`,
+  atr: `//@version=6
+indicator("Average True Range")
+length = input.int({length}, "Length")
+plot(ta.atr(length), "ATR", color.fuchsia)`,
+  obv: `//@version=6
+indicator("On Balance Volume")
+plot(ta.obv, "OBV", color.white)`
+};
+
+export function indicatorCode(id: string, params: Record<string, number>): string {
+  return (CODE[id] ?? '').replace(/\{(\w+)\}/g, (_, k) => String(params[k] ?? ''));
+}

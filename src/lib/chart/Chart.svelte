@@ -5,6 +5,7 @@
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
   import { indicatorById } from './indicators';
+  import Icons from '$lib/ui/Icons.svelte';
   import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator } from './renderer';
   import { t } from '$lib/i18n';
 
@@ -17,6 +18,7 @@
   let errMsg = $state('');
   let hover = $state<number | null>(null);
   let exhausted = false, loadingMore = false;
+  let menuFor = $state('');
 
   const lookback: Record<string, number> = {
     '1m': 5, '5m': 25, '15m': 60, '30m': 90, '1h': 400, '4h': 700, '1d': 3650, '1w': 7300, '1M': 14600
@@ -41,7 +43,9 @@
   const display = $derived(transform(raw, cfg.type));
   const active = $derived<ActiveIndicator[]>(cfg.indicators.flatMap((i) => {
     const def = indicatorById(i.id);
-    return def ? [{ id: i.uid, def, lines: def.compute(display, i.params) }] : [];
+    if (!def || i.hidden) return [];
+    const lines = def.compute(display, i.params).map((ln, k) => (i.colors?.[k] ? { ...ln, color: i.colors[k] } : ln));
+    return [{ id: i.uid, def, lines }];
   }));
 
   async function load(reset: boolean) {
@@ -164,12 +168,26 @@
     {#each cfg.indicators as ind (ind.uid)}
       {@const def = indicatorById(ind.id)}
       {@const lines = active.find((a) => a.id === ind.uid)?.lines ?? []}
-      <div class="row ind">
-        <span class="dim">{def?.label.replace(/ \(.*\)/, '')} {Object.values(ind.params).join(' ')}</span>
-        {#each lines as ln}
-          {#if bar >= 0 && !Number.isNaN(ln.v[bar]) && ln.kind !== 'band'}<span style:color={ln.color}>{ln.v[bar].toFixed(2)}</span>{/if}
-        {/each}
-        <button class="x" title="Remove" onclick={() => { cfg.indicators = cfg.indicators.filter((q) => q.uid !== ind.uid); app.persist(); }}>×</button>
+      <div class="pill" class:off={ind.hidden}>
+        <span class="nm">{def?.label.replace(/ \(.*\)/, '')}</span>
+        {#if ind.showParams ?? app.showParams}<span class="dim">{Object.values(ind.params).join(' ')}</span>{/if}
+        {#if !ind.hidden}{#each lines as ln}{#if bar >= 0 && !Number.isNaN(ln.v[bar]) && ln.kind !== 'band'}<span style:color={ln.color}>{ln.v[bar].toFixed(2)}</span>{/if}{/each}{/if}
+        <span class="acts">
+          <button title={ind.hidden ? 'Show' : 'Hide'} onclick={() => { ind.hidden = !ind.hidden; app.persist(); }}><Icons name={ind.hidden ? 'eyeoff' : 'eye'} size={14} /></button>
+          <button title="Settings" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'settings' })}><Icons name="gear" size={14} /></button>
+          <button title="Source code" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'code' })}><Icons name="braces" size={14} /></button>
+          <button title="Remove" onclick={() => { cfg.indicators = cfg.indicators.filter((q) => q.uid !== ind.uid); app.persist(); }}><Icons name="trash" size={14} /></button>
+          <span class="mwrap">
+            <button title="More" onclick={() => (menuFor = menuFor === ind.uid ? '' : ind.uid)}><Icons name="more" size={14} /></button>
+            {#if menuFor === ind.uid}
+              <div class="mmenu" role="menu">
+                <button onclick={() => { ind.showParams = !(ind.showParams ?? app.showParams); menuFor = ''; app.persist(); }}>{ind.showParams ?? app.showParams ? 'Hide parameters' : 'Show parameters'}</button>
+                <button onclick={() => { cfg.indicators = [...cfg.indicators, { ...$state.snapshot(ind), uid: crypto.randomUUID() }]; menuFor = ''; app.persist(); }}>Duplicate</button>
+                <button onclick={() => { if (def) ind.params = { ...def.params }; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
+              </div>
+            {/if}
+          </span>
+        </span>
       </div>
     {/each}
   </div>
@@ -190,8 +208,16 @@
   .sym { pointer-events: auto; background: none; border: 0; color: var(--fg); font: 600 14px system-ui, sans-serif; cursor: pointer; padding: 0; }
   .sym:hover { color: var(--accent); }
   .dim { color: var(--dim); }
-  .ind { font-size: 11.5px; }
-  .x { pointer-events: auto; background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 14px; padding: 0 2px; }
-  .x:hover { color: var(--down); }
+  .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 3px 4px 3px 9px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
+  .pill:hover { border-color: var(--accent); }
+  .pill.off { opacity: 0.55; }
+  .nm { color: var(--fg); font-family: system-ui, sans-serif; font-weight: 600; }
+  .acts { display: inline-flex; align-items: center; gap: 1px; opacity: 0; transition: opacity 0.12s; }
+  .pill:hover .acts, .pill:focus-within .acts { opacity: 1; }
+  .acts button { display: grid; place-items: center; width: 22px; height: 22px; background: none; border: 0; color: var(--dim); cursor: pointer; }
+  .acts button:hover { color: #fff; background: var(--accent); }
+  .mwrap { position: relative; }
+  .mmenu { position: absolute; top: 26px; right: 0; z-index: 30; min-width: 160px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--glass-line); }
+  .mmenu button { width: auto; height: auto; padding: 8px 12px; text-align: left; color: var(--fg); font: 12px system-ui, sans-serif; }
   .state { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 13px; pointer-events: none; }
 </style>

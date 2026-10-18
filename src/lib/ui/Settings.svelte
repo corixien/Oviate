@@ -60,6 +60,13 @@
           </div>
         </div>
         <div>
+          <h3>Indicator parameters</h3>
+          <div class="seg">
+            <button class:on={app.showParams} onclick={() => { app.showParams = true; app.persist(); }}>Show</button>
+            <button class:on={!app.showParams} onclick={() => { app.showParams = false; app.persist(); }}>Hide</button>
+          </div>
+        </div>
+        <div>
           <h3>{t('animations', app.lang)}</h3>
           <div class="seg">
             <button class:on={app.anim} onclick={() => { app.anim = true; app.persist(); }}>On</button>

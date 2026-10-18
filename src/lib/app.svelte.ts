@@ -8,7 +8,7 @@ export interface ChartCfg {
   symbol: string;
   tf: Tf;
   type: ChartType;
-  indicators: { uid: string; id: string; params: Record<string, number> }[];
+  indicators: { uid: string; id: string; params: Record<string, number>; hidden?: boolean; showParams?: boolean; colors?: string[] }[];
   drawings: Drawing[];
   log: boolean;
   volume: boolean;
@@ -37,6 +37,8 @@ class App {
   tool = $state<DrawTool>('cursor');
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
+  showParams = $state(false);
+  indDialog = $state<{ uid: string; mode: 'settings' | 'code' } | null>(null);
   crossT = $state<{ t: number | null; from: string }>({ t: null, from: '' });
   toast = $state('');
   ready = $state(false);
@@ -60,6 +62,7 @@ class App {
         this.theme = s.theme ?? 'dark';
         this.lang = s.lang ?? 'en';
         this.anim = s.anim ?? true;
+        this.showParams = s.showParams ?? false;
         this.palette = s.palette ?? 'neon';
         this.grid = s.grid ?? true;
         this.magnet = s.magnet ?? false;
@@ -77,7 +80,7 @@ class App {
     this.timer = setTimeout(() => {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
-        lang: this.lang, anim: this.anim, palette: this.palette, grid: this.grid, magnet: this.magnet, sync: this.sync,
+        lang: this.lang, anim: this.anim, palette: this.palette, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
         watchlist: this.watchlist, showWatchlist: this.showWatchlist
       }));
     }, 400);
