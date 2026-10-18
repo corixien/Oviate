@@ -1,0 +1,13 @@
+//@version=5
+indicator("Schaff Trend Cycle (STC)", shorttitle="STC", overlay=false)
+fastLen = input.int(23, "Fast Length", minval=1)
+slowLen = input.int(50, "Slow Length", minval=1)
+cycle = input.int(10, "Cycle Length", minval=1)
+src = input.source(close, "Source")
+m = ta.ema(src, fastLen) - ta.ema(src, slowLen)
+k1 = ta.ema(ta.stoch(m, m, m, cycle), 3)
+stc = ta.ema(ta.stoch(k1, k1, k1, cycle), 3)
+plot(stc, "STC", color=color.purple)
+h1 = hline(75, "Upper")
+h2 = hline(25, "Lower")
+fill(h1, h2, color=color.new(color.purple, 94))

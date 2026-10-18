@@ -1,0 +1,7 @@
+//@version=5
+indicator("TRIX", shorttitle="TRIX", overlay=false)
+length = input.int(15, "Length", minval=1)
+src = input.source(close, "Source")
+t = 10000 * ta.change(math.log(ta.ema(ta.ema(ta.ema(src, length), length), length)))
+plot(t, "TRIX", color=color.red)
+hline(0, "Zero", color=color.gray)

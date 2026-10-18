@@ -1,0 +1,3 @@
+//@version=5
+indicator("Price Volume Trend (PVT)", shorttitle="PVT", overlay=false)
+plot(ta.pvt, "PVT", color=color.blue)

@@ -1,0 +1,7 @@
+//@version=5
+indicator("Chaikin Oscillator", shorttitle="CHO", overlay=false)
+fastLen = input.int(3, "Fast Length", minval=1)
+slowLen = input.int(10, "Slow Length", minval=1)
+adl = ta.accdist
+plot(ta.ema(adl, fastLen) - ta.ema(adl, slowLen), "Chaikin Oscillator", color=color.blue)
+hline(0, "Zero", color=color.gray)

@@ -1,0 +1,5 @@
+//@version=5
+indicator("Rolling High / Low", shorttitle="HL", overlay=true)
+length = input.int(50, "Length", minval=1)
+plot(ta.highest(high, length), "Highest", color=color.red, style=plot.style_stepline)
+plot(ta.lowest(low, length), "Lowest", color=color.green, style=plot.style_stepline)

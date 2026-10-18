@@ -1,0 +1,15 @@
+//@version=5
+indicator("Fisher Transform", shorttitle="Fisher", overlay=false)
+length = input.int(9, "Length", minval=1)
+mx = ta.highest(hl2, length)
+mn = ta.lowest(hl2, length)
+var float v = 0.0
+var float fish = 0.0
+prevFish = fish
+rng = mx - mn
+v := rng == 0 ? 0.0 : 0.66 * ((hl2 - mn) / rng - 0.5) + 0.67 * v
+v := math.max(math.min(v, 0.999), -0.999)
+fish := 0.5 * math.log((1 + v) / (1 - v)) + 0.5 * fish
+plot(fish, "Fisher", color=color.blue)
+plot(prevFish, "Trigger", color=color.orange)
+hline(0, "Zero", color=color.gray)

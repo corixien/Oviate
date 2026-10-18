@@ -1,0 +1,6 @@
+//@version=5
+indicator("Momentum", shorttitle="MOM", overlay=false)
+length = input.int(10, "Length", minval=1)
+src = input.source(close, "Source")
+plot(ta.mom(src, length), "Momentum", color=color.blue)
+hline(0, "Zero", color=color.gray)

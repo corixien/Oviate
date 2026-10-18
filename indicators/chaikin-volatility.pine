@@ -1,0 +1,7 @@
+//@version=5
+indicator("Chaikin Volatility", shorttitle="ChaikinV", overlay=false)
+length = input.int(10, "Length", minval=1)
+rocLen = input.int(10, "ROC Length", minval=1)
+e = ta.ema(high - low, length)
+plot(100 * (e - e[rocLen]) / e[rocLen], "Chaikin Volatility", color=color.orange)
+hline(0, "Zero", color=color.gray)

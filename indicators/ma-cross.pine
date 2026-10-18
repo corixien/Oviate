@@ -1,0 +1,11 @@
+//@version=5
+indicator("Moving Average Cross", shorttitle="MA Cross", overlay=true)
+fastLen = input.int(9, "Fast Length", minval=1)
+slowLen = input.int(21, "Slow Length", minval=1)
+src = input.source(close, "Source")
+fast = ta.ema(src, fastLen)
+slow = ta.ema(src, slowLen)
+plot(fast, "Fast", color=color.aqua)
+plot(slow, "Slow", color=color.orange)
+plotshape(ta.crossover(fast, slow), "Cross up", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small)
+plotshape(ta.crossunder(fast, slow), "Cross down", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)

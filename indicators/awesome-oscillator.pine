@@ -1,0 +1,7 @@
+//@version=5
+indicator("Awesome Oscillator", shorttitle="AO", overlay=false)
+fastLen = input.int(5, "Fast Length", minval=1)
+slowLen = input.int(34, "Slow Length", minval=1)
+ao = ta.sma(hl2, fastLen) - ta.sma(hl2, slowLen)
+plot(ao, "AO", style=plot.style_columns, color=ao >= nz(ao[1]) ? color.green : color.red)
+hline(0, "Zero", color=color.gray)

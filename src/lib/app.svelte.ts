@@ -8,7 +8,7 @@ export interface ChartCfg {
   symbol: string;
   tf: Tf;
   type: ChartType;
-  indicators: { uid: string; id: string; params: Record<string, number>; hidden?: boolean; showParams?: boolean; colors?: string[] }[];
+  indicators: { uid: string; id: string; params: Record<string, number | string | boolean>; hidden?: boolean; showParams?: boolean; colors?: string[] }[];
   drawings: Drawing[];
   log: boolean;
   volume: boolean;
@@ -53,7 +53,9 @@ class App {
   tool = $state<DrawTool>('cursor');
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
-  page = $state<'chart' | 'news'>('chart');
+  page = $state<'chart' | 'news' | 'editor'>('chart');
+  /** Script editor target: an existing script or a new one (name null). */
+  editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null }>({ kind: 'indicators', name: null });
   newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
   showNews = $state(true);
   showParams = $state(false);

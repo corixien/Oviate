@@ -3,6 +3,7 @@ mod cache;
 mod mcp;
 mod model;
 mod news;
+mod pine_files;
 mod providers;
 mod stream;
 
@@ -215,6 +216,42 @@ async fn liquid_unusual(st: State<'_>) -> Result<Vec<mcp::Unusual>> {
     Ok(liquid_brief(&st).await?.1)
 }
 
+fn pine_dir(app: &tauri::AppHandle, kind: &str) -> Result<std::path::PathBuf> {
+    pine_files::kind_dir(&app.path().app_data_dir().map_err(|e| Error::Other(e.to_string()))?, kind)
+}
+
+#[tauri::command]
+fn pine_list(app: tauri::AppHandle, kind: String) -> Result<Vec<pine_files::PineFile>> {
+    pine_files::list(&pine_dir(&app, &kind)?)
+}
+
+#[tauri::command]
+fn pine_save(app: tauri::AppHandle, kind: String, name: String, code: String) -> Result<String> {
+    pine_files::save(&pine_dir(&app, &kind)?, &name, &code)
+}
+
+#[tauri::command]
+fn pine_delete(app: tauri::AppHandle, kind: String, name: String) -> Result<()> {
+    pine_files::delete(&pine_dir(&app, &kind)?, &name)
+}
+
+/// Write bundled scripts that were never seeded before (a deleted bundled script stays deleted).
+#[tauri::command]
+fn pine_seed(app: tauri::AppHandle, st: State<'_>, kind: String, files: Vec<pine_files::PineFile>) -> Result<()> {
+    let key = format!("pine_seeded:{kind}");
+    let already: Vec<String> = st.cache.kv_get(&key)?.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default();
+    let seeded = pine_files::seed(&pine_dir(&app, &kind)?, &files, &already)?;
+    st.cache.kv_set(&key, &serde_json::to_string(&seeded).map_err(|e| Error::Other(e.to_string()))?)
+}
+
+/// Absolute path of the scripts folder (created if needed).
+#[tauri::command]
+fn pine_folder(app: tauri::AppHandle, kind: String) -> Result<String> {
+    let d = pine_dir(&app, &kind)?;
+    std::fs::create_dir_all(&d).map_err(|e| Error::Other(e.to_string()))?;
+    Ok(d.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 fn kv_get(st: State<'_>, key: String) -> Result<Option<String>> {
     st.cache.kv_get(&key)
@@ -254,6 +291,11 @@ pub fn run() {
             news_window,
             ai_summary,
             liquid_unusual,
+            pine_list,
+            pine_save,
+            pine_delete,
+            pine_seed,
+            pine_folder,
             kv_get,
             kv_set
         ])

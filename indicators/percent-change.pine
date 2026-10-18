@@ -1,0 +1,5 @@
+//@version=5
+indicator("Percent Change", shorttitle="% Chg", overlay=false)
+chg = 100 * (close / nz(close[1], close) - 1)
+plot(chg, "% Change", style=plot.style_columns, color=chg >= 0 ? color.green : color.red)
+hline(0, "Zero", color=color.gray)

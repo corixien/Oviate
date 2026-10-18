@@ -1,0 +1,8 @@
+//@version=5
+indicator("Mass Index", shorttitle="MI", overlay=false)
+length = input.int(25, "Length", minval=1)
+e1 = ta.ema(high - low, 9)
+e2 = ta.ema(e1, 9)
+plot(math.sum(e1 / e2, length), "Mass Index", color=color.purple)
+hline(27, "Reversal bulge", color=color.gray)
+hline(26.5, "Setup", color=color.gray)

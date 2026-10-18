@@ -1,0 +1,8 @@
+//@version=5
+indicator("Triple Exponential Moving Average (TEMA)", shorttitle="TEMA", overlay=true)
+length = input.int(20, "Length", minval=1)
+src = input.source(close, "Source")
+e1 = ta.ema(src, length)
+e2 = ta.ema(e1, length)
+e3 = ta.ema(e2, length)
+plot(3 * e1 - 3 * e2 + e3, "TEMA", color=color.aqua)

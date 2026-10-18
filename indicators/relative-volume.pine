@@ -1,0 +1,6 @@
+//@version=5
+indicator("Relative Volume (RVOL)", shorttitle="RVOL", overlay=false)
+length = input.int(20, "Length", minval=1)
+rv = volume / ta.sma(volume, length)
+plot(rv, "RVOL", style=plot.style_columns, color=rv >= 2 ? color.fuchsia : rv >= 1 ? color.new(color.blue, 30) : color.new(color.gray, 50))
+hline(1, "Average", color=color.gray)

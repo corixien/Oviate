@@ -8,6 +8,8 @@
   import Watchlist from '$lib/ui/Watchlist.svelte';
   import Analysis from '$lib/ui/Analysis.svelte';
   import NewsPage from '$lib/ui/NewsPage.svelte';
+  import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
+  import { library } from '$lib/library.svelte';
   import Spotlight from '$lib/ui/Spotlight.svelte';
   import Settings from '$lib/ui/Settings.svelte';
   import IndicatorDialog from '$lib/ui/IndicatorDialog.svelte';
@@ -47,6 +49,7 @@
 
   onMount(() => {
     app.load();
+    library.load();
     let off = () => {};
     onTick((t) => { app.ticks[t.symbol] = { p: t.price, s: t.size, t: t.t }; }).then((f) => (off = f));
     return () => off();
@@ -76,7 +79,8 @@
 <div class="app">
   <TopBar />
   {#if app.page === 'news'}<NewsPage />{/if}
-  <div class="body" class:hid={app.page === 'news'}>
+  {#if app.page === 'editor'}<ScriptEditor />{/if}
+  <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
     <div class="center" bind:this={center}>
       <main class="grid l{app.layout}" style:grid-template-columns={cols} style:grid-template-rows={rows}>
@@ -147,5 +151,5 @@
   .l2v { grid-template-rows: 1fr; }
   .l2h { grid-template-columns: 1fr; }
   .l3 :global(.pane:first-child) { grid-row: 1 / span 2; }
-  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 2px; font-size: 13px; background: var(--glass); border: 1px solid var(--glass-line); -webkit- z-index: 200; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 2px; font-size: 13px; background: var(--glass); border: 1px solid var(--glass-line); z-index: 200; }
 </style>

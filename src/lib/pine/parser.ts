@@ -152,12 +152,12 @@ export class Parser {
   private block(): Stmt[] {
     if (this.cur.t === 'nl') {
       this.skipNl();
-      if (this.cur.t !== 'indent') this.err('expected an indented block');
+      if ((this.cur.t as string) !== 'indent') this.err('expected an indented block');
       this.p++;
       const out: Stmt[] = [];
       this.skipNl();
-      while (this.cur.t !== 'dedent' && this.cur.t !== 'eof') { out.push(this.statement()); this.skipNl(); }
-      if (this.cur.t === 'dedent') this.p++;
+      while ((this.cur.t as string) !== 'dedent' && (this.cur.t as string) !== 'eof') { out.push(this.statement()); this.skipNl(); }
+      if ((this.cur.t as string) === 'dedent') this.p++;
       return out;
     }
     return [this.statement()];
@@ -178,7 +178,7 @@ export class Parser {
       const t = this.toks[j];
       if (t.t === 'op' && (t.v === '(' || t.v === '[')) d++;
       else if (t.t === 'op' && (t.v === ')' || t.v === ']')) { d--; if (d === 0) break; }
-      else if (t.t === 'nl' || t.t === 'eof') return false;
+      else if ((t.t as string) === 'nl' || (t.t as string) === 'eof') return false;
     }
     return this.isOp('=>', this.toks[j + 1]);
   }
@@ -228,7 +228,7 @@ export class Parser {
     // [qualifier] [type][<...>] before an identifier
     while (this.cur.t === 'id' && TYPES.has(this.cur.v as string)) {
       this.p++;
-      if (this.isOp('<')) { let d = 0; do { if (this.isOp('<')) d++; else if (this.isOp('>')) d--; this.p++; } while (d > 0 && this.cur.t !== 'eof'); }
+      if (this.isOp('<')) { let d = 0; do { if (this.isOp('<')) d++; else if (this.isOp('>')) d--; this.p++; } while (d > 0 && (this.cur.t as string) !== 'eof'); }
       if (this.isOp('.')) { this.p++; this.p++; }
     }
   }
@@ -351,7 +351,7 @@ export class Parser {
       case 'id': {
         const v = t.v as string;
         if (v === 'true' || v === 'false') { this.p++; return { k: 'bool', v: v === 'true' }; }
-        if (v === 'na') { this.p++; return { k: 'na' }; }
+        if (v === 'na' && !this.isOp('(', this.peek())) { this.p++; return { k: 'na' }; }
         if (v === 'if') return this.ifExpr();
         if (v === 'for') return this.forExpr();
         if (v === 'while') { this.p++; const cond = this.expr(); return { k: 'while', cond, body: this.block() }; }
@@ -407,18 +407,18 @@ export class Parser {
     let subject: Expr | undefined;
     if (this.cur.t !== 'nl') subject = this.expr();
     this.skipNl();
-    if (this.cur.t !== 'indent') this.err('expected switch cases');
+    if ((this.cur.t as string) !== 'indent') this.err('expected switch cases');
     this.p++;
     const cases: { test?: Expr; body: Stmt[] }[] = [];
     this.skipNl();
-    while (this.cur.t !== 'dedent' && this.cur.t !== 'eof') {
+    while ((this.cur.t as string) !== 'dedent' && (this.cur.t as string) !== 'eof') {
       let test: Expr | undefined;
       if (!this.isOp('=>')) test = this.expr();
       this.eatOp('=>');
       cases.push({ test, body: this.block() });
       this.skipNl();
     }
-    if (this.cur.t === 'dedent') this.p++;
+    if ((this.cur.t as string) === 'dedent') this.p++;
     return { k: 'switch', subject, cases };
   }
 }

@@ -1,0 +1,7 @@
+//@version=5
+indicator("McGinley Dynamic", shorttitle="MD", overlay=true)
+length = input.int(14, "Length", minval=1)
+src = input.source(close, "Source")
+var float md = na
+md := na(md) ? src : md + (src - md) / (length * math.pow(src / md, 4))
+plot(md, "McGinley", color=color.purple)

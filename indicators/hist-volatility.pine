@@ -1,0 +1,6 @@
+//@version=5
+indicator("Historical Volatility", shorttitle="HV", overlay=false)
+length = input.int(10, "Length", minval=2)
+annual = input.int(252, "Periods per Year", minval=1)
+r = ta.change(math.log(close))
+plot(100 * ta.stdev(r, length) * math.sqrt(annual), "HV", color=color.blue)

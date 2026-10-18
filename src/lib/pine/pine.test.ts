@@ -24,7 +24,7 @@ function same(a: Float64Array | number[], b: Float64Array | number[], tol = 1e-9
     assert.ok(Math.abs(a[i] - b[i]) <= tol * Math.max(1, Math.abs(b[i])), `index ${i}: ${a[i]} vs ${b[i]}`);
   }
 }
-const run = (code: string, params = {}) => { const r = runPine(code, data, { params }); assert.equal(r.error, undefined, r.error?.message); return r; };
+const run = (code: string, params = {}) => { const r = runPine(code, data, { params }); if (r.error) throw new Error(r.error.message); return r; };
 
 test('sma / ema / rma match reference implementations', () => {
   const r = run('indicator("t")\nplot(ta.sma(close, 20))\nplot(ta.ema(close, 20))');

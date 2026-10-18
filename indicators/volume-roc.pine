@@ -1,0 +1,5 @@
+//@version=5
+indicator("Volume Rate of Change", shorttitle="VROC", overlay=false)
+length = input.int(14, "Length", minval=1)
+plot(ta.roc(volume, length), "VROC", color=color.orange)
+hline(0, "Zero", color=color.gray)

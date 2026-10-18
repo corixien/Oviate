@@ -1,0 +1,6 @@
+//@version=5
+indicator("Parabolic SAR", shorttitle="SAR", overlay=true)
+start = input.float(0.02, "Start", step=0.01)
+inc = input.float(0.02, "Increment", step=0.01)
+maxAf = input.float(0.2, "Maximum", step=0.01)
+plot(ta.sar(start, inc, maxAf), "SAR", style=plot.style_circles, color=color.purple, linewidth=2)

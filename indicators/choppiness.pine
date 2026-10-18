@@ -1,0 +1,8 @@
+//@version=5
+indicator("Choppiness Index (CHOP)", shorttitle="CHOP", overlay=false)
+length = input.int(14, "Length", minval=2)
+c = 100 * math.log10(math.sum(ta.tr, length) / (ta.highest(high, length) - ta.lowest(low, length))) / math.log10(length)
+plot(c, "CHOP", color=color.blue)
+h1 = hline(61.8, "Choppy")
+h2 = hline(38.2, "Trending")
+fill(h1, h2, color=color.new(color.blue, 94))

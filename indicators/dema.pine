@@ -1,0 +1,7 @@
+//@version=5
+indicator("Double Exponential Moving Average (DEMA)", shorttitle="DEMA", overlay=true)
+length = input.int(20, "Length", minval=1)
+src = input.source(close, "Source")
+e1 = ta.ema(src, length)
+e2 = ta.ema(e1, length)
+plot(2 * e1 - e2, "DEMA", color=color.fuchsia)

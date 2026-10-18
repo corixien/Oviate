@@ -1,0 +1,11 @@
+//@version=5
+indicator("Relative Volatility Index", shorttitle="RVI", overlay=false)
+length = input.int(10, "Length", minval=1)
+emaLen = input.int(14, "Smoothing", minval=1)
+src = input.source(close, "Source")
+sd = ta.stdev(src, length)
+chg = ta.change(src)
+up = ta.ema(chg <= 0 ? 0.0 : sd, emaLen)
+dn = ta.ema(chg > 0 ? 0.0 : sd, emaLen)
+plot(100 * up / (up + dn), "RVI", color=color.purple)
+hline(50, "Middle", color=color.gray)

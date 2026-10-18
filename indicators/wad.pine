@@ -1,0 +1,3 @@
+//@version=5
+indicator("Williams Accumulation / Distribution", shorttitle="WAD", overlay=false)
+plot(ta.wad, "WAD", color=color.blue)

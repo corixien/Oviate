@@ -1,0 +1,14 @@
+//@version=5
+indicator("Ultimate Oscillator", shorttitle="UO", overlay=false)
+fast = input.int(7, "Fast Length", minval=1)
+mid = input.int(14, "Middle Length", minval=1)
+slow = input.int(28, "Slow Length", minval=1)
+prevClose = nz(close[1], close)
+bp = close - math.min(low, prevClose)
+trr = math.max(high, prevClose) - math.min(low, prevClose)
+avg(len) => math.sum(bp, len) / math.sum(trr, len)
+uo = 100 * (4 * avg(fast) + 2 * avg(mid) + avg(slow)) / 7
+plot(uo, "UO", color=color.purple)
+h1 = hline(70, "Upper")
+h2 = hline(30, "Lower")
+fill(h1, h2, color=color.new(color.purple, 94))

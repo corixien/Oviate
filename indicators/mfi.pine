@@ -1,0 +1,7 @@
+//@version=5
+indicator("Money Flow Index (MFI)", shorttitle="MFI", overlay=false)
+length = input.int(14, "Length", minval=1)
+plot(ta.mfi(hlc3, length), "MFI", color=color.purple)
+h1 = hline(80, "Overbought")
+h2 = hline(20, "Oversold")
+fill(h1, h2, color=color.new(color.purple, 94))

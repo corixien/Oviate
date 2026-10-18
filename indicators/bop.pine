@@ -1,0 +1,6 @@
+//@version=5
+indicator("Balance of Power (BOP)", shorttitle="BOP", overlay=false)
+rng = high - low
+bop = rng == 0 ? 0.0 : (close - open) / rng
+plot(bop, "BOP", color=color.blue)
+hline(0, "Zero", color=color.gray)

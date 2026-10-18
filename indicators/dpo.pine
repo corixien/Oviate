@@ -1,0 +1,7 @@
+//@version=5
+indicator("Detrended Price Oscillator (DPO)", shorttitle="DPO", overlay=false)
+length = input.int(21, "Length", minval=1)
+src = input.source(close, "Source")
+shift = math.floor(length / 2) + 1
+plot(src - ta.sma(src, length)[shift], "DPO", color=color.green)
+hline(0, "Zero", color=color.gray)

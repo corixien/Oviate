@@ -1,0 +1,9 @@
+//@version=5
+indicator("Commodity Channel Index (CCI)", shorttitle="CCI", overlay=false)
+length = input.int(20, "Length", minval=1)
+src = input.source(hlc3, "Source")
+plot(ta.cci(src, length), "CCI", color=color.purple)
+h1 = hline(100, "Upper")
+hline(0, "Zero")
+h2 = hline(-100, "Lower")
+fill(h1, h2, color=color.new(color.purple, 94))

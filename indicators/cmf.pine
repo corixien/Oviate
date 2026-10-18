@@ -1,0 +1,8 @@
+//@version=5
+indicator("Chaikin Money Flow (CMF)", shorttitle="CMF", overlay=false)
+length = input.int(20, "Length", minval=1)
+rng = high - low
+mfv = rng == 0 ? 0.0 : ((close - low) - (high - close)) / rng * volume
+cmf = math.sum(mfv, length) / math.sum(volume, length)
+plot(cmf, "CMF", style=plot.style_columns, color=cmf >= 0 ? color.new(color.green, 30) : color.new(color.red, 30))
+hline(0, "Zero", color=color.gray)

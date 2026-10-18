@@ -1,0 +1,6 @@
+//@version=5
+indicator("Rate of Change (ROC)", shorttitle="ROC", overlay=false)
+length = input.int(9, "Length", minval=1)
+src = input.source(close, "Source")
+plot(ta.roc(src, length), "ROC", color=color.blue)
+hline(0, "Zero", color=color.gray)

@@ -1,0 +1,4 @@
+//@version=5
+indicator("Negative / Positive Volume Index", shorttitle="NVI/PVI", overlay=false)
+plot(ta.nvi, "NVI", color=color.red)
+plot(ta.pvi, "PVI", color=color.green)

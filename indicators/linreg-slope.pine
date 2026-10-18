@@ -1,0 +1,6 @@
+//@version=5
+indicator("Linear Regression Slope", shorttitle="Slope", overlay=false)
+length = input.int(20, "Length", minval=2)
+src = input.source(close, "Source")
+s = ta.linreg(src, length, 0) - ta.linreg(src, length, 1)
+plot(s, "Slope", style=plot.style_columns, color=s >= 0 ? color.green : color.red)

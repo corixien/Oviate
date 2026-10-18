@@ -67,7 +67,7 @@
   .sq { padding: 7px; }
   .menuwrap { position: relative; }
   .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 150px; padding: 6px; border-radius: 2px; display: flex; flex-direction: column;
-    background: var(--glass); border: 1px solid var(--glass-line); -webkit-
+    background: var(--glass); border: 1px solid var(--glass-line); 
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); animation: m 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: top left; }
   .menu.right { left: auto; right: 0; transform-origin: top right; }
   .menu button { justify-content: flex-start; text-transform: capitalize; font-weight: 500; }

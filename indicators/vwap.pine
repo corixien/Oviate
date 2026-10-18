@@ -1,0 +1,4 @@
+//@version=5
+indicator("Volume Weighted Average Price (VWAP)", shorttitle="VWAP", overlay=true)
+src = input.source(close, "Source")
+plot(ta.vwap(src), "VWAP", color=color.blue, linewidth=2)

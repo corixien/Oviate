@@ -1,0 +1,6 @@
+//@version=5
+indicator("Inside / Outside Bar", shorttitle="IB", overlay=true)
+inside = high < nz(high[1], high) and low > nz(low[1], low)
+outside = high > nz(high[1], high) and low < nz(low[1], low)
+plotshape(inside, "Inside Bar", style=shape.circle, location=location.abovebar, color=color.aqua, size=size.tiny)
+plotshape(outside, "Outside Bar", style=shape.diamond, location=location.belowbar, color=color.yellow, size=size.tiny)

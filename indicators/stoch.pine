@@ -1,0 +1,12 @@
+//@version=5
+indicator("Stochastic Oscillator", shorttitle="Stoch", overlay=false)
+kLen = input.int(14, "%K Length", minval=1)
+smoothK = input.int(1, "%K Smoothing", minval=1)
+dLen = input.int(3, "%D Smoothing", minval=1)
+k = ta.sma(ta.stoch(close, high, low, kLen), smoothK)
+d = ta.sma(k, dLen)
+plot(k, "%K", color=color.blue)
+plot(d, "%D", color=color.orange)
+h1 = hline(80, "Upper")
+h2 = hline(20, "Lower")
+fill(h1, h2, color=color.new(color.blue, 94))

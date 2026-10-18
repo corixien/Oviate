@@ -1,0 +1,10 @@
+//@version=5
+indicator("True Strength Index (TSI)", shorttitle="TSI", overlay=false)
+longLen = input.int(25, "Long Length", minval=1)
+shortLen = input.int(13, "Short Length", minval=1)
+sigLen = input.int(13, "Signal Length", minval=1)
+src = input.source(close, "Source")
+t = ta.tsi(src, shortLen, longLen)
+plot(t, "TSI", color=color.blue)
+plot(ta.ema(t, sigLen), "Signal", color=color.orange)
+hline(0, "Zero", color=color.gray)

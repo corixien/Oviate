@@ -3,7 +3,7 @@
   import { app, newChart } from '$lib/app.svelte';
   import { searchSymbols, TIMEFRAMES, type SymbolHit } from '$lib/api';
   import { CHART_TYPES } from '$lib/chart/transforms';
-  import { INDICATORS } from '$lib/chart/indicators';
+  import { library } from '$lib/library.svelte';
   import { DRAW_TOOLS } from '$lib/chart/renderer';
   import { t } from '$lib/i18n';
 
@@ -21,10 +21,10 @@
   const commands = $derived<Item[]>([
     ...TIMEFRAMES.map((tf) => ({ key: `tf ${tf}`, title: `Timeframe ${tf}`, tag: 'tf', run: () => { app.chart.tf = tf; } })),
     ...CHART_TYPES.map((ct) => ({ key: `type ${ct}`, title: `Chart type: ${ct}`, tag: 'type', run: () => { app.chart.type = ct; } })),
-    ...INDICATORS.map((d) => ({ key: `ind add ${d.id} ${d.label}`, title: `Add ${d.label}`, tag: 'indicator',
-      run: () => { app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: d.id, params: { ...d.params } }]; } })),
-    ...app.chart.indicators.map((i) => ({ key: `ind remove ${i.id}`, title: `Remove ${i.id.toUpperCase()}`, tag: 'indicator',
-      run: () => { app.chart.indicators = app.chart.indicators.filter((x) => x.uid !== i.uid); } })),
+    { key: 'ind add new create pine script editor', title: 'New indicator (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'indicator', run: () => { app.editor = { kind: 'indicators', name: null }; app.page = 'editor'; } },
+    { key: 'strat add new create pine strategy editor', title: 'New strategy (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'strategy', run: () => { app.editor = { kind: 'strategies', name: null }; app.page = 'editor'; } },
+    ...library.indicators.map((f) => ({ key: `ind add ${f.name} ${f.title}`, title: `Add ${f.title}`, sub: f.name, tag: 'indicator',
+      run: () => { app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: f.name, params: {} }]; } })),
     { key: 'ind clear remove all indicators', title: 'Remove all indicators', tag: 'indicator', run: () => { app.chart.indicators = []; } },
     ...(['1', '2v', '2h', '3', '4'] as const).map((l) => ({ key: `layout ${l}`, title: `Layout: ${l === '1' ? 'single chart' : l === '2v' ? '2 charts side by side' : l === '2h' ? '2 charts stacked' : l + ' charts'}`, tag: 'layout', run: () => { app.setLayout(l); } })),
     ...DRAW_TOOLS.map((d) => ({ key: `draw ${d}`, title: `Draw: ${d}`, tag: 'draw', run: () => { app.tool = d; } })),
@@ -124,11 +124,11 @@
 
 <style>
   .scrim { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh;
-    background: rgba(0, 0, 0, 0.55); -webkit-
+    background: rgba(0, 0, 0, 0.55); 
     animation: fade 0.22s ease both; }
   .scrim.out { animation: fadeout 0.14s ease both; }
   .panel { width: min(680px, calc(100vw - 32px)); max-height: 62vh; display: flex; flex-direction: column; border-radius: 2px; overflow: hidden;
-    background: var(--glass); border: 1px solid var(--glass-line); -webkit-
+    background: var(--glass); border: 1px solid var(--glass-line); 
     box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.25), 0 30px 90px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.12);
     animation: pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: 50% 0; }
   .panel.out { animation: popout 0.14s ease both; }

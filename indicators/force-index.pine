@@ -1,0 +1,5 @@
+//@version=5
+indicator("Force Index", shorttitle="FI", overlay=false)
+length = input.int(13, "Length", minval=1)
+plot(ta.ema(ta.change(close) * volume, length), "Force Index", color=color.red)
+hline(0, "Zero", color=color.gray)

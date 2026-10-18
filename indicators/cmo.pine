@@ -1,0 +1,8 @@
+//@version=5
+indicator("Chande Momentum Oscillator (CMO)", shorttitle="CMO", overlay=false)
+length = input.int(9, "Length", minval=1)
+src = input.source(close, "Source")
+plot(ta.cmo(src, length), "CMO", color=color.purple)
+hline(50, "Upper", color=color.gray)
+hline(0, "Zero", color=color.gray)
+hline(-50, "Lower", color=color.gray)

@@ -1,0 +1,11 @@
+//@version=5
+indicator("Moving Average Convergence Divergence (MACD)", shorttitle="MACD", overlay=false)
+fastLen = input.int(12, "Fast Length", minval=1)
+slowLen = input.int(26, "Slow Length", minval=1)
+sigLen = input.int(9, "Signal Length", minval=1)
+src = input.source(close, "Source")
+[macdLine, signalLine, hist] = ta.macd(src, fastLen, slowLen, sigLen)
+plot(hist, "Histogram", style=plot.style_columns, color=hist >= 0 ? (hist > nz(hist[1]) ? color.new(color.aqua, 20) : color.new(color.aqua, 60)) : (hist < nz(hist[1]) ? color.new(color.fuchsia, 20) : color.new(color.fuchsia, 60)))
+plot(macdLine, "MACD", color=color.blue)
+plot(signalLine, "Signal", color=color.orange)
+hline(0, "Zero", color=color.gray)

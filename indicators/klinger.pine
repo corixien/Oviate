@@ -1,0 +1,14 @@
+//@version=5
+indicator("Klinger Volume Oscillator (KVO)", shorttitle="KVO", overlay=false)
+fastLen = input.int(34, "Fast Length", minval=1)
+slowLen = input.int(55, "Slow Length", minval=1)
+sigLen = input.int(13, "Signal Length", minval=1)
+dm = high - low
+trend = hlc3 > nz(hlc3[1], hlc3) ? 1 : -1
+var float cm = 0.0
+cm := trend == nz(trend[1], trend) ? cm + dm : dm + nz(dm[1])
+vf = cm == 0 ? 0.0 : volume * math.abs(2 * dm / cm - 1) * trend * 100
+kvo = ta.ema(vf, fastLen) - ta.ema(vf, slowLen)
+plot(kvo, "KVO", color=color.blue)
+plot(ta.ema(kvo, sigLen), "Signal", color=color.orange)
+hline(0, "Zero", color=color.gray)

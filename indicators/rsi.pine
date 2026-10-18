@@ -1,0 +1,10 @@
+//@version=5
+indicator("Relative Strength Index (RSI)", shorttitle="RSI", overlay=false)
+length = input.int(14, "Length", minval=1)
+src = input.source(close, "Source")
+r = ta.rsi(src, length)
+plot(r, "RSI", color=color.purple)
+h1 = hline(70, "Overbought", color=color.gray)
+hline(50, "Middle", color=color.gray)
+h2 = hline(30, "Oversold", color=color.gray)
+fill(h1, h2, color=color.new(color.purple, 92))

@@ -1,0 +1,9 @@
+//@version=5
+indicator("Average Directional Index (ADX / DMI)", shorttitle="ADX", overlay=false)
+diLen = input.int(14, "DI Length", minval=1)
+adxSmooth = input.int(14, "ADX Smoothing", minval=1)
+[plusDI, minusDI, adx] = ta.dmi(diLen, adxSmooth)
+plot(adx, "ADX", color=color.red, linewidth=2)
+plot(plusDI, "+DI", color=color.green)
+plot(minusDI, "-DI", color=color.orange)
+hline(25, "Trend threshold", color=color.gray)

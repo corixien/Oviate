@@ -1,0 +1,7 @@
+//@version=5
+indicator("Aroon Oscillator", shorttitle="Aroon Osc", overlay=false)
+length = input.int(14, "Length", minval=1)
+up = 100 * (ta.highestbars(high, length + 1) + length) / length
+down = 100 * (ta.lowestbars(low, length + 1) + length) / length
+o = up - down
+plot(o, "Aroon Oscillator", style=plot.style_columns, color=o >= 0 ? color.green : color.red)

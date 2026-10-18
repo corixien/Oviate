@@ -1,6 +1,6 @@
 import type { Candles } from './data';
 import type { ChartType } from './transforms';
-import type { IndicatorDef, Line } from './indicators';
+import type { PineResult, PlotOut } from '../pine/types';
 
 export type DrawTool = 'cursor' | 'trend' | 'ray' | 'arrow' | 'hline' | 'vline' | 'rect' | 'fib' | 'text' | 'measure';
 export const DRAW_TOOLS: DrawTool[] = ['cursor', 'trend', 'ray', 'arrow', 'hline', 'vline', 'rect', 'fib', 'text', 'measure'];
@@ -16,7 +16,7 @@ export interface Theme {
   accent: string; cross: string; axisBg: string; panel: string;
 }
 
-export interface ActiveIndicator { id: string; def: IndicatorDef; lines: Line[] }
+export interface ActiveIndicator { id: string; title: string; overlay: boolean; result: PineResult }
 
 export interface RenderState {
   data: Candles;
@@ -193,7 +193,7 @@ export class ChartRenderer {
 
   // ---------- layout ----------
   private layout() {
-    const subs = this.s.indicators.filter((i) => i.def.pane === 'sub');
+    const subs = this.s.indicators.filter((i) => !i.overlay);
     const total = this.h - TIME_H;
     const subH = subs.length ? Math.min(total * 0.22, 150) : 0;
     const mainH = total - subH * subs.length;
@@ -220,12 +220,18 @@ export class ChartRenderer {
     if (this.manual) { m.lo = this.manual.lo; m.hi = this.manual.hi; }
     if (this.s.log && m.lo <= 0) m.lo = Math.max(1e-6, lo * 0.9);
     for (const p of this.panes.slice(1)) {
+      const r = p.ind!.result;
       let l = Infinity, h = -Infinity;
-      for (const ln of p.ind!.lines) for (let i = a; i <= b; i++) {
-        const v = ln.v[i]; if (Number.isNaN(v)) continue;
-        if (v < l) l = v; if (v > h) h = v;
+      for (const pl of r.plots) {
+        const base = pl.style === 'histogram' || pl.style === 'columns' || pl.style === 'area' || pl.style === 'areabr';
+        if (base) { l = Math.min(l, pl.histbase); h = Math.max(h, pl.histbase); }
+        for (let j = a; j <= b + 1; j++) {
+          const v = pl.values[j - pl.offset];
+          if (v === undefined || Number.isNaN(v)) continue;
+          if (v < l) l = v; if (v > h) h = v;
+        }
       }
-      for (const lv of p.ind!.def.levels ?? []) { l = Math.min(l, lv); h = Math.max(h, lv); }
+      for (const hl of r.hlines) { l = Math.min(l, hl.price); h = Math.max(h, hl.price); }
       if (!Number.isFinite(l)) { l = 0; h = 1; }
       const pd = (h - l) * 0.1 || 1;
       p.lo = l - pd; p.hi = h + pd;
@@ -381,62 +387,183 @@ export class ChartRenderer {
     }
   }
 
-  private lineTrace(ln: Float64Array, a: number, b: number, pane: Pane) {
-    const { ctx } = this; let pen = false;
-    ctx.beginPath();
-    for (let i = a; i <= b; i++) {
-      const v = ln[i];
-      if (Number.isNaN(v)) { pen = false; continue; }
-      const X = this.xOf(i), Y = this.py(v, pane);
-      pen ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); pen = true;
-    }
+  // ---------- Pine indicator output ----------
+  private pineRange(): [number, number] {
+    return [Math.floor(this.start) - 1, Math.ceil(this.start + (this.w - AXIS_W) / this.barW) + 1];
   }
 
-  private drawOverlays(a: number, b: number) {
-    const { ctx } = this; const m = this.panes[0];
-    for (const ind of this.s.indicators) {
-      if (ind.def.pane !== 'price') continue;
-      for (const ln of ind.lines) {
-        if (ln.kind === 'band' && ln.v2) {
-          ctx.beginPath();
-          for (let i = a; i <= b; i++) if (!Number.isNaN(ln.v[i])) ctx.lineTo(this.xOf(i), this.py(ln.v[i], m));
-          for (let i = b; i >= a; i--) if (!Number.isNaN(ln.v2[i])) ctx.lineTo(this.xOf(i), this.py(ln.v2[i], m));
-          ctx.closePath(); ctx.fillStyle = ln.color + '1a'; ctx.fill();
-          continue;
-        }
-        ctx.strokeStyle = ln.color; ctx.lineWidth = 1.5;
-        this.lineTrace(ln.v, a, b, m); ctx.stroke();
-      }
-    }
-    ctx.lineWidth = 1;
+  private drawOverlays(_a: number, _b: number) {
+    for (const ind of this.s.indicators) if (ind.overlay) this.drawPine(ind, this.panes[0]);
   }
 
-  private drawSub(p: Pane, a: number, b: number) {
-    const { ctx } = this; const { theme } = this.s;
+  private drawSub(p: Pane, _a: number, _b: number) {
+    const { ctx } = this;
     ctx.save(); ctx.beginPath(); ctx.rect(0, p.y0, this.plotW, p.y1 - p.y0); ctx.clip();
-    for (const lv of p.ind!.def.levels ?? []) {
-      ctx.strokeStyle = theme.cross; ctx.setLineDash([3, 4]);
-      const y = Math.round(this.py(lv, p)) + 0.5;
+    this.drawPine(p.ind!, p);
+    ctx.restore(); ctx.lineWidth = 1;
+  }
+
+  private drawPine(ind: ActiveIndicator, pane: Pane) {
+    const { ctx } = this; const r = ind.result;
+    if (r.error) return;
+    const [a, b] = this.pineRange();
+    const bw = Math.max(1, this.barW * 0.7);
+    // background colors
+    for (let j = Math.max(0, a); j <= b; j++) {
+      const c = r.bgcolors[j];
+      if (c) { ctx.fillStyle = c; ctx.fillRect(this.xOf(j) - this.barW / 2, pane.y0, this.barW, pane.y1 - pane.y0); }
+    }
+    // horizontal lines
+    for (const hl of r.hlines) {
+      const y = Math.round(this.py(hl.price, pane)) + 0.5;
+      ctx.strokeStyle = hl.color; ctx.lineWidth = hl.linewidth; ctx.setLineDash(hl.style === 'solid' ? [] : hl.style === 'dotted' ? [2, 3] : [5, 4]);
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(this.plotW, y); ctx.stroke();
     }
     ctx.setLineDash([]);
-    for (const ln of p.ind!.lines) {
-      if (ln.kind === 'hist') {
-        const zero = this.py(0, p);
-        for (const pos of [true, false]) {
-          ctx.fillStyle = pos ? theme.up + 'aa' : theme.down + 'aa'; ctx.beginPath();
-          for (let i = a; i <= b; i++) {
-            const v = ln.v[i]; if (Number.isNaN(v) || (v >= 0) !== pos) continue;
-            const y = this.py(v, p);
-            ctx.rect(Math.round(this.xOf(i) - this.barW * 0.35), Math.min(y, zero), Math.max(1, this.barW * 0.7), Math.abs(y - zero));
-          }
-          ctx.fill();
-        }
-        continue;
+    // fills between two plots / hlines
+    for (const f of r.fills) {
+      const va = (j: number) => (f.a.kind === 'hline' ? r.hlines[f.a.id]?.price ?? NaN : (r.plots[f.a.id]?.values[j - (r.plots[f.a.id]?.offset ?? 0)] ?? NaN));
+      const vb = (j: number) => (f.b.kind === 'hline' ? r.hlines[f.b.id]?.price ?? NaN : (r.plots[f.b.id]?.values[j - (r.plots[f.b.id]?.offset ?? 0)] ?? NaN));
+      let start = -1;
+      const flush = (end: number) => {
+        if (start < 0) return;
+        ctx.beginPath();
+        for (let j = start; j <= end; j++) ctx.lineTo(this.xOf(j), this.py(va(j), pane));
+        for (let j = end; j >= start; j--) ctx.lineTo(this.xOf(j), this.py(vb(j), pane));
+        ctx.closePath();
+        ctx.fillStyle = f.colors?.[start] ?? f.color; ctx.fill();
+        start = -1;
+      };
+      for (let j = Math.max(0, a); j <= b; j++) {
+        const ok = !Number.isNaN(va(j)) && !Number.isNaN(vb(j));
+        const cut = ok && start >= 0 && f.colors && f.colors[j] !== f.colors[start];
+        if (cut) { flush(j - 1); }
+        if (ok) { if (start < 0) start = j; } else flush(j - 1);
       }
-      ctx.strokeStyle = ln.color; ctx.lineWidth = 1.5; this.lineTrace(ln.v, a, b, p); ctx.stroke();
+      flush(b);
     }
-    ctx.restore(); ctx.lineWidth = 1;
+    // plots
+    for (const pl of r.plots) this.drawPlot(pl, pane, a, b, bw);
+    this.drawShapes(r, pane, a, b);
+  }
+
+  private drawPlot(pl: PlotOut, pane: Pane, a: number, b: number, bw: number) {
+    const { ctx } = this;
+    const val = (j: number) => { const v = pl.values[j - pl.offset]; return v === undefined ? NaN : v; };
+    const col = (j: number) => pl.colors?.[j - pl.offset] ?? pl.color;
+    const lw = Math.max(1.3, pl.linewidth);
+    const base = this.py(pl.histbase, pane);
+    const lo = Math.max(0, a);
+    if (pl.style === 'histogram' || pl.style === 'columns') {
+      const w = pl.style === 'columns' ? bw : Math.max(1, this.barW * 0.25);
+      for (let j = lo; j <= b; j++) {
+        const v = val(j); if (Number.isNaN(v)) continue;
+        const y = this.py(v, pane);
+        ctx.fillStyle = col(j);
+        ctx.fillRect(Math.round(this.xOf(j) - w / 2), Math.min(y, base), Math.max(1, w), Math.max(1, Math.abs(y - base)));
+      }
+      return;
+    }
+    if (pl.style === 'circles' || pl.style === 'cross') {
+      for (let j = lo; j <= b; j++) {
+        const v = val(j); if (Number.isNaN(v)) continue;
+        const x = this.xOf(j), y = this.py(v, pane);
+        ctx.fillStyle = ctx.strokeStyle = col(j);
+        if (pl.style === 'circles') { ctx.beginPath(); ctx.arc(x, y, Math.max(1.5, lw), 0, 7); ctx.fill(); }
+        else { ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y); ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3); ctx.stroke(); }
+      }
+      return;
+    }
+    if (pl.style === 'area' || pl.style === 'areabr') {
+      let start = -1;
+      const flush = (end: number) => {
+        if (start < 0) return;
+        ctx.beginPath(); ctx.moveTo(this.xOf(start), base);
+        for (let j = start; j <= end; j++) ctx.lineTo(this.xOf(j), this.py(val(j), pane));
+        ctx.lineTo(this.xOf(end), base); ctx.closePath();
+        ctx.globalAlpha = 0.22; ctx.fillStyle = col(start); ctx.fill(); ctx.globalAlpha = 1;
+        start = -1;
+      };
+      for (let j = lo; j <= b; j++) { if (Number.isNaN(val(j))) flush(j - 1); else if (start < 0) start = j; }
+      flush(b);
+    }
+    // line / stepline / linebr / (area outline)
+    let pen = false, curCol = '', py = 0;
+    ctx.lineWidth = lw; ctx.lineJoin = 'round';
+    for (let j = lo; j <= b; j++) {
+      const v = val(j);
+      if (Number.isNaN(v)) { if (pen) ctx.stroke(); pen = false; continue; }
+      const X = this.xOf(j), Y = this.py(v, pane), c = col(j);
+      if (!pen) { ctx.beginPath(); ctx.strokeStyle = c; ctx.moveTo(X, Y); pen = true; curCol = c; }
+      else if (c !== curCol) { ctx.lineTo(X, Y); ctx.stroke(); ctx.beginPath(); ctx.strokeStyle = c; ctx.moveTo(X, Y); curCol = c; }
+      else { if (pl.style === 'stepline') ctx.lineTo(X, py); ctx.lineTo(X, Y); }
+      py = Y;
+    }
+    if (pen) ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  private drawShapes(r: PineResult, pane: Pane, a: number, b: number) {
+    const { ctx } = this; const d = this.s.data;
+    const above = new Map<number, number>(), below = new Map<number, number>();
+    const SZ: Record<string, number> = { auto: 6, tiny: 4, small: 6, normal: 8, large: 11, huge: 15 };
+    for (const sh of r.shapes) {
+      const s = SZ[sh.size] ?? 6;
+      for (let j = Math.max(0, a); j <= b; j++) {
+        const i = j - sh.offset;
+        if (i < 0 || i >= sh.flags.length || !sh.flags[i]) continue;
+        const col = sh.colors?.[i] ?? sh.color;
+        const main = pane.kind === 'main';
+        const hasBar = j >= 0 && j < d.n;
+        let loc = sh.location;
+        if (loc === 'absolute') loc = 'abovebar';
+        let y: number;
+        if (loc === 'top') y = pane.y0 + s + 4;
+        else if (loc === 'bottom') y = pane.y1 - s - 4;
+        else if (loc === 'belowbar') {
+          const k = below.get(j) ?? 0; below.set(j, k + s * 2 + 3);
+          y = (main && hasBar ? this.py(d.l[j], pane) : pane.y1 - 6) + s + 6 + k;
+        } else {
+          const k = above.get(j) ?? 0; above.set(j, k + s * 2 + 3);
+          y = (main && hasBar ? this.py(d.h[j], pane) : pane.y0 + 6) - s - 6 - k;
+        }
+        this.drawShape(sh.style, this.xOf(j), y, s, col, sh.text, sh.textColor, loc === 'belowbar' || loc === 'bottom');
+      }
+    }
+  }
+
+  private drawShape(style: string, x: number, y: number, s: number, color: string, text: string, textColor: string, below: boolean) {
+    const { ctx } = this;
+    ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    switch (style) {
+      case 'triangleup': case 'arrowup': ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y + s); ctx.lineTo(x - s, y + s); ctx.closePath(); ctx.fill(); break;
+      case 'triangledown': case 'arrowdown': ctx.beginPath(); ctx.moveTo(x, y + s); ctx.lineTo(x + s, y - s); ctx.lineTo(x - s, y - s); ctx.closePath(); ctx.fill(); break;
+      case 'circle': ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.fill(); break;
+      case 'square': ctx.fillRect(x - s, y - s, s * 2, s * 2); break;
+      case 'diamond': ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.fill(); break;
+      case 'cross': ctx.beginPath(); ctx.moveTo(x - s, y); ctx.lineTo(x + s, y); ctx.moveTo(x, y - s); ctx.lineTo(x, y + s); ctx.stroke(); break;
+      case 'xcross': ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s); ctx.stroke(); break;
+      case 'flag': ctx.beginPath(); ctx.moveTo(x, y + s); ctx.lineTo(x, y - s); ctx.lineTo(x + s * 1.4, y - s * 0.4); ctx.lineTo(x, y + s * 0.2); ctx.stroke(); ctx.fill(); break;
+      case 'labelup': case 'labeldown': {
+        const t = text || ''; ctx.font = '10px system-ui, sans-serif';
+        const tw = Math.max(t ? ctx.measureText(t).width + 8 : 0, s * 2);
+        const bh = s * 2 + 6, up = style === 'labelup';
+        const top = up ? y - 2 : y - bh + 2;
+        ctx.fillRect(x - tw / 2, top, tw, bh);
+        ctx.beginPath(); if (up) { ctx.moveTo(x - 4, top); ctx.lineTo(x, top - 5); ctx.lineTo(x + 4, top); } else { ctx.moveTo(x - 4, top + bh); ctx.lineTo(x, top + bh + 5); ctx.lineTo(x + 4, top + bh); } ctx.fill();
+        if (t) { ctx.fillStyle = textColor; ctx.textAlign = 'center'; ctx.fillText(t, x, top + bh / 2 + 1); ctx.textAlign = 'left'; }
+        ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
+        return;
+      }
+      case 'char': ctx.font = `${s * 2 + 4}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillText(text || '•', x, y); ctx.textAlign = 'left'; ctx.font = '11px ui-monospace, "JetBrains Mono", monospace'; return;
+      default: ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.fill();
+    }
+    void below;
+    if (text && style !== 'labelup' && style !== 'labeldown') {
+      ctx.fillStyle = textColor; ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(text, x, below ? y + s + 10 : y - s - 4); ctx.textAlign = 'left';
+      ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
+    }
   }
 
   private drawLastPrice() {

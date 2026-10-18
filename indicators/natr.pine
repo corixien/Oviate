@@ -1,0 +1,4 @@
+//@version=5
+indicator("Normalized ATR (NATR)", shorttitle="NATR", overlay=false)
+length = input.int(14, "Length", minval=1)
+plot(100 * ta.atr(length) / close, "NATR", color=color.orange)

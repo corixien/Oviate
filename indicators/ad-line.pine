@@ -1,0 +1,3 @@
+//@version=5
+indicator("Accumulation / Distribution (A/D)", shorttitle="A/D", overlay=false)
+plot(ta.accdist, "A/D", color=color.blue)

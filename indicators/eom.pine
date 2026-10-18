@@ -1,0 +1,9 @@
+//@version=5
+indicator("Ease of Movement (EOM)", shorttitle="EOM", overlay=false)
+length = input.int(14, "Length", minval=1)
+divisor = input.float(10000.0, "Divisor")
+rng = high - low
+distance = hl2 - nz(hl2[1], hl2)
+box = rng == 0 or volume == 0 ? na : (volume / divisor) / rng
+plot(ta.sma(distance / box, length), "EOM", color=color.green)
+hline(0, "Zero", color=color.gray)

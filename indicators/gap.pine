@@ -1,0 +1,6 @@
+//@version=5
+indicator("Gap Up / Down", shorttitle="Gap", overlay=true)
+minGap = input.float(0.5, "Minimum Gap %", minval=0.0, step=0.1)
+gapPct = 100 * (open - nz(close[1], open)) / nz(close[1], open)
+plotshape(gapPct >= minGap, "Gap Up", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny)
+plotshape(gapPct <= -minGap, "Gap Down", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)

@@ -1,0 +1,7 @@
+//@version=5
+indicator("Elder Ray (Bull / Bear Power)", shorttitle="Elder", overlay=false)
+length = input.int(13, "Length", minval=1)
+e = ta.ema(close, length)
+plot(high - e, "Bull Power", style=plot.style_columns, color=color.green)
+plot(low - e, "Bear Power", style=plot.style_columns, color=color.red)
+hline(0, "Zero", color=color.gray)

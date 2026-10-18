@@ -1,0 +1,8 @@
+//@version=5
+indicator("Williams Alligator", shorttitle="Alligator", overlay=true)
+jawLen = input.int(13, "Jaw Length", minval=1)
+teethLen = input.int(8, "Teeth Length", minval=1)
+lipsLen = input.int(5, "Lips Length", minval=1)
+plot(ta.rma(hl2, jawLen), "Jaw", color=color.blue, offset=8)
+plot(ta.rma(hl2, teethLen), "Teeth", color=color.red, offset=5)
+plot(ta.rma(hl2, lipsLen), "Lips", color=color.green, offset=3)

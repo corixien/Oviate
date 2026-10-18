@@ -1,0 +1,8 @@
+//@version=5
+indicator("Pivot High Low", shorttitle="Pivots", overlay=true)
+left = input.int(10, "Left Bars", minval=1)
+right = input.int(10, "Right Bars", minval=1)
+ph = ta.pivothigh(high, left, right)
+pl = ta.pivotlow(low, left, right)
+plotshape(not na(ph), "Pivot High", style=shape.labeldown, location=location.abovebar, color=color.red, offset=-right, text="H", textcolor=color.white, size=size.tiny)
+plotshape(not na(pl), "Pivot Low", style=shape.labelup, location=location.belowbar, color=color.green, offset=-right, text="L", textcolor=color.white, size=size.tiny)

@@ -1,0 +1,10 @@
+//@version=5
+indicator("RSI with Moving Average", shorttitle="RSI MA", overlay=false)
+length = input.int(14, "RSI Length", minval=1)
+maLen = input.int(14, "MA Length", minval=1)
+src = input.source(close, "Source")
+r = ta.rsi(src, length)
+plot(r, "RSI", color=color.purple)
+plot(ta.sma(r, maLen), "RSI MA", color=color.yellow)
+hline(70, "Overbought", color=color.gray)
+hline(30, "Oversold", color=color.gray)

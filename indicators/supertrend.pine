@@ -1,0 +1,9 @@
+//@version=5
+indicator("Supertrend", shorttitle="ST", overlay=true)
+length = input.int(10, "ATR Length", minval=1)
+factor = input.float(3.0, "Factor", minval=0.1, step=0.1)
+[st, dir] = ta.supertrend(factor, length)
+plot(dir < 0 ? st : na, "Up Trend", color=color.green, linewidth=2)
+plot(dir > 0 ? st : na, "Down Trend", color=color.red, linewidth=2)
+plotshape(ta.change(dir) < 0, "Buy", style=shape.labelup, location=location.belowbar, color=color.green, text="Buy", textcolor=color.white, size=size.tiny)
+plotshape(ta.change(dir) > 0, "Sell", style=shape.labeldown, location=location.abovebar, color=color.red, text="Sell", textcolor=color.white, size=size.tiny)

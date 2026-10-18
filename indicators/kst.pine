@@ -1,0 +1,7 @@
+//@version=5
+indicator("Know Sure Thing (KST)", shorttitle="KST", overlay=false)
+src = input.source(close, "Source")
+k = ta.sma(ta.roc(src, 10), 10) + 2 * ta.sma(ta.roc(src, 15), 10) + 3 * ta.sma(ta.roc(src, 20), 10) + 4 * ta.sma(ta.roc(src, 30), 15)
+plot(k, "KST", color=color.green)
+plot(ta.sma(k, 9), "Signal", color=color.red)
+hline(0, "Zero", color=color.gray)

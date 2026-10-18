@@ -1,0 +1,7 @@
+//@version=5
+indicator("Chandelier Exit", shorttitle="CE", overlay=true)
+length = input.int(22, "ATR Length", minval=1)
+mult = input.float(3.0, "ATR Multiplier", minval=0.1, step=0.1)
+a = ta.atr(length)
+plot(ta.highest(high, length) - mult * a, "Long Stop", color=color.green)
+plot(ta.lowest(low, length) + mult * a, "Short Stop", color=color.red)

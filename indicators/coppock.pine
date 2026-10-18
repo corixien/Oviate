@@ -1,0 +1,8 @@
+//@version=5
+indicator("Coppock Curve", shorttitle="Coppock", overlay=false)
+longRoc = input.int(14, "Long ROC Length", minval=1)
+shortRoc = input.int(11, "Short ROC Length", minval=1)
+wmaLen = input.int(10, "WMA Length", minval=1)
+src = input.source(close, "Source")
+plot(ta.wma(ta.roc(src, longRoc) + ta.roc(src, shortRoc), wmaLen), "Coppock", color=color.blue)
+hline(0, "Zero", color=color.gray)

@@ -1,0 +1,13 @@
+//@version=5
+indicator("Connors RSI", shorttitle="CRSI", overlay=false)
+rsiLen = input.int(3, "RSI Length", minval=1)
+streakLen = input.int(2, "Up/Down Length", minval=1)
+rocLen = input.int(100, "ROC Length", minval=1)
+src = input.source(close, "Source")
+var float streak = 0.0
+streak := src > nz(src[1], src) ? (streak > 0 ? streak + 1 : 1) : (src < nz(src[1], src) ? (streak < 0 ? streak - 1 : -1) : 0)
+crsi = (ta.rsi(src, rsiLen) + ta.rsi(streak, streakLen) + ta.percentrank(ta.roc(src, 1), rocLen)) / 3
+plot(crsi, "CRSI", color=color.purple)
+h1 = hline(90, "Upper")
+h2 = hline(10, "Lower")
+fill(h1, h2, color=color.new(color.purple, 94))

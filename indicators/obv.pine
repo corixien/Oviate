@@ -1,0 +1,3 @@
+//@version=5
+indicator("On Balance Volume (OBV)", shorttitle="OBV", overlay=false)
+plot(ta.obv, "OBV", color=color.blue)

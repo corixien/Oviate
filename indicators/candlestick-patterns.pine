@@ -1,0 +1,18 @@
+//@version=5
+indicator("Candlestick Patterns", shorttitle="Patterns", overlay=true)
+bodyLen = input.int(14, "Average Body Length", minval=1)
+body = math.abs(close - open)
+rng = high - low
+avgBody = ta.sma(body, bodyLen)
+upper = high - math.max(open, close)
+lower = math.min(open, close) - low
+doji = body <= rng * 0.1 and rng > 0
+hammer = lower >= 2 * body and upper <= body * 0.5 and body > 0
+shooting = upper >= 2 * body and lower <= body * 0.5 and body > 0
+bullEngulf = close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and body > avgBody
+bearEngulf = close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and body > avgBody
+plotshape(doji, "Doji", style=shape.cross, location=location.abovebar, color=color.gray, size=size.tiny)
+plotshape(hammer, "Hammer", style=shape.triangleup, location=location.belowbar, color=color.teal, size=size.tiny)
+plotshape(shooting, "Shooting Star", style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.tiny)
+plotshape(bullEngulf, "Bullish Engulfing", style=shape.labelup, location=location.belowbar, color=color.green, text="BE", textcolor=color.white, size=size.tiny)
+plotshape(bearEngulf, "Bearish Engulfing", style=shape.labeldown, location=location.abovebar, color=color.red, text="SE", textcolor=color.white, size=size.tiny)

@@ -1,0 +1,8 @@
+//@version=5
+indicator("Relative Vigor Index (RVI)", shorttitle="RVGI", overlay=false)
+length = input.int(10, "Length", minval=1)
+num = ta.swma(close - open)
+den = ta.swma(high - low)
+rvi = ta.sma(num, length) / ta.sma(den, length)
+plot(rvi, "RVGI", color=color.green)
+plot(ta.swma(rvi), "Signal", color=color.red)

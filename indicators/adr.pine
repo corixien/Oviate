@@ -1,0 +1,4 @@
+//@version=5
+indicator("Average Day Range (ADR)", shorttitle="ADR", overlay=false)
+length = input.int(14, "Length", minval=1)
+plot(ta.sma(high - low, length), "ADR", color=color.teal)

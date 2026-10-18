@@ -1,0 +1,7 @@
+//@version=5
+indicator("Aroon", shorttitle="Aroon", overlay=false)
+length = input.int(14, "Length", minval=1)
+up = 100 * (ta.highestbars(high, length + 1) + length) / length
+down = 100 * (ta.lowestbars(low, length + 1) + length) / length
+plot(up, "Aroon Up", color=color.green)
+plot(down, "Aroon Down", color=color.red)

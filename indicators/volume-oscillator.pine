@@ -1,0 +1,7 @@
+//@version=5
+indicator("Volume Oscillator", shorttitle="VO", overlay=false)
+fastLen = input.int(5, "Fast Length", minval=1)
+slowLen = input.int(10, "Slow Length", minval=1)
+slow = ta.ema(volume, slowLen)
+o = 100 * (ta.ema(volume, fastLen) - slow) / slow
+plot(o, "Volume Oscillator", style=plot.style_columns, color=o >= 0 ? color.green : color.red)

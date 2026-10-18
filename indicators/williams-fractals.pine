@@ -1,0 +1,7 @@
+//@version=5
+indicator("Williams Fractals", shorttitle="Fractals", overlay=true)
+n = input.int(2, "Periods", minval=1)
+upF = ta.pivothigh(high, n, n)
+dnF = ta.pivotlow(low, n, n)
+plotshape(not na(upF), "Up Fractal", style=shape.triangleup, location=location.abovebar, color=color.red, offset=-n, size=size.tiny)
+plotshape(not na(dnF), "Down Fractal", style=shape.triangledown, location=location.belowbar, color=color.green, offset=-n, size=size.tiny)

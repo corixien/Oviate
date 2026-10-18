@@ -1,0 +1,7 @@
+//@version=5
+indicator("Price Oscillator (APO)", shorttitle="APO", overlay=false)
+fastLen = input.int(12, "Fast Length", minval=1)
+slowLen = input.int(26, "Slow Length", minval=1)
+src = input.source(close, "Source")
+o = ta.ema(src, fastLen) - ta.ema(src, slowLen)
+plot(o, "APO", style=plot.style_columns, color=o >= 0 ? color.green : color.red)

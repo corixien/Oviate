@@ -1,0 +1,17 @@
+//@version=5
+indicator("Stochastic Momentum Index (SMI)", shorttitle="SMI", overlay=false)
+length = input.int(10, "Length", minval=1)
+smooth1 = input.int(3, "First Smoothing", minval=1)
+smooth2 = input.int(3, "Second Smoothing", minval=1)
+hh = ta.highest(high, length)
+ll = ta.lowest(low, length)
+relative = close - (hh + ll) / 2
+rangeHL = hh - ll
+avgRel = ta.ema(ta.ema(relative, smooth1), smooth2)
+avgRange = ta.ema(ta.ema(rangeHL, smooth1), smooth2)
+smi = avgRange == 0 ? 0.0 : 100 * avgRel / (avgRange / 2)
+plot(smi, "SMI", color=color.blue)
+plot(ta.ema(smi, 3), "Signal", color=color.orange)
+h1 = hline(40, "Upper")
+h2 = hline(-40, "Lower")
+fill(h1, h2, color=color.new(color.blue, 94))

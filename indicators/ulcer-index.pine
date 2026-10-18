@@ -1,0 +1,7 @@
+//@version=5
+indicator("Ulcer Index", shorttitle="UI", overlay=false)
+length = input.int(14, "Length", minval=1)
+src = input.source(close, "Source")
+top = ta.highest(src, length)
+dd = 100 * (src - top) / top
+plot(math.sqrt(ta.sma(dd * dd, length)), "Ulcer Index", color=color.red)

@@ -4,7 +4,9 @@
   import { getCandles, newsWindow, TF_SECONDS, type NewsItem } from '$lib/api';
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
-  import { indicatorById } from './indicators';
+  import { library } from '$lib/library.svelte';
+  import { runScript } from '$lib/pine/runner.ts';
+  import type { PineResult } from '$lib/pine/types.ts';
   import Icons from '$lib/ui/Icons.svelte';
   import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark } from './renderer';
   import { t } from '$lib/i18n';
@@ -74,11 +76,46 @@
 
   const symDrawings = $derived(cfg.drawings.filter((d) => d.sym === cfg.symbol));
   const display = $derived(transform(raw, cfg.type));
+  // ----- Pine indicators: computed in a worker, coalesced so ticks cannot pile up -----
+  let pineResults = $state<Record<string, PineResult>>({});
+  let pineRunning = false, pineDirty = false, lastPineRun = 0;
+  let pineTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function runIndicators() {
+    if (pineRunning) { pineDirty = true; return; }
+    pineRunning = true;
+    try {
+      do {
+        pineDirty = false;
+        lastPineRun = Date.now();
+        const d = display, st = step, sym = cfg.symbol;
+        const list = $state.snapshot(cfg.indicators).filter((i) => !i.hidden);
+        const out: Record<string, PineResult> = {};
+        await Promise.all(list.map(async (i) => {
+          const file = library.get('indicators', i.id);
+          if (!file) return;
+          out[i.uid] = await runScript(file.code, d, { params: i.params, step: st, symbol: sym });
+        }));
+        pineResults = out;
+      } while (pineDirty);
+    } finally { pineRunning = false; }
+  }
+
+  $effect(() => {
+    void display; void step; void library.indicators;
+    void JSON.stringify(cfg.indicators.map((i) => [i.uid, i.id, i.params, i.hidden]));
+    untrack(() => {
+      clearTimeout(pineTimer);
+      pineTimer = setTimeout(runIndicators, Date.now() - lastPineRun < 500 ? 500 : 30);
+    });
+  });
+
   const active = $derived<ActiveIndicator[]>(cfg.indicators.flatMap((i) => {
-    const def = indicatorById(i.id);
-    if (!def || i.hidden) return [];
-    const lines = def.compute(display, i.params).map((ln, k) => (i.colors?.[k] ? { ...ln, color: i.colors[k] } : ln));
-    return [{ id: i.uid, def, lines }];
+    const r = pineResults[i.uid];
+    if (!r || i.hidden) return [];
+    const file = library.get('indicators', i.id);
+    const result = i.colors?.some(Boolean) ? { ...r, plots: r.plots.map((p, k) => (i.colors?.[k] ? { ...p, color: i.colors[k]!, colors: undefined } : p)) } : r;
+    return [{ id: i.uid, title: file?.shortTitle ?? i.id, overlay: r.error ? true : r.meta.overlay, result }];
   }));
 
   async function load(reset: boolean) {
@@ -241,10 +278,11 @@
       </div>
     {/if}
     {#each cfg.indicators as ind (ind.uid)}
-      {@const def = indicatorById(ind.id)}
-      <div class="pill" class:off={ind.hidden}>
-        <span class="nm">{def?.label.replace(/ \(.*\)/, '')}</span>
-        {#if ind.showParams ?? app.showParams}<span class="dim">{Object.values(ind.params).join(' ')}</span>{/if}
+      {@const file = library.get('indicators', ind.id)}
+      {@const res = pineResults[ind.uid]}
+      <div class="pill" class:off={ind.hidden} class:bad={!!res?.error || !file} title={res?.error ? res.error.message : !file ? 'Script not found: ' + ind.id : ''}>
+        <span class="nm">{file?.shortTitle ?? ind.id}</span>
+        {#if ind.showParams ?? app.showParams}<span class="dim">{res ? res.inputs.map((i) => ind.params[i.id] ?? i.def).join(' ') : ''}</span>{/if}
         <span class="acts">
           <button title={ind.hidden ? 'Show' : 'Hide'} onclick={() => { ind.hidden = !ind.hidden; app.persist(); }}><Icons name={ind.hidden ? 'eyeoff' : 'eye'} size={14} /></button>
           <button title="Settings" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'settings' })}><Icons name="gear" size={14} /></button>
@@ -256,7 +294,8 @@
               <div class="mmenu" role="menu">
                 <button onclick={() => { ind.showParams = !(ind.showParams ?? app.showParams); menuFor = ''; app.persist(); }}>{ind.showParams ?? app.showParams ? 'Hide parameters' : 'Show parameters'}</button>
                 <button onclick={() => { cfg.indicators = [...cfg.indicators, { ...$state.snapshot(ind), uid: crypto.randomUUID() }]; menuFor = ''; app.persist(); }}>Duplicate</button>
-                <button onclick={() => { if (def) ind.params = { ...def.params }; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
+                <button onclick={() => { ind.params = {}; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
+                <button onclick={() => { app.editor = { kind: 'indicators', name: ind.id }; app.page = 'editor'; menuFor = ''; }}>Edit source</button>
               </div>
             {/if}
           </span>
@@ -290,6 +329,8 @@
   .dim { color: var(--dim); }
   .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 0; width: fit-content; padding: 3px 9px; border: 1px solid var(--accent); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
   .pill.off { opacity: 0.55; }
+  .pill.bad { border-color: var(--down); }
+  .pill.bad .nm { color: var(--down); }
   .tk .dim { margin-left: 8px; }
   .dot { width: 7px; height: 7px; margin-right: 8px; background: var(--dim); flex: none; }
   .dot.live { background: var(--up); box-shadow: 0 0 8px var(--up); }

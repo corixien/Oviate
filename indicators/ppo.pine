@@ -1,0 +1,12 @@
+//@version=5
+indicator("Percentage Price Oscillator (PPO)", shorttitle="PPO", overlay=false)
+fastLen = input.int(12, "Fast Length", minval=1)
+slowLen = input.int(26, "Slow Length", minval=1)
+sigLen = input.int(9, "Signal Length", minval=1)
+src = input.source(close, "Source")
+slow = ta.ema(src, slowLen)
+ppo = (ta.ema(src, fastLen) - slow) / slow * 100
+sig = ta.ema(ppo, sigLen)
+plot(ppo - sig, "Histogram", style=plot.style_columns, color=color.new(color.gray, 40))
+plot(ppo, "PPO", color=color.blue)
+plot(sig, "Signal", color=color.orange)

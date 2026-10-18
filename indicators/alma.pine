@@ -1,0 +1,7 @@
+//@version=5
+indicator("Arnaud Legoux Moving Average (ALMA)", shorttitle="ALMA", overlay=true)
+length = input.int(9, "Length", minval=1)
+offset = input.float(0.85, "Offset")
+sigma = input.float(6.0, "Sigma")
+src = input.source(close, "Source")
+plot(ta.alma(src, length, offset, sigma), "ALMA", color=color.teal)

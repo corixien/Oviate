@@ -1,0 +1,6 @@
+//@version=5
+indicator("Accelerator Oscillator", shorttitle="AC", overlay=false)
+ao = ta.sma(hl2, 5) - ta.sma(hl2, 34)
+ac = ao - ta.sma(ao, 5)
+plot(ac, "AC", style=plot.style_columns, color=ac >= nz(ac[1]) ? color.green : color.red)
+hline(0, "Zero", color=color.gray)

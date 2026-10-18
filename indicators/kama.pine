@@ -1,0 +1,14 @@
+//@version=5
+indicator("Kaufman Adaptive Moving Average (KAMA)", shorttitle="KAMA", overlay=true)
+length = input.int(10, "Efficiency Length", minval=1)
+fast = input.int(2, "Fast Length", minval=1)
+slow = input.int(30, "Slow Length", minval=1)
+src = input.source(close, "Source")
+fastSC = 2.0 / (fast + 1)
+slowSC = 2.0 / (slow + 1)
+noise = math.sum(math.abs(ta.change(src)), length)
+er = noise == 0 ? 0.0 : math.abs(ta.change(src, length)) / noise
+sc = math.pow(er * (fastSC - slowSC) + slowSC, 2)
+var float kama = na
+kama := na(kama) ? src : kama + sc * (src - kama)
+plot(kama, "KAMA", color=color.orange)

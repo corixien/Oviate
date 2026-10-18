@@ -1,0 +1,6 @@
+//@version=5
+indicator("Zero Lag Exponential Moving Average (ZLEMA)", shorttitle="ZLEMA", overlay=true)
+length = input.int(20, "Length", minval=1)
+src = input.source(close, "Source")
+lag = math.floor((length - 1) / 2)
+plot(ta.ema(src + (src - src[lag]), length), "ZLEMA", color=color.lime)

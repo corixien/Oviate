@@ -1,0 +1,5 @@
+//@version=5
+indicator("Qstick", shorttitle="Qstick", overlay=false)
+length = input.int(8, "Length", minval=1)
+plot(ta.sma(close - open, length), "Qstick", color=color.teal)
+hline(0, "Zero", color=color.gray)

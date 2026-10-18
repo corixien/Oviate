@@ -1,0 +1,17 @@
+//@version=5
+indicator("Ichimoku Cloud", shorttitle="Ichimoku", overlay=true)
+conversionLen = input.int(9, "Conversion Line Length", minval=1)
+baseLen = input.int(26, "Base Line Length", minval=1)
+spanBLen = input.int(52, "Leading Span B Length", minval=1)
+displacement = input.int(26, "Displacement", minval=1)
+donch(len) => (ta.highest(high, len) + ta.lowest(low, len)) / 2
+conversion = donch(conversionLen)
+base = donch(baseLen)
+spanA = (conversion + base) / 2
+spanB = donch(spanBLen)
+plot(conversion, "Conversion", color=color.blue)
+plot(base, "Base", color=color.red)
+plot(close, "Lagging Span", color=color.new(color.lime, 30), offset=-displacement + 1)
+pa = plot(spanA, "Leading Span A", color=color.new(color.green, 40), offset=displacement - 1)
+pb = plot(spanB, "Leading Span B", color=color.new(color.red, 40), offset=displacement - 1)
+fill(pa, pb, color=color.new(color.gray, 85))

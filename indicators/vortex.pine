@@ -1,0 +1,8 @@
+//@version=5
+indicator("Vortex Indicator (VI)", shorttitle="VI", overlay=false)
+length = input.int(14, "Length", minval=2)
+vmp = math.sum(math.abs(high - nz(low[1], low)), length)
+vmm = math.sum(math.abs(low - nz(high[1], high)), length)
+str_ = math.sum(ta.tr, length)
+plot(vmp / str_, "VI +", color=color.green)
+plot(vmm / str_, "VI -", color=color.red)

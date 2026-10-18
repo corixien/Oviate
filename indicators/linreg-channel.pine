@@ -1,0 +1,11 @@
+//@version=5
+indicator("Linear Regression Channel", shorttitle="LRC", overlay=true)
+length = input.int(100, "Length", minval=2)
+mult = input.float(2.0, "Deviation", minval=0.1, step=0.1)
+src = input.source(close, "Source")
+mid = ta.linreg(src, length, 0)
+dev = ta.stdev(src, length) * mult
+p1 = plot(mid + dev, "Upper", color=color.purple)
+p2 = plot(mid - dev, "Lower", color=color.purple)
+plot(mid, "Regression", color=color.orange)
+fill(p1, p2, color=color.new(color.purple, 92))

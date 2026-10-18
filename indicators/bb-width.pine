@@ -1,0 +1,6 @@
+//@version=5
+indicator("Bollinger Bands Width (BBW)", shorttitle="BBW", overlay=false)
+length = input.int(20, "Length", minval=1)
+mult = input.float(2.0, "StdDev", minval=0.1, step=0.1)
+src = input.source(close, "Source")
+plot(100 * ta.bbw(src, length, mult), "BBW", color=color.blue)
