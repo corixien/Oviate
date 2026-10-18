@@ -140,6 +140,10 @@
     --up: #0891b2; --down: #d61f7c; --glass: #ffffff; --glass-line: #b99af0;
   }
   :global(html), :global(body) { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+  :global(input[type='number']) { -moz-appearance: textfield; appearance: textfield; }
+  :global(input[type='number']::-webkit-inner-spin-button), :global(input[type='number']::-webkit-outer-spin-button) { -webkit-appearance: none; appearance: none; margin: 0; display: none; }
+  :global(select) { -webkit-appearance: none; appearance: none; background: #000 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' fill='none' stroke='%239d4dff' stroke-width='1.5'/></svg>") no-repeat right 9px center; padding-right: 26px !important; border-radius: 0; }
+  :global(option) { background: #000; color: #f1eaff; }
   :global(*) { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
   :global(:root[data-anim='0'] *) { animation-duration: 0s !important; transition-duration: 0s !important; }
   .app { display: flex; flex-direction: column; height: 100vh; }

@@ -2,6 +2,7 @@
   import { app } from '$lib/app.svelte';
   import { library } from '$lib/library.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
+  import Select from './Select.svelte';
 
   const ind = $derived(app.chart.indicators.find((i) => i.uid === app.indDialog?.uid));
   const file = $derived(ind ? library.get(ind.strategy ? 'strategies' : 'indicators', ind.id) : undefined);
@@ -63,9 +64,7 @@
               {:else if inp.type === 'color'}
                 <input type="color" value={hex6(String(valueOf(inp.id, inp.def)))} oninput={(e) => setParam(inp.id, e.currentTarget.value.toUpperCase())} />
               {:else if inp.type === 'source' || (inp.options && inp.options.length)}
-                <select value={String(valueOf(inp.id, inp.def))} onchange={(e) => setParam(inp.id, inp.type === 'int' || inp.type === 'float' ? Number(e.currentTarget.value) : e.currentTarget.value)}>
-                  {#each inp.options ?? [] as o}<option value={String(o)}>{o}</option>{/each}
-                </select>
+                <Select value={String(valueOf(inp.id, inp.def))} options={(inp.options ?? []).map((o) => ({ value: String(o), label: String(o) }))} onchange={(v) => setParam(inp.id, inp.type === 'int' || inp.type === 'float' ? Number(v) : v)} width="150px" />
               {:else if inp.type === 'int' || inp.type === 'float'}
                 <input type="number" step={inp.step ?? (inp.type === 'int' ? 1 : 'any')} min={inp.min} max={inp.max} value={Number(valueOf(inp.id, inp.def))}
                   onchange={(e) => setNumber(inp.id, e.currentTarget.value, inp.type === 'int')} />
@@ -115,8 +114,8 @@
   .x { background: none; border: 0; color: var(--dim); font-size: 22px; cursor: pointer; } .x:hover { color: var(--fg); }
   section { padding: 4px 18px 8px; }
   label { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-  input[type='number'], input[type='text'], select { width: 130px; padding: 6px 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px ui-monospace, monospace; outline: none; }
-  input[type='number']:focus, input[type='text']:focus, select:focus { border-color: var(--accent); }
+  input[type='number'], input[type='text'] { width: 130px; padding: 6px 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px ui-monospace, monospace; outline: none; }
+  input[type='number']:focus, input[type='text']:focus { border-color: var(--accent); }
   input[type='color'] { width: 38px; height: 24px; border: 1px solid var(--line); background: none; padding: 0; cursor: pointer; }
   input[type='checkbox'] { accent-color: var(--accent); width: 16px; height: 16px; }
   .dim { color: var(--dim); font-size: 13px; } .err { color: var(--down); font-size: 13px; }

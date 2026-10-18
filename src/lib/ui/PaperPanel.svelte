@@ -3,6 +3,7 @@
   import { app } from '$lib/app.svelte';
   import * as E from '$lib/paper/engine.ts';
   import { fmtPrice } from '$lib/chart/renderer';
+  import Select from './Select.svelte';
 
   const acc = $derived(paper.active);
   const st = $derived(acc ? E.accountStats(acc) : null);
@@ -67,9 +68,6 @@
       <button class:on={paper.panelOpen && paper.panelTab === 'paper'} onclick={() => setTab('paper')}>Paper Trading</button>
       <button class:on={paper.panelOpen && paper.panelTab === 'tester'} onclick={() => setTab('tester')}>Strategy Tester</button>
     </div>
-    {#if acc}
-      <span class="sum">{acc.name}<b>{money(E.equity(acc))}</b><b class={cls(E.equity(acc) - acc.initialCapital)}>{signed(E.equity(acc) - acc.initialCapital)}</b></span>
-    {/if}
     <div class="sp"></div>
     <button class="chev" onclick={toggle} title={paper.panelOpen ? 'Collapse' : 'Expand'}>{paper.panelOpen ? '⌄' : '⌃'}</button>
   </div>
@@ -80,7 +78,7 @@
         <div class="empty"><p>No paper account yet.</p><button class="primary" onclick={() => (paper.accountDialog = true)}>Create paper account</button></div>
       {:else}
         <div class="acc">
-          <select value={acc.id} onchange={(e) => { paper.activeId = e.currentTarget.value; paper.persist(); }}>{#each paper.accounts as a (a.id)}<option value={a.id}>{a.name}</option>{/each}</select>
+          <Select value={acc.id} options={paper.accounts.map((a) => ({ value: a.id, label: a.name }))} onchange={(v) => { paper.activeId = v; paper.persist(); }} width="170px" />
           <button class="mini" onclick={() => (paper.accountDialog = true)}>+ New</button>
           <span class="m">Balance <b>{money(acc.balance)}</b></span>
           <span class="m">Equity <b>{money(E.equity(acc))}</b></span>
@@ -208,14 +206,11 @@
   .tabs { display: flex; gap: 2px; height: 100%; }
   .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); padding: 0 14px; font: 700 12px system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
   .tabs button:hover { color: var(--fg); } .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
-  .sum { font: 12px ui-monospace, monospace; color: var(--dim); display: flex; gap: 10px; } .sum b { color: var(--fg); }
   .sp { flex: 1; }
   .chev { background: none; border: 1px solid var(--line); color: var(--fg); width: 28px; height: 24px; cursor: pointer; font-size: 15px; line-height: 1; }
   .chev:hover { border-color: var(--accent); color: var(--accent); }
   .acc { display: flex; align-items: center; gap: 14px; padding: 8px 14px; flex-wrap: wrap; border-bottom: 1px solid var(--line); flex: none; font-size: 12px; }
   .sname { font-size: 13px; } .m { color: var(--dim); } .m b { color: var(--fg); font-family: ui-monospace, monospace; margin-left: 4px; }
-  select { background: #000; border: 1px solid var(--line); color: var(--fg); padding: 5px 8px; font: 12px system-ui, sans-serif; outline: none; }
-  select:focus { border-color: var(--accent); }
   .mini { background: none; border: 1px solid var(--line); color: var(--fg); padding: 4px 10px; font: 600 11px system-ui, sans-serif; cursor: pointer; margin-right: 4px; }
   .mini:hover { border-color: var(--accent); color: var(--accent); } .mini.del:hover { border-color: var(--down); color: var(--down); }
   .subs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); flex: none; align-items: center; }
