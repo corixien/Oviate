@@ -71,6 +71,8 @@ const AXIS_W = 66, TIME_H = 26;
 const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const FIBX = [0, 0.382, 0.618, 1, 1.272, 1.618, 2.618];
 const BAR_MIN = 1.2, BAR_MAX = 80;
+/** Empty bars allowed to the right of the newest candle (hard stop). */
+const RIGHT_PAD = 10;
 
 export function fmtPrice(p: number): string {
   const a = Math.abs(p);
@@ -161,8 +163,8 @@ export class ChartRenderer {
   resetView(bars = 120) {
     if (this.w < 100) { this.pendingReset = true; return; }
     this.tgt = null;
-    this.start = Math.max(-5, this.s.data.n - bars * 0.85);
     this.barW = Math.max(2, Math.min(40, (this.w - AXIS_W) / bars));
+    this.start = Math.max(-5, this.s.data.n + RIGHT_PAD - (this.w - AXIS_W) / this.barW);
     this.manual = null;
     this.invalidate();
   }
@@ -170,7 +172,7 @@ export class ChartRenderer {
   scrollToEnd() {
     this.tgt = null;
     const vis = (this.w - AXIS_W) / this.barW;
-    this.start = this.s.data.n - vis * 0.85;
+    this.start = this.s.data.n + RIGHT_PAD - vis;
     this.invalidate();
   }
 
@@ -1279,7 +1281,7 @@ export class ChartRenderer {
     this.select(null); return true;
   }
 
-  private clampStartV(start: number, barW: number) { const vis = (this.w - AXIS_W) / barW; return Math.min(Math.max(start, -vis * 0.9), this.s.data.n + vis * 0.5); }
+  private clampStartV(start: number, barW: number) { const vis = (this.w - AXIS_W) / barW; return Math.min(Math.max(start, -vis * 0.9), this.s.data.n + RIGHT_PAD - vis); }
   private clampStart() { this.start = this.clampStartV(this.start, this.barW); }
 
   private checkHistory() { if (this.start < Math.max(30, ((this.w - AXIS_W) / this.barW) * 0.6)) this.hooks.onNeedHistory(); }
