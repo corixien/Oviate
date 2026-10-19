@@ -68,6 +68,11 @@
   $effect(() => { if (app.ready) { void [app.layout, app.active, app.theme, app.lang, app.grid, app.magnet, app.sync, app.showWatchlist, app.charts.map((c) => [c.symbol, c.tf, c.type, c.log, c.volume, c.indicators.length])]; app.persist(); } });
 
   function key(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      if (e.key === '+' || e.key === '=') { e.preventDefault(); app.zoomBy(1); return; }
+      if (e.key === '-' || e.key === '_') { e.preventDefault(); app.zoomBy(-1); return; }
+      if (e.key === '0') { e.preventDefault(); app.setZoom(1); return; }
+    }
     const el = e.target as HTMLElement;
     const typing = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
     if (typing || app.spotlight.open || app.settingsOpen) return;

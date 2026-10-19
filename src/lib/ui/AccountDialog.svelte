@@ -43,9 +43,8 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: 96; display: grid; place-items: center; background: rgba(0, 0, 0, 0.7); animation: fade 0.15s ease both; }
-  .card { width: min(440px, calc(100vw - 32px)); background: var(--glass); border: 1px solid var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 40px rgba(157, 77, 255, 0.25); animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-  @keyframes fade { from { opacity: 0 } } @keyframes pop { from { opacity: 0; transform: scale(0.95); } }
+  .scrim { position: fixed; inset: 0; z-index: 96; display: grid; place-items: center; background: rgba(0, 0, 0, 0.7); }
+  .card { width: min(440px, calc(100vw - 32px)); background: var(--glass); border: 1px solid var(--glass-line); box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22), 0 30px 90px rgba(0, 0, 0, 0.7); }
   header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
   h2 { margin: 0; font-size: 16px; } .x { background: none; border: 0; color: var(--dim); font-size: 22px; cursor: pointer; } .x:hover { color: var(--fg); }
   section { padding: 8px 18px 14px; }

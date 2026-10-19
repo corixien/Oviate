@@ -176,9 +176,8 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: 94; display: grid; place-items: center; background: rgba(0, 0, 0, 0.7); animation: fade 0.15s ease both; }
-  .card { width: min(560px, calc(100vw - 24px)); max-height: 92vh; overflow: visible; background: var(--glass); border: 1px solid var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 50px rgba(157, 77, 255, 0.28); animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-  @keyframes fade { from { opacity: 0 } } @keyframes pop { from { opacity: 0; transform: scale(0.95); } }
+  .scrim { position: fixed; inset: 0; z-index: 94; display: grid; place-items: center; background: rgba(0, 0, 0, 0.7); }
+  .card { width: min(560px, calc(100vw - 24px)); max-height: 92vh; overflow: visible; background: var(--glass); border: 1px solid var(--glass-line); box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22), 0 30px 90px rgba(0, 0, 0, 0.7); }
   header { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
   h2 { margin: 0; font-size: 18px; } .px { font: 600 15px ui-monospace, monospace; color: var(--dim); flex: 1; }
   .side { display: flex; border: 1px solid var(--line); }

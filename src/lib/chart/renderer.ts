@@ -2,9 +2,25 @@ import type { Candles } from './data';
 import type { ChartType } from './transforms';
 import type { PineResult, PlotOut } from '../pine/types';
 
-export type DrawTool = 'cursor' | 'trend' | 'ray' | 'arrow' | 'hline' | 'vline' | 'rect' | 'fib' | 'text' | 'measure';
-export const DRAW_TOOLS: DrawTool[] = ['cursor', 'trend', 'ray', 'arrow', 'hline', 'vline', 'rect', 'fib', 'text', 'measure'];
-const POINTS: Record<DrawTool, number> = { cursor: 0, trend: 2, ray: 2, arrow: 2, hline: 1, vline: 1, rect: 2, fib: 2, text: 1, measure: 2 };
+export type DrawTool = 'cursor' | 'trend' | 'ray' | 'extline' | 'hray' | 'arrow' | 'hline' | 'vline' | 'crossline' | 'channel' | 'pitchfork'
+  | 'rect' | 'ellipse' | 'circle' | 'triangle' | 'fib' | 'fibext' | 'longpos' | 'shortpos' | 'measure' | 'pricerange' | 'daterange'
+  | 'brush' | 'arrowup' | 'arrowdown' | 'text' | 'callout';
+/** Toolbar groups (separated by a divider). */
+export const DRAW_GROUPS: DrawTool[][] = [
+  ['cursor'],
+  ['trend', 'ray', 'extline', 'hray', 'arrow', 'hline', 'vline', 'crossline'],
+  ['channel', 'pitchfork'],
+  ['rect', 'ellipse', 'circle', 'triangle'],
+  ['fib', 'fibext'],
+  ['longpos', 'shortpos', 'measure', 'pricerange', 'daterange'],
+  ['brush', 'arrowup', 'arrowdown', 'text', 'callout']
+];
+export const DRAW_TOOLS: DrawTool[] = DRAW_GROUPS.flat();
+const POINTS: Record<DrawTool, number> = {
+  cursor: 0, trend: 2, ray: 2, extline: 2, hray: 1, arrow: 2, hline: 1, vline: 1, crossline: 1, channel: 3, pitchfork: 3,
+  rect: 2, ellipse: 2, circle: 2, triangle: 3, fib: 2, fibext: 3, longpos: 3, shortpos: 3, measure: 2, pricerange: 2, daterange: 2,
+  brush: 0, arrowup: 1, arrowdown: 1, text: 1, callout: 2
+};
 
 export interface DrawPt { t: number; p: number }
 export interface TradeMark { t: number; price: number; side: 'buy' | 'sell'; text?: string }
@@ -47,10 +63,14 @@ export interface Hooks {
   onToolDone(): void;
   onSelect(id: string | null): void;
   onNewsClick(mark: NewsMark): void;
+  /** Open the inline text editor at a screen position (px, relative to the chart). */
+  onEditText(id: string, x: number, y: number, text: string): void;
 }
 
 const AXIS_W = 66, TIME_H = 26;
 const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+const FIBX = [0, 0.382, 0.618, 1, 1.272, 1.618, 2.618];
+const BAR_MIN = 1.2, BAR_MAX = 80;
 
 export function fmtPrice(p: number): string {
   const a = Math.abs(p);
@@ -68,6 +88,12 @@ export class ChartRenderer {
   externalT: number | null = null;
   externalY: number | null = null;
   private hoverNews: NewsMark | null = null;
+  /** Drawing whose text is being edited in the HTML overlay (not painted on the canvas meanwhile). */
+  editingId: string | null = null;
+  /** Wheel animation target: wheel input moves this, a rAF loop eases the view toward it. */
+  private tgt: null | { start: number; barW: number; a: number; span: number; zoomT: boolean; ax: number; aIdx: number; price: boolean; pZoom: boolean; pFrac: number; pAnchor: number } = null;
+  private animRaf = 0; private lastAnim = 0;
+  private range: { key: Float64Array | null; n: number; lo: number; hi: number } = { key: null, n: -1, lo: 0, hi: 1 };
 
   private ctx: CanvasRenderingContext2D;
   private octx: CanvasRenderingContext2D;
@@ -77,7 +103,7 @@ export class ChartRenderer {
   private raf = 0; private oraf = 0;
   private mx = -1; private my = -1;
   private draft: Drawing | null = null;
-  private drag: null | { kind: 'pan' | 'paxis' | 'taxis' | 'move' | 'point'; idx?: number; x: number; y: number; lo?: number; hi?: number; orig?: DrawPt[] } = null;
+  private drag: null | { kind: 'pan' | 'paxis' | 'taxis' | 'move' | 'point' | 'brush'; idx?: number; moved?: boolean; x: number; y: number; lo?: number; hi?: number; s0?: number; orig?: DrawPt[] } = null;
   private cleanup: Array<() => void> = [];
 
   constructor(private main: HTMLCanvasElement, private over: HTMLCanvasElement, private hooks: Hooks, s: RenderState) {
@@ -121,8 +147,9 @@ export class ChartRenderer {
   setTimeRange(l: number, r: number) {
     if (this.w < 100 || !this.s.data.n || r <= l) return;
     const plot = this.w - AXIS_W;
+    this.tgt = null;
     const barsVisible = (r - l) / this.s.step;
-    this.barW = Math.min(Math.max(plot / barsVisible, 1.2), 80);
+    this.barW = Math.min(Math.max(plot / barsVisible, BAR_MIN), BAR_MAX);
     this.start = this.timeToIdx(l) + 0.5;
     this.clampStart();
     this.invalidate();
@@ -130,6 +157,7 @@ export class ChartRenderer {
 
   resetView(bars = 120) {
     if (this.w < 100) { this.pendingReset = true; return; }
+    this.tgt = null;
     this.start = Math.max(-5, this.s.data.n - bars * 0.85);
     this.barW = Math.max(2, Math.min(40, (this.w - AXIS_W) / bars));
     this.manual = null;
@@ -137,9 +165,16 @@ export class ChartRenderer {
   }
 
   scrollToEnd() {
+    this.tgt = null;
     const vis = (this.w - AXIS_W) / this.barW;
     this.start = this.s.data.n - vis * 0.85;
     this.invalidate();
+  }
+
+  /** History was prepended: keep the view (and any running wheel animation) on the same bars. */
+  shiftIndex(added: number) {
+    this.start += added;
+    if (this.tgt) { this.tgt.start += added; this.tgt.aIdx += added; }
   }
 
   visible(): [number, number] {
@@ -157,7 +192,7 @@ export class ChartRenderer {
   }
 
   destroy() {
-    cancelAnimationFrame(this.raf); cancelAnimationFrame(this.oraf);
+    cancelAnimationFrame(this.raf); cancelAnimationFrame(this.oraf); cancelAnimationFrame(this.animRaf);
     this.cleanup.forEach((f) => f());
   }
 
@@ -210,9 +245,12 @@ export class ChartRenderer {
   }
 
   private computeRanges() {
-    const [a, b] = this.visible();
+    let [a, b] = this.visible();
     const d = this.s.data;
     const m = this.panes[0];
+    // Few bars on screen (view moved into the empty future): fit the last bars so the scale stays put.
+    const minBars = Math.max(30, Math.ceil(((this.w - AXIS_W) / this.barW) * 0.3));
+    if (b - a + 1 < minBars) a = Math.max(0, b - minBars + 1);
     let lo = Infinity, hi = -Infinity;
     for (let i = a; i <= b; i++) {
       if (this.s.type === 'line' || this.s.type === 'area' || this.s.type === 'baseline') {
@@ -597,12 +635,11 @@ export class ChartRenderer {
     const nice = [1, 2, 3, 5, 10, 15, 20, 30, 60, 120, 240, 480, 1000, 2000, 5000];
     const need = Math.ceil(110 / this.barW);
     const stepBars = nice.find((n) => n >= need) ?? 10000;
-    const [a, b] = this.visible();
+    const a = Math.floor(this.start), b = Math.ceil(this.start + (this.w - AXIS_W) / this.barW);
     const intraday = this.s.step < 86400;
     let prev: Date | null = null;
     for (let i = Math.floor(a / stepBars) * stepBars; i <= b + stepBars; i += stepBars) {
-      if (i < 0 || i >= d.n) continue;
-      const dt = new Date(d.t[i] * 1000);
+      const dt = new Date(this.idxToTime(i) * 1000);
       let label: string, major = false;
       if (intraday) {
         if (!prev || prev.getDate() !== dt.getDate()) { label = String(dt.getDate()); major = true; }
@@ -705,71 +742,272 @@ export class ChartRenderer {
 
   private screen(pt: DrawPt) { return { x: this.xOf(this.timeToIdx(pt.t)), y: this.py(pt.p) }; }
 
+  /** Screen points of a drawing. Position tools only use the price of their third point (stop), anchored at the target's x. */
+  private screenPts(dr: Drawing): Array<{ x: number; y: number }> {
+    const P = dr.pts.map((p) => this.screen(p));
+    if ((dr.type === 'longpos' || dr.type === 'shortpos') && P[2] && P[1]) P[2] = { x: P[1].x, y: P[2].y };
+    return P;
+  }
+
+  private rayEnd(ax: number, ay: number, bx: number, by: number): [number, number] {
+    const dx = bx - ax, dy = by - ay;
+    if (!dx && !dy) return [bx, by];
+    if (Math.abs(dx) < 1e-9) return [ax, ay + Math.sign(dy) * 6000];
+    const tx = dx > 0 ? this.plotW + 60 : -60;
+    return [tx, ay + dy * ((tx - ax) / dx)];
+  }
+
+  private segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+    const dx = bx - ax, dy = by - ay; const l2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+
+  private fmtDur(sec: number) {
+    const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+    return d ? `${d}d${h ? ' ' + h + 'h' : ''}` : h ? `${h}h${m ? ' ' + m + 'm' : ''}` : `${m}m`;
+  }
+
+  /** Box of a text or callout drawing in screen px (top-left anchored at its anchor point). */
+  private textBox(dr: Drawing, P: Array<{ x: number; y: number }>) {
+    const ctx = this.ctx; ctx.font = '13px system-ui, sans-serif';
+    const o = dr.type === 'callout' ? P[1] ?? P[0] : P[0];
+    const lines = (dr.text ?? '').split('\n');
+    const w = Math.max(40, ...lines.map((l) => ctx.measureText(l).width + 14));
+    return { x: o.x, y: o.y, w, h: lines.length * 17 + 10, lines };
+  }
+
+  private labelBox(text: string, cx: number, cy: number) {
+    const { ctx } = this; const { theme } = this.s;
+    ctx.font = '11px ui-monospace, monospace';
+    const tw = ctx.measureText(text).width + 14;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = theme.panel; ctx.fillRect(cx - tw / 2, cy - 10, tw, 20);
+    ctx.fillStyle = theme.textStrong; ctx.textAlign = 'center'; ctx.fillText(text, cx, cy + 1); ctx.textAlign = 'left';
+  }
+
+  private arrowHead(x: number, y: number, ang: number, size = 9) {
+    const { ctx } = this;
+    ctx.beginPath(); ctx.moveTo(x, y);
+    ctx.lineTo(x - size * Math.cos(ang - 0.4), y - size * Math.sin(ang - 0.4));
+    ctx.lineTo(x - size * Math.cos(ang + 0.4), y - size * Math.sin(ang + 0.4));
+    ctx.closePath(); ctx.fill();
+  }
+
   private drawDrawings() {
     const { ctx } = this; const { theme } = this.s;
     for (const dr of this.allDrawings()) {
+      if (dr.id === this.editingId) continue;
       const sel = dr.id === this.selected;
-      const P = dr.pts.map((p) => this.screen(p));
+      const P = this.screenPts(dr);
       ctx.strokeStyle = dr.color; ctx.fillStyle = dr.color; ctx.lineWidth = sel ? 2.5 : 1.5;
       ctx.shadowColor = dr.color; ctx.shadowBlur = sel ? 16 : 10;
       const x1 = P[0]?.x, y1 = P[0]?.y, x2 = P[1]?.x, y2 = P[1]?.y;
+      const top = this.panes[0].y0, bottom = this.panes[0].y1;
+      const line = (ax: number, ay: number, bx: number, by: number) => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); };
       switch (dr.type) {
-        case 'trend': case 'arrow': case 'ray': {
+        case 'trend': case 'arrow': case 'ray': case 'extline': {
           if (!P[1]) break;
-          let ex = x2, ey = y2;
-          if (dr.type === 'ray' && x2 !== x1) { const k = (y2 - y1) / (x2 - x1); ex = this.plotW + 50; ey = y1 + k * (ex - x1); if (x2 < x1) { ex = -50; ey = y1 + k * (ex - x1); } }
-          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(ex, ey); ctx.stroke();
-          if (dr.type === 'arrow') { const ang = Math.atan2(y2 - y1, x2 - x1); ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - 10 * Math.cos(ang - 0.4), y2 - 10 * Math.sin(ang - 0.4)); ctx.lineTo(x2 - 10 * Math.cos(ang + 0.4), y2 - 10 * Math.sin(ang + 0.4)); ctx.closePath(); ctx.fill(); }
+          let sx = x1, sy = y1, ex = x2, ey = y2;
+          if (dr.type === 'ray') [ex, ey] = this.rayEnd(x1, y1, x2, y2);
+          if (dr.type === 'extline') { [sx, sy] = this.rayEnd(x2, y2, x1, y1); [ex, ey] = this.rayEnd(x1, y1, x2, y2); }
+          line(sx, sy, ex, ey);
+          if (dr.type === 'arrow') this.arrowHead(x2, y2, Math.atan2(y2 - y1, x2 - x1), 10);
           break;
         }
-        case 'hline': ctx.beginPath(); ctx.moveTo(0, y1); ctx.lineTo(this.plotW, y1); ctx.stroke(); break;
-        case 'vline': ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, this.panes[0].y1); ctx.stroke(); break;
+        case 'hray': line(x1, y1, this.plotW, y1); ctx.beginPath(); ctx.arc(x1, y1, 3, 0, 7); ctx.fill(); break;
+        case 'hline': line(0, y1, this.plotW, y1); break;
+        case 'vline': line(x1, 0, x1, bottom); break;
+        case 'crossline': line(0, y1, this.plotW, y1); line(x1, 0, x1, bottom); break;
+        case 'channel': {
+          if (!P[1]) break;
+          line(x1, y1, x2, y2);
+          if (!P[2]) break;
+          const k = x2 !== x1 ? (y2 - y1) / (x2 - x1) : 0;
+          const off = P[2].y - (y1 + k * (P[2].x - x1));
+          line(x1, y1 + off, x2, y2 + off);
+          ctx.globalAlpha = 0.1; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 + off); ctx.lineTo(x1, y1 + off); ctx.closePath(); ctx.fill();
+          ctx.globalAlpha = 0.6; ctx.setLineDash([5, 4]); line(x1, y1 + off / 2, x2, y2 + off / 2); ctx.setLineDash([]); ctx.globalAlpha = 1;
+          break;
+        }
+        case 'pitchfork': {
+          if (!P[1]) break;
+          if (!P[2]) { line(x1, y1, x2, y2); break; }
+          const mx = (x2 + P[2].x) / 2, my = (y2 + P[2].y) / 2;
+          const dx = mx - x1, dy = my - y1;
+          const e0 = this.rayEnd(x1, y1, mx, my), e1 = this.rayEnd(x2, y2, x2 + dx, y2 + dy), e2 = this.rayEnd(P[2].x, P[2].y, P[2].x + dx, P[2].y + dy);
+          line(x1, y1, e0[0], e0[1]); line(x2, y2, e1[0], e1[1]); line(P[2].x, P[2].y, e2[0], e2[1]);
+          ctx.globalAlpha = 0.5; ctx.setLineDash([4, 4]); line(x2, y2, P[2].x, P[2].y); ctx.setLineDash([]);
+          ctx.globalAlpha = 0.08; ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(e1[0], e1[1]); ctx.lineTo(e2[0], e2[1]); ctx.lineTo(P[2].x, P[2].y); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+          break;
+        }
         case 'rect': if (P[1]) { ctx.globalAlpha = 0.14; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.globalAlpha = 1; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); } break;
+        case 'ellipse': if (P[1]) {
+          ctx.beginPath(); ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, Math.max(1, Math.abs(x2 - x1) / 2), Math.max(1, Math.abs(y2 - y1) / 2), 0, 0, 7);
+          ctx.globalAlpha = 0.14; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+        } break;
+        case 'circle': if (P[1]) {
+          ctx.beginPath(); ctx.arc(x1, y1, Math.max(1, Math.hypot(x2 - x1, y2 - y1)), 0, 7);
+          ctx.globalAlpha = 0.14; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+        } break;
+        case 'triangle': if (P[1]) {
+          if (!P[2]) { line(x1, y1, x2, y2); break; }
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(P[2].x, P[2].y); ctx.closePath();
+          ctx.globalAlpha = 0.14; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+        } break;
         case 'fib': if (P[1]) {
           const p1 = dr.pts[0].p, p2 = dr.pts[1].p;
           ctx.font = '10px ui-monospace, monospace'; ctx.textAlign = 'left';
           for (const lv of FIB) {
             const price = p2 + (p1 - p2) * lv; const y = this.py(price);
-            ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.moveTo(Math.min(x1, x2), y); ctx.lineTo(Math.max(x1, x2), y); ctx.stroke();
+            ctx.globalAlpha = 0.9; line(Math.min(x1, x2), y, Math.max(x1, x2), y);
             ctx.globalAlpha = 1; ctx.fillText(`${lv} (${fmtPrice(price)})`, Math.min(x1, x2) + 4, y - 7);
           }
-          ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+          ctx.setLineDash([4, 4]); line(x1, y1, x2, y2); ctx.setLineDash([]);
         } break;
-        case 'text': ctx.font = '13px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(dr.text ?? 'Text', x1, y1); break;
+        case 'fibext': if (P[1]) {
+          ctx.setLineDash([4, 4]); line(x1, y1, x2, y2);
+          if (!P[2]) { ctx.setLineDash([]); break; }
+          line(x2, y2, P[2].x, P[2].y); ctx.setLineDash([]);
+          const move = dr.pts[1].p - dr.pts[0].p, base = dr.pts[2].p;
+          const xl = Math.min(x1, x2, P[2].x), xr = Math.max(x1, x2, P[2].x, xl + 80);
+          ctx.font = '10px ui-monospace, monospace';
+          for (const lv of FIBX) {
+            const price = base + move * lv; const y = this.py(price);
+            ctx.globalAlpha = 0.9; line(xl, y, xr, y);
+            ctx.globalAlpha = 1; ctx.fillText(`${lv} (${fmtPrice(price)})`, xl + 4, y - 7);
+          }
+        } break;
+        case 'longpos': case 'shortpos': if (P[1]) {
+          const entry = dr.pts[0].p, target = dr.pts[1].p, stop = dr.pts[2]?.p;
+          const xl = Math.min(x1, x2), xr = Math.max(x1, x2, xl + 60), yT = this.py(target);
+          ctx.globalAlpha = 0.18; ctx.fillStyle = theme.up; ctx.fillRect(xl, Math.min(y1, yT), xr - xl, Math.abs(yT - y1));
+          ctx.globalAlpha = 1; ctx.strokeStyle = theme.up; ctx.strokeRect(xl, Math.min(y1, yT), xr - xl, Math.abs(yT - y1));
+          const pct = ((target - entry) / entry) * 100;
+          let txt = `Target ${fmtPrice(target)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+          if (stop !== undefined) {
+            const yS = this.py(stop);
+            ctx.globalAlpha = 0.18; ctx.fillStyle = theme.down; ctx.fillRect(xl, Math.min(y1, yS), xr - xl, Math.abs(yS - y1));
+            ctx.globalAlpha = 1; ctx.strokeStyle = theme.down; ctx.strokeRect(xl, Math.min(y1, yS), xr - xl, Math.abs(yS - y1));
+            const risk = Math.abs(entry - stop), reward = Math.abs(target - entry);
+            const sp = ((stop - entry) / entry) * 100;
+            this.labelBox(`Stop ${fmtPrice(stop)} (${sp >= 0 ? '+' : ''}${sp.toFixed(2)}%)`, (xl + xr) / 2, yS + (yS > y1 ? 16 : -16));
+            txt += `  R:R ${risk ? (reward / risk).toFixed(2) : '-'}`;
+          }
+          ctx.strokeStyle = dr.color; ctx.fillStyle = dr.color; line(xl, y1, xr, y1);
+          this.labelBox(txt, (xl + xr) / 2, yT + (yT < y1 ? -16 : 16));
+        } break;
         case 'measure': if (P[1]) {
           const dp = dr.pts[1].p - dr.pts[0].p; const pct = (dp / dr.pts[0].p) * 100;
           const bars = Math.round(this.timeToIdx(dr.pts[1].t) - this.timeToIdx(dr.pts[0].t));
           ctx.globalAlpha = 0.16; ctx.fillStyle = dp >= 0 ? theme.up : theme.down; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.globalAlpha = 1;
           ctx.strokeStyle = dp >= 0 ? theme.up : theme.down; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-          const txt = `${dp >= 0 ? '+' : ''}${fmtPrice(dp)} (${pct.toFixed(2)}%)  ${bars} bars`;
-          ctx.font = '11px ui-monospace, monospace'; const tw = ctx.measureText(txt).width + 14;
-          ctx.fillStyle = theme.panel; ctx.fillRect((x1 + x2) / 2 - tw / 2, Math.min(y1, y2) - 26, tw, 20);
-          ctx.fillStyle = theme.textStrong; ctx.textAlign = 'center'; ctx.fillText(txt, (x1 + x2) / 2, Math.min(y1, y2) - 15); ctx.textAlign = 'left';
+          this.labelBox(`${dp >= 0 ? '+' : ''}${fmtPrice(dp)} (${pct.toFixed(2)}%)  ${bars} bars`, (x1 + x2) / 2, Math.min(y1, y2) - 16);
         } break;
+        case 'pricerange': if (P[1]) {
+          const dp = dr.pts[1].p - dr.pts[0].p; const pct = (dp / dr.pts[0].p) * 100;
+          const xl = Math.min(x1, x2), xr = Math.max(x1, x2, xl + 40), xm = (xl + xr) / 2;
+          ctx.globalAlpha = 0.12; ctx.fillRect(xl, Math.min(y1, y2), xr - xl, Math.abs(y2 - y1)); ctx.globalAlpha = 1;
+          ctx.setLineDash([4, 4]); line(xl, y1, xr, y1); line(xl, y2, xr, y2); ctx.setLineDash([]);
+          line(xm, y1, xm, y2); this.arrowHead(xm, y2, y2 >= y1 ? Math.PI / 2 : -Math.PI / 2, 8);
+          this.labelBox(`${dp >= 0 ? '+' : ''}${fmtPrice(dp)} (${pct.toFixed(2)}%)`, xm, (y1 + y2) / 2);
+        } break;
+        case 'daterange': if (P[1]) {
+          const bars = Math.round(this.timeToIdx(dr.pts[1].t) - this.timeToIdx(dr.pts[0].t));
+          const secs = Math.abs(dr.pts[1].t - dr.pts[0].t);
+          const xl = Math.min(x1, x2), xr = Math.max(x1, x2), ym = Math.min(Math.max((y1 + y2) / 2, top + 14), bottom - 14);
+          ctx.globalAlpha = 0.1; ctx.fillRect(xl, top, xr - xl, bottom - top); ctx.globalAlpha = 1;
+          ctx.setLineDash([4, 4]); line(xl, top, xl, bottom); line(xr, top, xr, bottom); ctx.setLineDash([]);
+          line(xl, ym, xr, ym); this.arrowHead(xr, ym, x2 >= x1 ? 0 : Math.PI, 8);
+          this.labelBox(`${Math.abs(bars)} bars · ${this.fmtDur(secs)}`, (xl + xr) / 2, ym - 16);
+        } break;
+        case 'brush': if (P.length > 1) {
+          ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(x1, y1);
+          for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x, P[i].y);
+          ctx.stroke();
+        } break;
+        case 'arrowup': case 'arrowdown': {
+          const s = dr.type === 'arrowup' ? 1 : -1;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x1 + 8, y1 + 10 * s); ctx.lineTo(x1 + 3, y1 + 10 * s); ctx.lineTo(x1 + 3, y1 + 26 * s);
+          ctx.lineTo(x1 - 3, y1 + 26 * s); ctx.lineTo(x1 - 3, y1 + 10 * s); ctx.lineTo(x1 - 8, y1 + 10 * s); ctx.closePath(); ctx.fill();
+          break;
+        }
+        case 'text': case 'callout': {
+          const b = this.textBox(dr, P);
+          if (dr.type === 'callout' && P[1]) {
+            const nx = Math.min(Math.max(x1, b.x), b.x + b.w), ny = Math.min(Math.max(y1, b.y), b.y + b.h);
+            if (nx !== x1 || ny !== y1) line(x1, y1, nx, ny);
+            ctx.beginPath(); ctx.arc(x1, y1, 3, 0, 7); ctx.fill();
+          }
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = theme.panel; ctx.fillRect(b.x, b.y, b.w, b.h);
+          ctx.strokeStyle = dr.color; ctx.lineWidth = sel ? 2 : 1; ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+          ctx.font = '13px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = theme.textStrong;
+          if (!dr.text) ctx.globalAlpha = 0.45;
+          (dr.text ? b.lines : ['Text']).forEach((l, i) => ctx.fillText(l, b.x + 7, b.y + 5 + 8.5 + i * 17));
+          ctx.globalAlpha = 1;
+          break;
+        }
       }
       ctx.shadowBlur = 0;
-      if (sel) { ctx.fillStyle = theme.accent; for (const q of P) { ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, 7); ctx.fill(); } }
+      if (sel && dr.type !== 'text') { ctx.fillStyle = theme.accent; for (const q of P) { ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, 7); ctx.fill(); } }
       ctx.lineWidth = 1;
     }
   }
 
   private hit(x: number, y: number): Drawing | null {
-    const dist = (px: number, py: number, ax: number, ay: number, bx: number, by: number) => {
-      const dx = bx - ax, dy = by - ay; const l2 = dx * dx + dy * dy || 1;
-      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
-      return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-    };
+    const sd = (ax: number, ay: number, bx: number, by: number) => this.segDist(x, y, ax, ay, bx, by);
+    const inBox = (xa: number, ya: number, xb: number, yb: number, pad = 4) => x >= Math.min(xa, xb) - pad && x <= Math.max(xa, xb) + pad && y >= Math.min(ya, yb) - pad && y <= Math.max(ya, yb) + pad;
     for (const dr of [...this.s.drawings].reverse()) {
-      const P = dr.pts.map((p) => this.screen(p));
+      const P = this.screenPts(dr);
+      if (!P.length) continue;
+      const x1 = P[0].x, y1 = P[0].y, x2 = P[1]?.x, y2 = P[1]?.y;
       let ok = false;
       switch (dr.type) {
-        case 'trend': case 'arrow': case 'ray': case 'fib': case 'measure': ok = !!P[1] && (dr.type === 'fib' || dr.type === 'measure'
-          ? x >= Math.min(P[0].x, P[1].x) - 5 && x <= Math.max(P[0].x, P[1].x) + 5 && y >= Math.min(P[0].y, P[1].y) - 5 && y <= Math.max(P[0].y, P[1].y) + 5
-          : dist(x, y, P[0].x, P[0].y, P[1].x, P[1].y) < 6); break;
-        case 'hline': ok = Math.abs(y - P[0].y) < 6; break;
-        case 'vline': ok = Math.abs(x - P[0].x) < 6; break;
-        case 'rect': ok = !!P[1] && x >= Math.min(P[0].x, P[1].x) - 4 && x <= Math.max(P[0].x, P[1].x) + 4 && y >= Math.min(P[0].y, P[1].y) - 4 && y <= Math.max(P[0].y, P[1].y) + 4; break;
-        case 'text': ok = x >= P[0].x - 2 && x <= P[0].x + 90 && Math.abs(y - P[0].y) < 10; break;
+        case 'trend': case 'arrow': ok = !!P[1] && sd(x1, y1, x2, y2) < 6; break;
+        case 'ray': if (P[1]) { const e = this.rayEnd(x1, y1, x2, y2); ok = sd(x1, y1, e[0], e[1]) < 6; } break;
+        case 'extline': if (P[1]) { const a = this.rayEnd(x2, y2, x1, y1), b = this.rayEnd(x1, y1, x2, y2); ok = sd(a[0], a[1], b[0], b[1]) < 6; } break;
+        case 'hray': ok = Math.abs(y - y1) < 6 && x >= x1 - 6; break;
+        case 'hline': ok = Math.abs(y - y1) < 6; break;
+        case 'vline': ok = Math.abs(x - x1) < 6; break;
+        case 'crossline': ok = Math.abs(y - y1) < 6 || Math.abs(x - x1) < 6; break;
+        case 'channel': if (P[1] && P[2]) {
+          const k = x2 !== x1 ? (y2 - y1) / (x2 - x1) : 0; const off = P[2].y - (y1 + k * (P[2].x - x1));
+          ok = sd(x1, y1, x2, y2) < 6 || sd(x1, y1 + off, x2, y2 + off) < 6;
+        } else if (P[1]) ok = sd(x1, y1, x2, y2) < 6; break;
+        case 'pitchfork': if (P[1] && P[2]) {
+          const mx = (x2 + P[2].x) / 2, my = (y2 + P[2].y) / 2, dx = mx - x1, dy = my - y1;
+          const e0 = this.rayEnd(x1, y1, mx, my), e1 = this.rayEnd(x2, y2, x2 + dx, y2 + dy), e2 = this.rayEnd(P[2].x, P[2].y, P[2].x + dx, P[2].y + dy);
+          ok = sd(x1, y1, e0[0], e0[1]) < 6 || sd(x2, y2, e1[0], e1[1]) < 6 || sd(P[2].x, P[2].y, e2[0], e2[1]) < 6;
+        } break;
+        case 'rect': case 'fib': case 'measure': case 'pricerange': ok = !!P[1] && inBox(x1, y1, x2, y2); break;
+        case 'daterange': ok = !!P[1] && x >= Math.min(x1, x2) - 4 && x <= Math.max(x1, x2) + 4 && y <= this.panes[0].y1; break;
+        case 'ellipse': if (P[1]) { const rx = Math.max(1, Math.abs(x2 - x1) / 2) + 4, ry = Math.max(1, Math.abs(y2 - y1) / 2) + 4; ok = ((x - (x1 + x2) / 2) / rx) ** 2 + ((y - (y1 + y2) / 2) / ry) ** 2 <= 1; } break;
+        case 'circle': ok = !!P[1] && Math.hypot(x - x1, y - y1) <= Math.hypot(x2 - x1, y2 - y1) + 4; break;
+        case 'triangle': if (P[1] && P[2]) {
+          const s = (ax: number, ay: number, bx: number, by: number) => (x - bx) * (ay - by) - (ax - bx) * (y - by);
+          const d1 = s(x1, y1, x2, y2), d2 = s(x2, y2, P[2].x, P[2].y), d3 = s(P[2].x, P[2].y, x1, y1);
+          ok = !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0)) || sd(x1, y1, x2, y2) < 5 || sd(x2, y2, P[2].x, P[2].y) < 5 || sd(P[2].x, P[2].y, x1, y1) < 5;
+        } break;
+        case 'fibext': if (P[1] && P[2]) {
+          const move = dr.pts[1].p - dr.pts[0].p, base = dr.pts[2].p;
+          const ys = FIBX.map((lv) => this.py(base + move * lv));
+          const xl = Math.min(x1, x2, P[2].x), xr = Math.max(x1, x2, P[2].x, xl + 80);
+          ok = x >= xl - 4 && x <= xr + 4 && ys.some((yy) => Math.abs(y - yy) < 6);
+        } break;
+        case 'longpos': case 'shortpos': if (P[1]) {
+          const xl = Math.min(x1, x2), xr = Math.max(x1, x2, xl + 60);
+          const yt = this.py(dr.pts[1].p), ys = P[2] ? P[2].y : y1;
+          ok = x >= xl - 4 && x <= xr + 4 && y >= Math.min(y1, yt, ys) - 4 && y <= Math.max(y1, yt, ys) + 4;
+        } break;
+        case 'brush': for (let i = 1; i < P.length && !ok; i++) ok = sd(P[i - 1].x, P[i - 1].y, P[i].x, P[i].y) < 6; break;
+        case 'arrowup': ok = x >= x1 - 9 && x <= x1 + 9 && y >= y1 - 2 && y <= y1 + 28; break;
+        case 'arrowdown': ok = x >= x1 - 9 && x <= x1 + 9 && y <= y1 + 2 && y >= y1 - 28; break;
+        case 'text': case 'callout': {
+          const b = this.textBox(dr, P);
+          ok = x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+          if (!ok && dr.type === 'callout' && P[1]) ok = Math.hypot(x - x1, y - y1) < 7;
+        } break;
       }
       if (ok) return dr;
     }
@@ -779,13 +1017,15 @@ export class ChartRenderer {
   /** Handle (control point) of the selected drawing under the cursor. */
   private handleAt(x: number, y: number): { idx: number } | null {
     const dr = this.s.drawings.find((q) => q.id === this.selected);
-    if (!dr || dr.pts.length < 2) return null;
-    for (let i = 0; i < dr.pts.length; i++) {
-      const q = this.screen(dr.pts[i]);
-      if (Math.hypot(q.x - x, q.y - y) <= 9) return { idx: i };
+    if (!dr || dr.pts.length < 2 || dr.type === 'brush') return null;
+    const P = this.screenPts(dr);
+    for (let i = 0; i < P.length; i++) {
+      if (Math.hypot(P[i].x - x, P[i].y - y) <= 9) return { idx: i };
     }
     return null;
   }
+
+  private rawPt(x: number, y: number): DrawPt { return { t: this.idxToTime(this.idxOf(x)), p: this.priceOf(y) }; }
 
   private snap(x: number, y: number): DrawPt {
     let i = this.idxOf(x); let p = this.priceOf(y);
@@ -822,13 +1062,13 @@ export class ChartRenderer {
       c.fillStyle = theme.textStrong; c.textAlign = 'left'; c.save(); c.beginPath(); c.rect(bx, by, tw, 22); c.clip(); c.fillText(txt, bx + 9, by + 11); c.restore();
     }
     if (x < 0) return;
-    const i = Math.max(0, Math.min(data.n - 1, Math.round(this.idxOf(x))));
+    const i = Math.round(this.idxOf(x));
     x = Math.round(this.xOf(i)) + 0.5;
     c.strokeStyle = theme.cross; c.setLineDash([4, 4]); c.lineWidth = 1;
     c.beginPath(); c.moveTo(x, 0); c.lineTo(x, this.h - TIME_H); if (y >= 0) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(this.plotW, Math.round(y) + 0.5); } c.stroke();
     c.setLineDash([]);
     // time label
-    const dt = new Date(data.t[i] * 1000);
+    const dt = new Date(this.idxToTime(i) * 1000);
     const lbl = this.s.step >= 86400
       ? dt.toLocaleDateString('en', { day: '2-digit', month: 'short', year: 'numeric' })
       : dt.toLocaleDateString('en', { day: '2-digit', month: 'short' }) + ' ' + dt.toTimeString().slice(0, 5);
@@ -864,6 +1104,7 @@ export class ChartRenderer {
         return;
       }
       el.setPointerCapture(e.pointerId);
+      this.tgt = null;
       const reg = region(x, y);
       if (reg === 'paxis') { const m = this.panes[0]; this.drag = { kind: 'paxis', x, y, lo: m.lo, hi: m.hi }; return; }
       if (reg === 'taxis') { this.drag = { kind: 'taxis', x, y }; return; }
@@ -871,12 +1112,21 @@ export class ChartRenderer {
       if (nm && this.s.tool === 'cursor') { this.hooks.onNewsClick(nm); return; }
       const tool = this.s.tool;
       if (tool !== 'cursor') {
+        if (tool === 'brush') {
+          this.draft = { id: crypto.randomUUID(), type: tool, pts: [this.rawPt(x, y)], color: this.s.theme.accent };
+          this.drag = { kind: 'brush', x, y };
+          this.invalidate(); return;
+        }
         const pt = this.snap(x, y);
         if (!this.draft) {
           this.draft = { id: crypto.randomUUID(), type: tool, pts: [pt], color: this.s.theme.accent };
           if (POINTS[tool] === 1) this.finishDraft();
-          else this.draft.pts.push(pt);
-        } else { this.draft.pts[this.draft.pts.length - 1] = pt; this.finishDraft(); }
+          else this.draft.pts.push({ ...pt });
+        } else {
+          this.draft.pts[this.draft.pts.length - 1] = pt;
+          if (this.draft.pts.length >= POINTS[tool]) this.finishDraft();
+          else this.draft.pts.push({ ...pt });
+        }
         this.invalidate(); return;
       }
       const handle = this.handleAt(x, y);
@@ -884,7 +1134,7 @@ export class ChartRenderer {
       const hit = this.hit(x, y);
       this.select(hit?.id ?? null);
       if (hit) this.drag = { kind: 'move', x, y, orig: hit.pts.map((p) => ({ ...p })) };
-      else { const m = this.panes[0]; this.drag = { kind: 'pan', x, y, lo: m.lo, hi: m.hi }; }
+      else { const m = this.panes[0]; this.drag = { kind: 'pan', x, y, lo: m.lo, hi: m.hi, s0: this.start }; }
       this.invalidate();
     });
     on('pointermove', (e) => {
@@ -898,17 +1148,23 @@ export class ChartRenderer {
       el.style.cursor = hn ? 'pointer' : this.drag ? (this.drag.kind === 'move' ? 'grabbing' : el.style.cursor)
         : this.s.tool === 'cursor' && this.handleAt(x, y) ? 'move'
         : x > this.plotW ? 'ns-resize' : y > this.h - TIME_H ? 'ew-resize' : this.s.tool !== 'cursor' ? 'crosshair' : this.hit(x, y) ? 'pointer' : 'crosshair';
+      if (this.draft?.type === 'brush') {
+        const last = this.screen(this.draft.pts[this.draft.pts.length - 1]);
+        if (this.drag?.kind === 'brush' && Math.hypot(x - last.x, y - last.y) >= 2) this.draft.pts.push(this.rawPt(x, y));
+        this.invalidate(); return;
+      }
       if (this.draft) { this.draft.pts[this.draft.pts.length - 1] = this.snap(x, y); this.invalidate(); return; }
       const d = this.drag;
       if (d) {
         if (d.kind === 'pan') {
-          this.start -= e.movementX / this.barW; this.clampStart();
-          if (Math.abs(y - d.y) > 3 || this.manual) {
+          this.start = this.clampStartV(d.s0! - (x - d.x) / this.barW, this.barW);
+          // vertical: small dead zone (no price lock from hand jitter), subtracted so there is no jump when it ends
+          const dy = y - d.y, eff = dy - Math.max(-4, Math.min(4, dy));
+          if (eff !== 0 || this.manual) {
             const m = this.panes[0]; const span = (d.hi! - d.lo!);
-            const dp = ((y - d.y) / (m.y1 - m.y0)) * span;
-            if (Math.abs(y - d.y) > 3) this.manual = { lo: d.lo! + dp, hi: d.hi! + dp };
+            if (eff !== 0) { const dp = (eff / (m.y1 - m.y0)) * span; this.manual = { lo: d.lo! + dp, hi: d.hi! + dp }; }
           }
-          if (this.start < 20) this.hooks.onNeedHistory();
+          this.checkHistory();
           this.hooks.onViewChange();
         } else if (d.kind === 'paxis') {
           const f = Math.exp((y - d.y) * 0.006); const mid = (d.hi! + d.lo!) / 2; const half = ((d.hi! - d.lo!) / 2) * f;
@@ -919,6 +1175,7 @@ export class ChartRenderer {
           const dr = this.s.drawings.find((q) => q.id === this.selected);
           if (dr && d.idx !== undefined) dr.pts[d.idx] = this.snap(x, y);
         } else if (d.kind === 'move' && this.selected) {
+          if (Math.hypot(x - d.x, y - d.y) > 3) d.moved = true;
           const dr = this.s.drawings.find((q) => q.id === this.selected);
           if (dr && d.orig) {
             const di = this.idxOf(x) - this.idxOf(d.x); const dp = this.priceOf(y) - this.priceOf(d.y);
@@ -929,8 +1186,13 @@ export class ChartRenderer {
       this.invalidate();
     });
     on('pointerup', () => {
-      if (this.drag?.kind === 'move' || this.drag?.kind === 'point') this.hooks.onDrawings([...this.s.drawings]);
-      this.drag = null;
+      const d = this.drag; this.drag = null;
+      if (d?.kind === 'brush') { if (this.draft && this.draft.pts.length > 1) this.finishDraft(); else this.draft = null; this.invalidate(); return; }
+      if (d?.kind === 'move' || d?.kind === 'point') this.hooks.onDrawings([...this.s.drawings]);
+      if (d?.kind === 'move' && !d.moved) {
+        const dr = this.s.drawings.find((q) => q.id === this.selected);
+        if (dr && (dr.type === 'text' || dr.type === 'callout')) this.startEdit(dr);
+      }
     });
     on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hooks.onHover(null, null, null); this.invalidateOver(); });
     on('dblclick', (e) => {
@@ -940,18 +1202,12 @@ export class ChartRenderer {
     });
     on('wheel', (e) => {
       e.preventDefault();
-      const { x } = pos(e);
-      if (e.ctrlKey) {
-        // Ctrl+wheel: stretch both axes around the cursor.
-        const f = Math.exp(-e.deltaY * 0.004);
-        const { y } = pos(e); const m = this.panes[0];
-        const cur = this.manual ?? { lo: m.lo, hi: m.hi };
-        const anchor = this.priceOf(Math.min(Math.max(y, m.y0), m.y1));
-        this.manual = { lo: anchor - (anchor - cur.lo) / f, hi: anchor + (cur.hi - anchor) / f };
-        this.zoomBars(f, Math.min(x, this.plotW));
-      } else if (e.shiftKey) { this.start += (e.deltaY + e.deltaX) / this.barW * 0.5; this.clampStart(); if (this.start < 20) this.hooks.onNeedHistory(); }
-      else this.zoomBars(Math.exp(-e.deltaY * 0.0015), Math.min(x, this.plotW));
-      this.hooks.onViewChange(); this.invalidate();
+      const { x, y } = pos(e);
+      const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? this.h : 1;
+      const dX = e.deltaX * unit, dY = e.deltaY * unit;
+      if (e.ctrlKey) this.wheelZoom(-dY, Math.min(x, this.plotW), y);
+      else if (e.shiftKey) this.wheelPrice(dY || dX);
+      else this.wheelTime(dX + dY);
     }, { passive: false });
   }
 
@@ -961,6 +1217,29 @@ export class ChartRenderer {
     this.hooks.onDrawings([...this.s.drawings, d]);
     this.select(d.id);
     this.hooks.onToolDone();
+    if (d.type === 'text' || d.type === 'callout') this.startEdit(d);
+  }
+
+  /** Open the inline text editor for a text or callout drawing. */
+  private startEdit(dr: Drawing) {
+    const P = this.screenPts(dr);
+    const o = dr.type === 'callout' ? P[1] ?? P[0] : P[0];
+    this.editingId = dr.id;
+    this.hooks.onEditText(dr.id, o.x, o.y, dr.text ?? '');
+    this.invalidate();
+  }
+
+  /** Finish editing. text === null cancels (a drawing that never got text is removed). */
+  endEdit(id: string, text: string | null) {
+    if (this.editingId === id) this.editingId = null;
+    const cur = this.s.drawings.find((d) => d.id === id);
+    const val = text === null ? cur?.text ?? '' : text.replace(/\s+$/, '');
+    if (!val) {
+      if (cur) { this.hooks.onDrawings(this.s.drawings.filter((d) => d.id !== id)); if (this.selected === id) this.select(null); }
+    } else if (cur && cur.text !== val) {
+      this.hooks.onDrawings(this.s.drawings.map((d) => (d.id === id ? { ...d, text: val } : d)));
+    }
+    this.invalidate();
   }
 
   cancelDraft() { this.draft = null; this.invalidate(); }
@@ -971,15 +1250,127 @@ export class ChartRenderer {
     this.select(null); return true;
   }
 
-  private clampStart() { this.start = Math.min(Math.max(this.start, -(this.plotW / this.barW) * 0.7), this.s.data.n - 3); }
+  private clampStartV(start: number, barW: number) { const vis = (this.w - AXIS_W) / barW; return Math.min(Math.max(start, -vis * 0.9), this.s.data.n + vis * 0.5); }
+  private clampStart() { this.start = this.clampStartV(this.start, this.barW); }
+
+  private checkHistory() { if (this.start < Math.max(30, ((this.w - AXIS_W) / this.barW) * 0.6)) this.hooks.onNeedHistory(); }
+
+  // ---------- wheel navigation (eased) ----------
+  private itx(v: number) { return this.s.log ? Math.exp(v) : v; }
+
+  private ensureTgt() {
+    if (this.tgt) return this.tgt;
+    return (this.tgt = { start: this.start, barW: this.barW, a: 0, span: 1, zoomT: false, ax: 0, aIdx: 0, price: false, pZoom: false, pFrac: 0, pAnchor: 0 });
+  }
+
+  /** Switch the price axis to manual and start tracking it in the target. */
+  private ensurePrice() {
+    const T = this.ensureTgt(); const m = this.panes[0];
+    if (!this.manual) this.manual = { lo: m.lo, hi: m.hi };
+    if (!T.price) {
+      T.a = this.tx(this.manual.lo); T.span = this.tx(this.manual.hi) - T.a || 1;
+      T.price = true; T.pZoom = false;
+    }
+    return T;
+  }
+
+  /** Whole-data price span limits, in axis (log or linear) units. */
+  private spanLimits(): [number, number] {
+    const d = this.s.data;
+    if (this.range.key !== d.h || this.range.n !== d.n) {
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < d.n; i++) { if (d.l[i] < lo) lo = d.l[i]; if (d.h[i] > hi) hi = d.h[i]; }
+      this.range = { key: d.h, n: d.n, lo: Number.isFinite(lo) ? lo : 0, hi: Number.isFinite(hi) ? hi : 1 };
+    }
+    const a = this.tx(this.range.lo), b = this.tx(this.range.hi);
+    const full = Math.max(b - a, 1e-9);
+    return [Math.max(Math.abs((a + b) / 2) * 1e-4, 1e-9), full * 4];
+  }
+
+  private kick() { if (!this.animRaf) this.animRaf = requestAnimationFrame(this.animate); }
+
+  private drawNow() {
+    if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    this.draw(); this.drawOver();
+  }
+
+  private animate = (now: number) => {
+    const T = this.tgt;
+    if (!T) { this.animRaf = 0; this.lastAnim = 0; return; }
+    const dt = Math.min(50, this.lastAnim ? now - this.lastAnim : 16); this.lastAnim = now;
+    const k = 1 - Math.exp(-dt / 65);
+    this.barW *= Math.pow(T.barW / this.barW, k);
+    if (T.zoomT) this.start = this.clampStartV(T.aIdx - (T.ax - this.barW / 2) / this.barW, this.barW);
+    else this.start += (T.start - this.start) * k;
+    let settled = Math.abs(T.barW / this.barW - 1) < 0.001 && (T.zoomT || Math.abs(T.start - this.start) < 0.01);
+    if (T.price && this.manual) {
+      const ca = this.tx(this.manual.lo); let span = this.tx(this.manual.hi) - ca;
+      if (span > 0 && T.span > 0) {
+        span *= Math.pow(T.span / span, k);
+        const na = T.pZoom ? T.pAnchor - T.pFrac * span : ca + (T.a - ca) * k;
+        this.manual = { lo: this.itx(na), hi: this.itx(na + span) };
+        settled = settled && Math.abs(T.span / span - 1) < 0.001 && (T.pZoom || Math.abs(T.a - na) < T.span * 1e-4);
+      }
+    }
+    if (settled) {
+      this.barW = T.barW;
+      this.start = T.zoomT ? this.clampStartV(T.aIdx - (T.ax - T.barW / 2) / T.barW, T.barW) : T.start;
+      if (T.price) this.manual = { lo: this.itx(T.pZoom ? T.pAnchor - T.pFrac * T.span : T.a), hi: this.itx((T.pZoom ? T.pAnchor - T.pFrac * T.span : T.a) + T.span) };
+      this.tgt = null;
+    }
+    this.checkHistory();
+    this.hooks.onViewChange();
+    this.drawNow();
+    if (this.tgt) this.animRaf = requestAnimationFrame(this.animate);
+    else { this.animRaf = 0; this.lastAnim = 0; }
+  };
+
+  /** Scroll: move through time. */
+  private wheelTime(delta: number) {
+    const T = this.ensureTgt();
+    T.zoomT = false;
+    T.start = this.clampStartV(T.start + (delta * 0.6) / T.barW, T.barW);
+    this.kick();
+  }
+
+  /** Shift+scroll: move the price axis up or down. */
+  private wheelPrice(delta: number) {
+    const m = this.panes[0]; if (!m) return;
+    const T = this.ensurePrice();
+    T.pZoom = false;
+    T.a -= (delta * 0.6 / (m.y1 - m.y0)) * T.span;
+    this.kick();
+  }
+
+  /** Ctrl+scroll: zoom time and price together around the cursor. Stops as soon as either axis reaches its limit. */
+  private wheelZoom(amount: number, ax: number, y: number) {
+    const m = this.panes[0]; if (!m || !this.s.data.n) return;
+    const T = this.ensurePrice();
+    const [smin, smax] = this.spanLimits();
+    const fOut = Math.max(BAR_MIN / T.barW, T.span / smax), fIn = Math.min(BAR_MAX / T.barW, T.span / smin);
+    let f = Math.exp(amount * 0.003);
+    f = f < 1 ? (fOut > 1 ? 1 : Math.max(f, fOut)) : (fIn < 1 ? 1 : Math.min(f, fIn));
+    if (Math.abs(f - 1) < 1e-4) return;
+    // time: keep the bar under the cursor fixed
+    T.zoomT = true; T.ax = ax; T.aIdx = this.idxOf(ax);
+    T.barW *= f;
+    T.start = this.clampStartV(T.aIdx - (ax - T.barW / 2) / T.barW, T.barW);
+    // price: keep the price under the cursor fixed
+    const frac = (m.y1 - Math.min(Math.max(y, m.y0), m.y1)) / (m.y1 - m.y0 || 1);
+    const ca = this.tx(this.manual!.lo), cs = this.tx(this.manual!.hi) - ca;
+    T.pZoom = true; T.pFrac = frac; T.pAnchor = ca + frac * cs;
+    T.span /= f; T.a = T.pAnchor - frac * T.span;
+    this.kick();
+  }
 
   zoomBars(factor: number, anchorPx: number) {
+    this.tgt = null;
     const anchor = this.idxOf(anchorPx);
-    this.barW = Math.min(Math.max(this.barW * factor, 1.2), 80);
+    this.barW = Math.min(Math.max(this.barW * factor, BAR_MIN), BAR_MAX);
     this.start = anchor - (anchorPx - this.barW / 2) / this.barW;
     this.clampStart();
     this.invalidate();
   }
 
-  panBars(n: number) { this.start += n; this.clampStart(); if (this.start < 20) this.hooks.onNeedHistory(); this.invalidate(); this.hooks.onViewChange(); }
+  panBars(n: number) { this.tgt = null; this.start += n; this.clampStart(); this.checkHistory(); this.invalidate(); this.hooks.onViewChange(); }
 }

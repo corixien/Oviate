@@ -1,3 +1,5 @@
+<p align="center"><img src="logos/oviate-logo.svg" alt="Oviate" width="120"></p>
+
 # Oviate
 
 **O**ptimal **V**isions **I**nspire **A**ccurate **T**rade **E**ntries

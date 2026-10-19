@@ -26,6 +26,40 @@
   let selectedId = $state<string | null>(null);
   let news = $state<NewsItem[]>([]);
 
+  // ----- inline editor for text / callout drawings -----
+  let edit = $state<{ id: string; x: number; y: number; text: string } | null>(null);
+  let editEl = $state<HTMLDivElement>();
+  let editArmed = 0;
+  function openEditor(id: string, x: number, y: number, text: string) {
+    edit = { id, x, y, text };
+    editArmed = Date.now() + 300;
+    r!.editingId = id;
+    tick().then(() => setTimeout(() => {
+      if (!editEl) return;
+      editEl.innerText = text;
+      editEl.focus();
+      const range = document.createRange(); range.selectNodeContents(editEl);
+      if (!text) range.collapse(false);
+      const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
+    }, 40));
+  }
+  function closeEditor(commit: boolean) {
+    if (!edit) return;
+    const { id } = edit;
+    const value = editEl?.innerText ?? '';
+    edit = null;
+    r?.endEdit(id, commit ? value : null);
+  }
+  function editKey(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); closeEditor(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeEditor(false); }
+  }
+  function editPaste(e: ClipboardEvent) {
+    e.preventDefault();
+    document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') ?? '');
+  }
+
   async function loadNews() {
     const sym = cfg.symbol;
     const to = Math.floor(Date.now() / 1000);
@@ -215,7 +249,7 @@
       if (!c.n) { exhausted = true; return; }
       const added = c.n;
       raw = mergeCandles(c, raw);
-      if (r) r.start += added;
+      r?.shiftIndex(added);
     } finally { loadingMore = false; }
   }
 
@@ -236,7 +270,8 @@
       onDrawings: (d) => { cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))]; app.persist(); },
       onToolDone: () => { app.tool = 'cursor'; },
       onSelect: (id) => { selectedId = id; },
-      onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0])
+      onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0]),
+      onEditText: (id, x, y, text) => openEditor(id, x, y, text)
     }, {
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, trades: tradeMarks, lines: priceLines
@@ -308,8 +343,9 @@
   $effect(() => {
     if (app.active !== index || !r) return;
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const el = e.target as HTMLElement;
+      if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.isContentEditable) return;
+      if (e.ctrlKey || e.metaKey) return;
       if (e.key === 'Delete' || e.key === 'Backspace') { if (r!.deleteSelected()) e.preventDefault(); }
       else if (e.key === 'Escape') { r!.cancelDraft(); app.tool = 'cursor'; }
       else if (e.key === 'ArrowLeft') r!.panBars(e.shiftKey ? -20 : -3);
@@ -393,6 +429,11 @@
     {/each}
   </div>
 
+  {#if edit}
+    <div class="tedit" contenteditable="true" role="textbox" tabindex="0" bind:this={editEl} style:left="{edit.x}px" style:top="{edit.y}px"
+      onkeydown={editKey} onpaste={editPaste} onblur={() => { if (Date.now() >= editArmed) closeEditor(true); }} onpointerdown={(e) => e.stopPropagation()}></div>
+  {/if}
+
   {#if selectedId}
     <div class="seltools">
       <span>Drawing</span>
@@ -439,6 +480,7 @@
   .mwrap { position: relative; }
   .mmenu { position: absolute; top: 26px; right: 0; z-index: 30; min-width: 160px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--glass-line); }
   .mmenu button { width: auto; height: auto; padding: 8px 12px; text-align: left; color: var(--fg); font: 12px system-ui, sans-serif; }
+  .tedit { position: absolute; z-index: 5; min-width: 40px; min-height: 17px; padding: 5px 7px; box-sizing: content-box; white-space: pre; outline: 0; background: var(--glass); border: 1px solid var(--accent); color: var(--fg); font: 13px/17px system-ui, sans-serif; margin: -1px 0 0 -1px; }
   .seltools { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; background: var(--glass); border: 1px solid var(--accent); font: 12px system-ui, sans-serif; color: var(--dim); animation: st 0.2s ease both; }
   .seltools button { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--fg); padding: 5px 10px; cursor: pointer; font: 600 12px system-ui, sans-serif; }
   .seltools button:hover { background: var(--down); color: #fff; }

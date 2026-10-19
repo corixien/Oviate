@@ -144,11 +144,8 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); animation: fade 0.2s ease both; }
-  .card { width: min(520px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; border-radius: 2px; padding: 22px 24px; background: var(--glass); border: 1px solid var(--glass-line); box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22), 0 30px 90px rgba(0, 0, 0, 0.7); animation: pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-  .noanim, .noanim .card { animation: none !important; }
-  @keyframes fade { from { opacity: 0 } }
-  @keyframes pop { from { opacity: 0; transform: scale(0.94); } }
+  .scrim { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); }
+  .card { width: min(520px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; border-radius: 2px; padding: 22px 24px; background: var(--glass); border: 1px solid var(--glass-line); box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22), 0 30px 90px rgba(0, 0, 0, 0.7); }
   header { display: flex; justify-content: space-between; align-items: center; }
   h2 { margin: 0; font-size: 19px; } h3 { margin: 18px 0 8px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
   .x { background: none; border: 0; color: var(--dim); font-size: 24px; cursor: pointer; }

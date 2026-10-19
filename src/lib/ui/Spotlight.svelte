@@ -16,7 +16,7 @@
   let input = $state<HTMLInputElement>();
   let closing = $state(false);
 
-  const close = () => { if (closing) return; input?.blur(); closing = true; setTimeout(() => { app.spotlight = { open: false, seed: '' }; closing = false; q = ''; }, app.anim ? 140 : 0); };
+  const close = () => { if (closing) return; input?.blur(); closing = true; setTimeout(() => { app.spotlight = { open: false, seed: '' }; closing = false; q = ''; }, 0); };
   const setSymbol = (s: string) => { app.chart.symbol = s; app.persist(); close(); };
 
   const commands = $derived<Item[]>([
@@ -37,7 +37,7 @@
     ...paper.accounts.map((a) => ({ key: `paper account ${a.name}`, title: `Paper account: ${a.name}`, tag: 'paper', run: () => { paper.activeId = a.id; paper.panelTab = 'paper'; paper.panelOpen = true; paper.persist(); } })),
     { key: 'ind clear remove all indicators', title: 'Remove all indicators', tag: 'indicator', run: () => { app.chart.indicators = []; } },
     ...(['1', '2v', '2h', '3', '4'] as const).map((l) => ({ key: `layout ${l}`, title: `Layout: ${l === '1' ? 'single chart' : l === '2v' ? '2 charts side by side' : l === '2h' ? '2 charts stacked' : l + ' charts'}`, tag: 'layout', run: () => { app.setLayout(l); } })),
-    ...DRAW_TOOLS.map((d) => ({ key: `draw ${d}`, title: `Draw: ${d}`, tag: 'draw', run: () => { app.tool = d; } })),
+    ...DRAW_TOOLS.map((d) => ({ key: `draw ${d}`, title: `Draw: ${d === 'cursor' ? 'cursor' : d}`, tag: 'draw', run: () => { app.tool = d; } })),
     { key: 'draw clear delete all drawings', title: 'Delete all drawings', tag: 'draw', run: () => { app.chart.drawings = app.chart.drawings.filter((d) => d.sym !== app.chart.symbol); } },
     ...(['neon', 'mono', 'classic', 'custom'] as const).map((pl) => ({ key: `palette candles colors ${pl}`, title: `Candle colors: ${pl}`, tag: 'ui', run: () => { app.palette = pl; } })),
     { key: 'theme dark', title: 'Theme: dark', tag: 'ui', run: () => { app.theme = 'dark'; } },
@@ -50,6 +50,9 @@
     { key: 'grid toggle', title: 'Toggle grid', tag: 'chart', run: () => { app.grid = !app.grid; } },
     { key: 'magnet toggle', title: 'Toggle magnet', tag: 'chart', run: () => { app.magnet = !app.magnet; } },
     { key: 'sync crosshair toggle', title: 'Toggle crosshair sync', tag: 'chart', run: () => { app.sync = !app.sync; } },
+    { key: 'zoom in app interface bigger', title: 'App zoom in (Ctrl +)', tag: 'ui', run: () => { app.zoomBy(1); } },
+    { key: 'zoom out app interface smaller', title: 'App zoom out (Ctrl -)', tag: 'ui', run: () => { app.zoomBy(-1); } },
+    { key: 'zoom reset app interface 100', title: 'App zoom reset (Ctrl 0)', tag: 'ui', run: () => { app.setZoom(1); } },
     { key: 'anim animations toggle', title: 'Toggle animations', tag: 'ui', run: () => { app.anim = !app.anim; } },
     { key: 'watch add watchlist', title: `Add ${app.chart.symbol} to watchlist`, tag: 'watch', run: () => { if (!app.list.symbols.includes(app.chart.symbol)) app.list.symbols = [...app.list.symbols, app.chart.symbol]; } },
     { key: 'watch toggle watchlist panel', title: 'Toggle watchlist panel', tag: 'watch', run: () => { app.showWatchlist = !app.showWatchlist; } },
@@ -134,19 +137,10 @@
 
 <style>
   .scrim { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh;
-    background: rgba(0, 0, 0, 0.55); 
-    animation: fade 0.22s ease both; }
-  .scrim.out { animation: fadeout 0.14s ease both; }
+    background: rgba(0, 0, 0, 0.55); }
   .panel { width: min(680px, calc(100vw - 32px)); max-height: 62vh; display: flex; flex-direction: column; border-radius: 2px; overflow: hidden;
     background: var(--glass); border: 1px solid var(--glass-line); 
-    box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.25), 0 30px 90px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-    animation: pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: 50% 0; }
-  .panel.out { animation: popout 0.14s ease both; }
-  .noanim, .noanim .panel { animation: none !important; }
-  @keyframes fade { from { opacity: 0 } }
-  @keyframes fadeout { to { opacity: 0 } }
-  @keyframes pop { from { opacity: 0; transform: translateY(-14px) scale(0.93); } }
-  @keyframes popout { to { opacity: 0; transform: translateY(-6px) scale(0.97); } }
+    box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22), 0 30px 90px rgba(0, 0, 0, 0.7); }
   .field { display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--glass-line); color: var(--dim); }
   .field:focus-within { color: var(--accent); }
   input { flex: 1; background: none; border: 0; outline: 0; color: var(--fg); font: 500 19px system-ui, sans-serif; min-width: 0; }

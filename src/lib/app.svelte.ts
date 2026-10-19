@@ -1,4 +1,5 @@
 import { kvGet, kvSet, type Tf } from './api';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { ChartType } from './chart/transforms';
 import type { Drawing, DrawTool } from './chart/renderer';
 import type { Lang } from './i18n';
@@ -26,6 +27,9 @@ export const DEFAULT_CUSTOM: CustomColors = {
   upBody: '#22e5ff', upBorder: '#22e5ff', upWick: '#22e5ff',
   downBody: '#ff2d95', downBorder: '#ff2d95', downWick: '#ff2d95'
 };
+
+/** Whole-app zoom steps (Ctrl +/-). */
+export const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
 export type LayoutId = '1' | '2v' | '2h' | '3' | '4';
 export const LAYOUT_COUNT: Record<LayoutId, number> = { '1': 1, '2v': 2, '2h': 2, '3': 3, '4': 4 };
@@ -68,6 +72,7 @@ class App {
   toast = $state('');
   ticks = $state<Record<string, { p: number; s: number; t: number }>>({});
   ready = $state(false);
+  uiZoom = $state(1);
 
   get chart(): ChartCfg { return this.charts[this.active]; }
   get list(): Watchlist { return this.watchlists.find((w) => w.id === this.activeList) ?? this.watchlists[0]; }
@@ -92,6 +97,22 @@ class App {
   openNews(symbol: string | null = null, id: string | null = null) {
     this.newsFocus = { symbol, id };
     this.page = 'news';
+  }
+
+  /** Zoom the whole UI to a factor (webview zoom in the app, CSS zoom in a plain browser). */
+  setZoom(z: number) {
+    this.uiZoom = Math.min(3, Math.max(0.5, z));
+    this.applyZoom();
+    this.persist();
+  }
+  zoomBy(dir: 1 | -1) {
+    const z = this.uiZoom;
+    const next = dir > 0 ? ZOOM_STEPS.find((s) => s > z + 1e-6) : [...ZOOM_STEPS].reverse().find((s) => s < z - 1e-6);
+    if (next !== undefined) this.setZoom(next);
+  }
+  applyZoom() {
+    const css = () => { document.documentElement.style.zoom = String(this.uiZoom); };
+    try { getCurrentWebview().setZoom(this.uiZoom).catch(css); } catch { css(); }
   }
 
   notify(msg: string) {
@@ -122,6 +143,8 @@ class App {
         if (s.custom) this.custom = { ...DEFAULT_CUSTOM, ...s.custom };
         if (s.split) this.split = { ...this.split, ...s.split };
         this.showWatchlist = s.showWatchlist ?? true;
+        this.uiZoom = s.uiZoom ?? 1;
+        if (this.uiZoom !== 1) this.applyZoom();
       }
     } catch { /* corrupt state: keep defaults */ }
     this.ready = true;
@@ -134,7 +157,7 @@ class App {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
         lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
-        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist
+        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, uiZoom: this.uiZoom
       }));
     }, 400);
   }
