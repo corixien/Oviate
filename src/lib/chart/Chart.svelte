@@ -8,6 +8,7 @@
   import { runScript } from '$lib/pine/runner.ts';
   import type { PineResult } from '$lib/pine/types.ts';
   import Icons from '$lib/ui/Icons.svelte';
+  import { parseSpec } from '$lib/builder/model.ts';
   import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
   import * as PE from '$lib/paper/engine.ts';
@@ -158,11 +159,12 @@
         lastPineRun = Date.now();
         const d = display, st = step, sym = cfg.symbol;
         const list = $state.snapshot(cfg.indicators).filter((i) => !i.hidden);
+        const tester = $state.snapshot(app.tester);
         const out: Record<string, PineResult> = {};
         await Promise.all(list.map(async (i) => {
           const file = library.get(i.strategy ? 'strategies' : 'indicators', i.id);
           if (!file) return;
-          out[i.uid] = await runScript(file.code, d, { params: i.params, step: st, symbol: sym });
+          out[i.uid] = await runScript(file.code, d, { params: i.params, step: st, symbol: sym, broker: i.strategy ? tester : undefined });
         }));
         pineResults = out;
         publishStrategy(list, out, sym);
@@ -174,6 +176,7 @@
   $effect(() => {
     void display; void step; void library.indicators;
     void JSON.stringify(cfg.indicators.map((i) => [i.uid, i.id, i.params, i.hidden]));
+    void JSON.stringify(app.tester);
     untrack(() => {
       clearTimeout(pineTimer);
       const go = () => { if (r?.dragging) pineTimer = setTimeout(go, 250); else runIndicators(); };
@@ -193,14 +196,17 @@
     const marks: TradeMark[] = [];
     for (const t of trades.slice(0, split)) {
       const long = t.dir === 'long';
-      marks.push({ t: t.entryTime, price: t.entryPrice, side: long ? 'buy' : 'sell' });
-      if (!t.open) marks.push({ t: t.exitTime, price: t.exitPrice, side: long ? 'sell' : 'buy' });
+      marks.push({ t: t.entryTime, price: t.entryRaw ?? t.entryPrice, side: long ? 'buy' : 'sell' });
+      if (!t.open) marks.push({ t: t.exitTime, price: t.exitRaw ?? t.exitPrice, side: long ? 'sell' : 'buy' });
     }
     stratTrades = marks;
     const lastT = d.n ? d.t[d.n - 1] : 0;
+    // drawings show the raw price move: no slippage, no fees
     stratBoxes = trades.slice(split).map((t) => {
-      const pct = t.entryPrice * t.qty ? (t.pnl / (t.entryPrice * t.qty)) * 100 : 0;
-      return { t0: t.entryTime, t1: t.open ? lastT : t.exitTime, p0: t.entryPrice, p1: t.exitPrice, win: t.pnl >= 0, open: t.open, text: `${t.dir === 'long' ? 'L' : 'S'} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` };
+      const p0 = t.entryRaw ?? t.entryPrice, p1 = t.exitRaw ?? t.exitPrice;
+      const move = t.dir === 'long' ? p1 - p0 : p0 - p1;
+      const pct = p0 ? (move / p0) * 100 : 0;
+      return { t0: t.entryTime, t1: t.open ? lastT : t.exitTime, p0, p1, win: move >= 0, open: t.open, text: `${t.dir === 'long' ? 'L' : 'S'} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` };
     });
   }
 
@@ -222,7 +228,7 @@
       const sliced = transform(raw, cfg.type);
       const n = sliced.n - 1;
       const cut = { n, t: sliced.t.subarray(0, n), o: sliced.o.subarray(0, n), h: sliced.h.subarray(0, n), l: sliced.l.subarray(0, n), c: sliced.c.subarray(0, n), v: sliced.v.subarray(0, n) };
-      const res = await runScript(file.code, cut, { params: $state.snapshot(i.params), step, symbol: cfg.symbol });
+      const res = await runScript(file.code, cut, { params: $state.snapshot(i.params), step, symbol: cfg.symbol, broker: $state.snapshot(app.tester) });
       if (res.strategy && !res.error) paper.applySignals(acc.id, cfg.symbol, res.strategy.pending, res.strategy.config, file.title);
     }
   }
@@ -416,6 +422,7 @@
         <span class="acts">
           <button title={ind.hidden ? 'Show' : 'Hide'} onclick={() => { ind.hidden = !ind.hidden; app.persist(); }}><Icons name={ind.hidden ? 'eyeoff' : 'eye'} size={14} /></button>
           <button title="Settings" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'settings' })}><Icons name="gear" size={14} /></button>
+          {#if ind.strategy && file && parseSpec(file.code)}<button title="Open in strategy builder" onclick={() => { app.builder = { name: ind.id }; app.page = 'builder'; }}><Icons name="blocks" size={14} /></button>{/if}
           <button title="Source code" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'code' })}><Icons name="braces" size={14} /></button>
           <button title="Remove" onclick={() => { cfg.indicators = cfg.indicators.filter((q) => q.uid !== ind.uid); app.persist(); }}><Icons name="trash" size={14} /></button>
           <span class="mwrap">
@@ -487,7 +494,7 @@
   .dot.live { background: var(--up); box-shadow: 0 0 8px var(--up); }
   .nm { color: var(--fg); font-family: system-ui, sans-serif; font-weight: 600; }
   .acts { display: inline-flex; align-items: center; gap: 1px; max-width: 0; margin-left: 0; opacity: 0; overflow: hidden; transition: max-width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1), margin-left 0.28s, opacity 0.18s; }
-  .pill:hover .acts, .pill:focus-within .acts { max-width: 160px; margin-left: 8px; opacity: 1; overflow: visible; }
+  .pill:hover .acts, .pill:focus-within .acts { max-width: 190px; margin-left: 8px; opacity: 1; overflow: visible; }
   .acts button { display: grid; place-items: center; width: 22px; height: 22px; background: none; border: 0; color: var(--dim); cursor: pointer; }
   .acts button:hover { color: #fff; background: var(--accent); }
   .mwrap { position: relative; }

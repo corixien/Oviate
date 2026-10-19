@@ -20,6 +20,8 @@ export interface Ctx extends PineCandles {
   symbol: string;
   mintick: number;
   broker?: any;
+  /** Strategy Tester overrides for strategy() */
+  brokerCfg?: import('./types.ts').TesterSettings;
   seriesByName(name: string): Float64Array | undefined;
 }
 

@@ -5,7 +5,7 @@ import type { PendingOrder, StrategyResult, TradeRec } from './types.ts';
 
 type Dir = 'long' | 'short';
 
-interface Lot { id: string; dir: Dir; qty: number; price: number; bar: number; time: number; commission: number; mfe: number; mae: number; comment: string }
+interface Lot { id: string; dir: Dir; qty: number; price: number; raw: number; bar: number; time: number; commission: number; mfe: number; mae: number; comment: string }
 interface Order { id: string; kind: 'entry' | 'order' | 'close' | 'close_all'; dir: Dir | ''; qty: number; limit?: number; stop?: number; comment: string; qtyPercent?: number }
 interface ExitOrder {
   id: string; from: string; qty: number; qtyPercent: number;
@@ -92,16 +92,16 @@ export class Broker {
     return qtyValue;
   }
 
-  private openLot(id: string, dir: Dir, qty: number, price: number, comment: string) {
+  private openLot(id: string, dir: Dir, qty: number, price: number, comment: string, raw = price) {
     if (!(qty > EPS)) return;
     const b = this.x.bar;
     const commission = this.commissionFor(qty, price);
     this.realized -= commission;
-    this.lots.push({ id, dir, qty, price, bar: b, time: this.x.t[b], commission, mfe: 0, mae: 0, comment });
+    this.lots.push({ id, dir, qty, price, raw, bar: b, time: this.x.t[b], commission, mfe: 0, mae: 0, comment });
   }
 
   /** Close `qty` of a lot at `price`; returns the closed quantity. */
-  private closeLot(lot: Lot, qty: number, price: number, comment: string): number {
+  private closeLot(lot: Lot, qty: number, price: number, comment: string, raw = price): number {
     const q = Math.min(qty, lot.qty);
     if (!(q > EPS)) return 0;
     const b = this.x.bar;
@@ -112,7 +112,7 @@ export class Broker {
     this.closed.push({
       id: lot.id, dir: lot.dir, qty: q, entryBar: lot.bar, entryTime: lot.time, entryPrice: lot.price, exitBar: b, exitTime: this.x.t[b],
       exitPrice: price, pnl: gross - commission - entryShare, commission: commission + entryShare, entryComment: lot.comment, exitComment: comment,
-      open: false, mfe: lot.mfe * (q / lot.qty), mae: lot.mae * (q / lot.qty),
+      open: false, mfe: lot.mfe * (q / lot.qty), mae: lot.mae * (q / lot.qty), entryRaw: lot.raw, exitRaw: raw,
     });
     lot.commission -= entryShare;
     lot.mfe *= 1 - q / lot.qty; lot.mae *= 1 - q / lot.qty;
@@ -122,7 +122,7 @@ export class Broker {
   }
 
   private closeAllLots(dir: Dir | '', price: number, comment: string) {
-    for (const lot of [...this.lots]) if (!dir || lot.dir === dir) this.closeLot(lot, lot.qty, this.slip(lot.dir, price, false), comment);
+    for (const lot of [...this.lots]) if (!dir || lot.dir === dir) this.closeLot(lot, lot.qty, this.slip(lot.dir, price, false), comment, price);
   }
 
   // ---------- per-bar processing ----------
@@ -164,7 +164,7 @@ export class Broker {
       if (od.qtyPercent !== undefined && !Number.isNaN(od.qtyPercent)) remaining = (total * od.qtyPercent) / 100;
       for (const lot of lots) {
         const q = Number.isNaN(remaining) ? lot.qty : Math.min(lot.qty, remaining);
-        const done = this.closeLot(lot, q, this.slip(lot.dir, price, false), od.comment);
+        const done = this.closeLot(lot, q, this.slip(lot.dir, price, false), od.comment, price);
         if (!Number.isNaN(remaining)) remaining -= done;
         if (!Number.isNaN(remaining) && remaining <= EPS) break;
       }
@@ -180,16 +180,16 @@ export class Broker {
       } else if (this.lots.length > this.cfg.pyramiding) {
         return; // pyramiding limit reached
       }
-      this.openLot(od.id, dir, qty, fillPrice, od.comment);
+      this.openLot(od.id, dir, qty, fillPrice, od.comment, price);
       return;
     }
     // strategy.order: net the position, no reversal rules
     let rest = qty;
     for (const lot of opposite) {
       if (rest <= EPS) break;
-      rest -= this.closeLot(lot, rest, fillPrice, od.comment);
+      rest -= this.closeLot(lot, rest, fillPrice, od.comment, price);
     }
-    if (rest > EPS) this.openLot(od.id, dir, rest, fillPrice, od.comment);
+    if (rest > EPS) this.openLot(od.id, dir, rest, fillPrice, od.comment, price);
   }
 
   private processExits(b: number) {
@@ -238,10 +238,10 @@ export class Broker {
         if (useStop) {
           const gapped = trailPrev !== undefined && (long ? o <= trailPrev : o >= trailPrev);
           const px = stopIsTrail && !gapped ? stop! : long ? Math.min(o, stop!) : Math.max(o, stop!);
-          this.closeLot(lot, qty, this.slip(lot.dir, px, false), ex.comment || (ex.trail.has(lot.id) ? 'trailing' : 'stop'));
+          this.closeLot(lot, qty, this.slip(lot.dir, px, false), ex.comment || (ex.trail.has(lot.id) ? 'trailing' : 'stop'), px);
         } else {
           const px = long ? Math.max(o, limit!) : Math.min(o, limit!);
-          this.closeLot(lot, qty, px, ex.comment || 'limit');
+          this.closeLot(lot, qty, px, ex.comment || 'limit', px);
         }
       }
     }
@@ -267,7 +267,7 @@ export class Broker {
     const open: TradeRec[] = this.lots.map((lt) => ({
       id: lt.id, dir: lt.dir, qty: lt.qty, entryBar: lt.bar, entryTime: lt.time, entryPrice: lt.price, exitBar: -1, exitTime: 0,
       exitPrice: this.x.c[last], pnl: (lt.dir === 'long' ? this.x.c[last] - lt.price : lt.price - this.x.c[last]) * lt.qty - lt.commission,
-      commission: lt.commission, entryComment: lt.comment, exitComment: '', open: true, mfe: lt.mfe, mae: lt.mae,
+      commission: lt.commission, entryComment: lt.comment, exitComment: '', open: true, mfe: lt.mfe, mae: lt.mae, entryRaw: lt.raw, exitRaw: this.x.c[last],
     }));
     const pending: PendingOrder[] = [
       ...this.orders.map((o): PendingOrder => ({ id: o.id, kind: o.kind, dir: o.dir, qty: o.qty, limit: o.limit, stop: o.stop, comment: o.comment })),
@@ -313,6 +313,8 @@ NATIVES['strategy'] = {
       commissionValue: num(a[17]) ?? 0,
       slippageTicks: num(a[15]) ?? 0,
     };
+    const ov = x.brokerCfg;
+    if (ov) { cfg.initialCapital = ov.initialCapital; cfg.qtyType = ov.qtyType; cfg.qtyValue = ov.qtyValue; cfg.commissionType = 'percent'; cfg.commissionValue = ov.commissionValue; cfg.slippageTicks = ov.slippageTicks; }
     x.meta.initialCapital = cfg.initialCapital; x.meta.pyramiding = cfg.pyramiding;
     if (!x.broker) x.broker = new Broker(x, cfg); // the declaration runs on every bar; create the broker once
     return NaN;

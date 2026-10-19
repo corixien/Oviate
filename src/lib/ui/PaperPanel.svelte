@@ -56,8 +56,15 @@
     const pts = d.map((v, i) => `${((i / (d.length - 1)) * 800).toFixed(1)},${(6 + (v / lo) * 138).toFixed(1)}`);
     return { path: 'M' + pts.join('L'), area: `M0,6L${pts.join('L')}L800,6Z`, lo };
   });
+  function setT(k: 'initialCapital' | 'qtyValue' | 'commissionValue' | 'slippageTicks', e: Event) {
+    let v = parseFloat((e.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(v) || v < 0) return;
+    if (k === 'qtyValue' && app.tester.qtyType === 'percent_of_equity') v = Math.min(100, v);
+    if (k === 'initialCapital' && v <= 0) return;
+    app.tester[k] = v; app.persist();
+  }
   const dur = (bars: number) => (Number.isFinite(bars) ? bars.toFixed(1) : '—');
-  let testerSub = $state<'overview' | 'trades'>('overview');
+  let testerSub = $state<'overview' | 'trades' | 'settings'>('overview');
   const sTrades = $derived([...(sres?.trades ?? [])].reverse());
 
   const deleteAcc = () => { if (acc && confirm(`Delete paper account "${acc.name}"?`)) paper.remove(acc.id); };
@@ -170,6 +177,7 @@
         <div class="subs">
           <button class:on={testerSub === 'overview'} onclick={() => (testerSub = 'overview')}>Overview</button>
           <button class:on={testerSub === 'trades'} onclick={() => (testerSub = 'trades')}>Trades<i>{sres.trades.length}</i></button>
+          <button class:on={testerSub === 'settings'} onclick={() => (testerSub = 'settings')}>Settings</button>
         </div>
         <div class="body">
           {#if testerSub === 'overview'}
@@ -215,6 +223,18 @@
                 {/each}
               </tbody>
             </table>
+          {:else if testerSub === 'settings'}
+            <div class="tset">
+              <p class="dim">These settings only change the simulation in the Strategy Tester. They are not saved in the strategy and do not change the entry and exit boxes on the chart.</p>
+              <label><span>Initial capital</span><input class="in" type="number" min="0" step="any" value={app.tester.initialCapital} oninput={(e) => setT('initialCapital', e)} /></label>
+              <label><span>Position size per trade</span>
+                <Select value={app.tester.qtyType} options={[{ value: 'percent_of_equity', label: '% of account' }, { value: 'cash', label: 'Cash amount' }, { value: 'fixed', label: 'Contracts / shares' }]} onchange={(v) => { app.tester.qtyType = v as typeof app.tester.qtyType; if (v === 'percent_of_equity') app.tester.qtyValue = Math.min(100, app.tester.qtyValue); app.persist(); }} width="170px" />
+                <input class="in" type="number" min="0" max={app.tester.qtyType === 'percent_of_equity' ? 100 : undefined} step="any" value={app.tester.qtyValue} oninput={(e) => setT('qtyValue', e)} />
+                <span class="unit">{app.tester.qtyType === 'percent_of_equity' ? '% of equity' : app.tester.qtyType === 'cash' ? 'in account currency' : 'units'}</span></label>
+              <label><span>Commission per fill</span><input class="in" type="number" min="0" step="any" value={app.tester.commissionValue} oninput={(e) => setT('commissionValue', e)} /><span class="unit">% of trade value, on buy and sell</span></label>
+              <label><span>Slippage</span><input class="in" type="number" min="0" step="1" value={app.tester.slippageTicks} oninput={(e) => setT('slippageTicks', e)} /><span class="unit">ticks per fill, against you</span></label>
+              <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, qtyType: 'percent_of_equity', qtyValue: 100, commissionValue: 0, slippageTicks: 0 }; app.persist(); }}>Reset to defaults</button>
+            </div>
           {:else}
             <table>
               <thead><tr><th>#</th><th>Entry</th><th>Exit</th><th>Side</th><th>Qty</th><th>Entry px</th><th>Exit px</th><th>P&L</th><th>Run-up</th><th>Drawdown</th></tr></thead>
@@ -267,6 +287,10 @@
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 4px; } .two .eq { width: calc(100% - 24px); }
   h5 { margin: 12px 14px 0; font: 700 10.5px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); } h5 .dim { color: var(--dim); text-transform: none; letter-spacing: 0; margin-left: 6px; }
   h5.sec { margin-top: 14px; } .ls { margin: 8px 12px 14px; width: calc(100% - 24px); }
+  .tset { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; } .tset p { margin: 0 0 2px; max-width: 640px; }
+  .tset label { display: flex; align-items: center; gap: 10px; font-size: 12.5px; } .tset label > span:first-child { width: 170px; color: var(--dim); }
+  .in { width: 110px; padding: 6px 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; } .in:focus { border-color: var(--accent); }
+  .unit { color: var(--dim); font-size: 11.5px; }
   .empty { padding: 26px; text-align: center; color: var(--fg); } .empty p { margin: 6px 0; } .empty .dim { color: var(--dim); font-size: 13px; }
   .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 9px 18px; font: 700 13px system-ui, sans-serif; cursor: pointer; margin-top: 8px; }
   kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); padding: 1px 6px; }

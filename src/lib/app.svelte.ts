@@ -3,7 +3,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { ChartType } from './chart/transforms';
 import type { Drawing, DrawTool } from './chart/renderer';
 import type { Lang } from './i18n';
-import type { PineResult } from './pine/types.ts';
+import type { PineResult, TesterSettings } from './pine/types.ts';
 import { library } from './library.svelte';
 import { parseSpec, companions } from './builder/model.ts';
 
@@ -62,6 +62,8 @@ class App {
   settingsOpen = $state(false);
   /** Latest backtest per chart (for the Strategy Tester panel). */
   strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number }>>({});
+  /** Strategy Tester settings (simulation only: not stored in strategies, not shown in chart drawings). */
+  tester = $state<TesterSettings>({ initialCapital: 10000, qtyType: 'percent_of_equity', qtyValue: 100, commissionValue: 0, slippageTicks: 0 });
   page = $state<'chart' | 'news' | 'editor' | 'builder'>('chart');
   /** Strategy builder target: a saved builder strategy or a new one (name null). */
   builder = $state<{ name: string | null }>({ name: null });
@@ -97,6 +99,14 @@ class App {
     this.persist();
   }
   get count() { return LAYOUT_COUNT[this.layout]; }
+
+  /** Open the strategy builder, on the chart's builder strategy if it has one (else the last edited or a new one). */
+  openBuilder() {
+    const s = this.chart.indicators.find((i) => i.strategy);
+    const f = s && library.get('strategies', s.id);
+    if (f && parseSpec(f.code)) this.builder = { name: s.id };
+    this.page = 'builder';
+  }
 
   /** Open a saved script in the right editor: the visual builder for builder strategies, the Pine editor otherwise. */
   editScript(kind: 'indicators' | 'strategies', name: string) {
@@ -168,6 +178,7 @@ class App {
         if (s.split) this.split = { ...this.split, ...s.split };
         this.showWatchlist = s.showWatchlist ?? true;
         this.uiZoom = s.uiZoom ?? 1;
+        if (s.tester) this.tester = { ...this.tester, ...s.tester };
         if (this.uiZoom !== 1) this.applyZoom();
       }
     } catch { /* corrupt state: keep defaults */ }
@@ -181,7 +192,7 @@ class App {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
         lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
-        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, uiZoom: this.uiZoom
+        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, uiZoom: this.uiZoom, tester: $state.snapshot(this.tester)
       }));
     }, 400);
   }

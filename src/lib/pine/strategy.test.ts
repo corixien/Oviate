@@ -77,3 +77,15 @@ test('equity curve matches realized + unrealized every bar', () => {
   const s = ok(runPine(strat('default_qty_type=strategy.fixed, default_qty_value=10', `if bar_index == 1\n    strategy.entry("L", strategy.long)`), d));
   assert.deepEqual(Array.from(s.equity), [10000, 10000, 10100, 10200]);
 });
+
+test('tester settings override the declaration; slippage hits pnl but raw prices stay unslipped', () => {
+  const d = bars([[100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100]]);
+  const code = strat('default_qty_type=strategy.fixed, default_qty_value=1', `if bar_index == 1\n    strategy.entry("L", strategy.long)\nif bar_index == 3\n    strategy.close("L")`);
+  const s = ok(runPine(code, d, { mintick: 0.5, broker: { initialCapital: 500, qtyType: 'fixed', qtyValue: 4, commissionValue: 0, slippageTicks: 2 } }));
+  const t = s.trades[0];
+  assert.equal(s.initialCapital, 500);
+  assert.equal(t.qty, 4);
+  assert.equal(t.entryPrice, 101); assert.equal(t.exitPrice, 99);
+  assert.equal(t.entryRaw, 100); assert.equal(t.exitRaw, 100);
+  assert.equal(t.pnl, -8);
+});

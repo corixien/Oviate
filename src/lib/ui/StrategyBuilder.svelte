@@ -22,7 +22,7 @@
   const code = $derived(showCode ? generate($state.snapshot(spec)) : '');
 
   $effect(() => {
-    if (app.page !== 'builder') { loadedKey = ''; return; }
+    if (app.page !== 'builder') return;
     const key = app.builder.name ?? '';
     if (key === loadedKey) return;
     loadedKey = key;
@@ -62,7 +62,6 @@
   // ---------- groups ----------
   function newCond(): Cond { return cond(indOperand('rsi'), 'cross_above', numOperand(30)); }
   function setSideNum(s: Side, k: 'sl' | 'tp', e: Event) { const v = val(e); s[k] = Number.isFinite(v) && v >= 0 ? v : 0; }
-  function setSpecNum(k: 'capital' | 'qty' | 'commission' | 'slippage', e: Event) { const v = val(e); if (Number.isFinite(v) && v >= 0) spec[k] = v; }
 
   // ---------- save / apply ----------
   function check(): boolean {
@@ -143,18 +142,20 @@
       <div class="seg"><button class:on={g.op === 'and'} onclick={() => (g.op = 'and')} title="All conditions must be true">ALL</button><button class:on={g.op === 'or'} onclick={() => (g.op = 'or')} title="At least one condition must be true">ANY</button></div>
       <div class="sp"></div>
       <button class="mini" onclick={() => g.items.push(newCond())}>+ Condition</button>
-      {#if depth < 3}<button class="mini" onclick={() => g.items.push({ ...emptyGroup(g.op === 'and' ? 'or' : 'and'), items: [newCond()] })}>+ Group</button>{/if}
-      {#if onremove}<button class="mini del" onclick={onremove} aria-label="Remove group">×</button>{/if}
+      {#if depth < 1}<button class="mini" title="Nested set of conditions with its own ALL/ANY, like (A and B) or (C and D)" onclick={() => g.items.push({ ...emptyGroup(g.op === 'and' ? 'or' : 'and'), items: [newCond()] })}>+ Sub-group</button>{/if}
+      {#if onremove}<button class="x" onclick={onremove} aria-label="Remove sub-group" title="Remove sub-group">×</button>{/if}
     </div>
     {#each g.items as it, i (i)}
       {#if i > 0}<div class="join">{g.op === 'and' ? 'AND' : 'OR'}</div>{/if}
       {#if it.t === 'cond'}
-        <div class="row">
-          {@render operand(it, 'lhs')}
-          <Select value={it.cmp} options={CMP_OPTS} onchange={(v) => pickCmp(it, v as Cmp)} width="170px" />
-          {@render operand(it, 'rhs')}
-          {#if it.cmp === 'between'}<span class="and">and</span>{@render operand(it, 'rhs2')}{/if}
-          <button class="mini del" onclick={() => g.items.splice(i, 1)} aria-label="Remove condition">×</button>
+        <div class="card">
+          <button class="x" onclick={() => g.items.splice(i, 1)} aria-label="Remove condition" title="Remove condition">×</button>
+          <div class="row">
+            {@render operand(it, 'lhs')}
+            <Select value={it.cmp} options={CMP_OPTS} onchange={(v) => pickCmp(it, v as Cmp)} width="170px" />
+            {@render operand(it, 'rhs')}
+            {#if it.cmp === 'between'}<span class="and">and</span>{@render operand(it, 'rhs2')}{/if}
+          </div>
         </div>
       {:else}
         {@render grp(it, depth + 1, () => g.items.splice(i, 1))}
@@ -204,15 +205,8 @@
       </div>
 
       <div class="scroll">
-        <div class="settings">
-          <label><span>Initial capital</span><input class="num" type="number" min="0" step="any" value={spec.capital} oninput={(e) => setSpecNum('capital', e)} /></label>
-          <label><span>Position size</span>
-            <Select value={spec.qtyType} options={[{ value: 'percent_of_equity', label: '% of equity' }, { value: 'cash', label: 'Cash amount' }, { value: 'fixed', label: 'Contracts' }]} onchange={(v) => (spec.qtyType = v as Spec['qtyType'])} width="140px" />
-            <input class="num" type="number" min="0" step="any" value={spec.qty} oninput={(e) => setSpecNum('qty', e)} /></label>
-          <label><span>Commission %</span><input class="num" type="number" min="0" step="any" value={spec.commission} oninput={(e) => setSpecNum('commission', e)} /></label>
-          <label><span>Slippage (ticks)</span><input class="num" type="number" min="0" step="1" value={spec.slippage} oninput={(e) => setSpecNum('slippage', e)} /></label>
-        </div>
-        <p class="flow">The strategy scans entry events while it is flat (or in the opposite direction) and exit events while it is in a trade. Orders fill at the next bar open.</p>
+        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, position size, fees and slippage are set in the Strategy Tester (Settings tab).</p>
+        <p class="flow help"><b>Conditions</b> are single rules like "RSI crosses above 30". Several conditions are joined with <b>ALL</b> (every one must be true) or <b>ANY</b> (one is enough). A <b>sub-group</b> lets you mix both, like (A and B) or (C and D).</p>
 
         <div class="sides">
           {#each [['long', 'LONG', spec.long], ['short', 'SHORT', spec.short]] as [key, label, side] (key)}
@@ -278,9 +272,8 @@
   .bar .danger:hover { border-color: var(--down); color: var(--down); }
   kbd { font: 10px ui-monospace, monospace; opacity: 0.8; margin-left: 6px; }
   .scroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 24px; }
-  .settings { display: flex; flex-wrap: wrap; gap: 8px 22px; padding-bottom: 10px; }
-  .settings label, .risk label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); }
-  .flow { margin: 2px 0 14px; color: var(--dim); font-size: 12px; }
+  .risk label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); }
+  .flow { margin: 2px 0 8px; color: var(--dim); font-size: 12px; } .flow b { color: var(--fg); } .flow.help { margin-bottom: 14px; }
   .num { width: 96px; padding: 6px 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; }
   .num.sm { width: 58px; padding: 6px 6px; } .num:focus { border-color: var(--accent); }
   .sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
@@ -302,7 +295,11 @@
   .mini { background: none; border: 1px solid var(--line); color: var(--fg); padding: 3px 9px; font: 600 11px system-ui, sans-serif; cursor: pointer; }
   .mini:hover { border-color: var(--accent); color: var(--accent); } .mini.del:hover { border-color: var(--down); color: var(--down); }
   .join { text-align: left; margin: 3px 0; color: var(--accent); font: 800 9.5px system-ui, sans-serif; letter-spacing: 0.16em; }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--line); background: var(--bar); }
+  .card { position: relative; border: 1px solid var(--line); background: var(--bar); padding: 8px 30px 8px 8px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .x { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; display: grid; place-items: center; background: none; border: 0; color: var(--dim); font: 16px/1 system-ui, sans-serif; cursor: pointer; }
+  .x:hover { background: var(--down); color: #fff; }
+  .grp.nested { position: relative; padding-right: 30px; } .grp.nested .ghead { flex-wrap: wrap; }
   .op { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .pp { display: inline-flex; align-items: center; gap: 3px; } .pp i { font-style: normal; color: var(--dim); font-size: 10.5px; }
   .and { color: var(--dim); font-size: 12px; }

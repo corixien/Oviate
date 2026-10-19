@@ -3,7 +3,7 @@ import { parse, PineSyntaxError } from './parser.ts';
 import type { Expr, Stmt } from './parser.ts';
 import { NATIVES, CONSTS, VARS, SERIES_NAMES, NOOP_NAMESPACES, isNa, truthy, registerSourceInput } from './natives.ts';
 import type { Ctx, Native } from './natives.ts';
-import type { PineCandles, PineResult, PineMeta } from './types.ts';
+import type { PineCandles, PineResult, PineMeta, TesterSettings } from './types.ts';
 import './strategy.ts';
 
 const NaN_ = Number.NaN;
@@ -497,6 +497,8 @@ export interface RunOptions {
   step?: number;
   symbol?: string;
   mintick?: number;
+  /** Strategy Tester settings overriding the strategy() declaration */
+  broker?: TesterSettings;
 }
 
 export function runPine(code: string, data: PineCandles, opts: RunOptions = {}): PineResult {
@@ -506,7 +508,7 @@ export function runPine(code: string, data: PineCandles, opts: RunOptions = {}):
   const x: Ctx = {
     ...data, bar: 0, tms, params: opts.params ?? {}, inputs: [], plots: [], shapes: [], hlines: [], fills: [],
     bgcolors: new Array(data.n), barcolors: new Array(data.n), warnings: [], meta, step: opts.step ?? 86400,
-    symbol: opts.symbol ?? 'SYMBOL', mintick: opts.mintick ?? 0.01,
+    symbol: opts.symbol ?? 'SYMBOL', mintick: opts.mintick ?? 0.01, brokerCfg: opts.broker,
     seriesByName: (n: string) => (SERIES_NAMES.has(n) ? new Float64Array(0) : undefined),
   };
   const result = (): PineResult => ({

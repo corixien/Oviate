@@ -104,7 +104,13 @@ export interface TradeRec {
   /** max favorable / adverse excursion (price distance * qty) */
   mfe: number;
   mae: number;
+  /** fill prices before slippage (used for chart drawings) */
+  entryRaw?: number;
+  exitRaw?: number;
 }
+
+/** Strategy Tester settings: override what a strategy declares, for the simulation only. */
+export interface TesterSettings { initialCapital: number; qtyType: 'fixed' | 'cash' | 'percent_of_equity'; qtyValue: number; commissionValue: number; slippageTicks: number }
 
 export interface PendingOrder {
   id: string;
