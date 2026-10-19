@@ -1364,12 +1364,15 @@ export class ChartRenderer {
     this.kick();
   }
 
-  /** Shift+scroll: move the price axis up or down. */
+  /** Shift+scroll: stretch or squeeze the price axis around its centre (same as dragging the price axis). */
   private wheelPrice(delta: number) {
-    const m = this.panes[0]; if (!m) return;
+    const m = this.panes[0]; if (!m || !this.s.data.n) return;
     const T = this.ensurePrice();
-    T.pZoom = false;
-    T.a -= (delta * 0.6 / (m.y1 - m.y0)) * T.span;
+    const [smin, smax] = this.spanLimits();
+    const center = T.a + T.span / 2;
+    T.span = Math.min(smax, Math.max(smin, T.span * Math.exp(delta * 0.002)));
+    T.pZoom = true; T.pFrac = 0.5; T.pAnchor = center;
+    T.a = center - T.span / 2;
     this.kick();
   }
 

@@ -51,7 +51,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: chart navigation, app zoom, dialog polish, more drawing tools, logo concepts.
 
 ### Done
-- [x] Wheel navigation in `renderer.ts` (eased via rAF target `tgt`): scroll = time, Shift+scroll = price, Ctrl+scroll = zoom both axes, stops when either axis hits its limit (`BAR_MIN/BAR_MAX`, `spanLimits()` = 4x data range)
+- [x] Wheel navigation in `renderer.ts` (eased via rAF target `tgt`): scroll = time, Shift+scroll = stretch/squeeze price axis around its centre (like dragging the price axis), Ctrl+scroll = zoom both axes, stops when either axis hits its limit (`BAR_MIN/BAR_MAX`, `spanLimits()` = 4x data range)
 - [x] Empty area left/right of data viewable (`clampStartV`), time ticks and crosshair extend into it, history prefetch earlier (`checkHistory`)
 - [x] App zoom Ctrl +/-/0 (`app.zoomBy/setZoom`, Tauri webview zoom, perm `core:webview:allow-set-webview-zoom`), commands `/zoom`; Chart key handler ignores Ctrl combos
 - [x] Dialog flash fix attempt: removed all fade/pop animations on Spotlight/Order/Account/Indicator/Settings dialogs (WebKitGTK compositing suspected, not verified visually)
