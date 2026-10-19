@@ -24,6 +24,8 @@ const POINTS: Record<DrawTool, number> = {
 
 export interface DrawPt { t: number; p: number }
 export interface TradeMark { t: number; price: number; side: 'buy' | 'sell'; text?: string }
+/** Strategy trade drawn as an entry-to-exit box (green = win, red = loss). */
+export interface TradeBox { t0: number; t1: number; p0: number; p1: number; win: boolean; text: string; open: boolean }
 export interface PriceLine { price: number; color: string; label: string; dash?: boolean }
 
 export interface NewsMark { t: number; ids: string[]; titles: string[] }
@@ -52,6 +54,7 @@ export interface RenderState {
   tool: DrawTool;
   news: NewsMark[];
   trades: TradeMark[];
+  boxes: TradeBox[];
   lines: PriceLine[];
 }
 
@@ -339,6 +342,7 @@ export class ChartRenderer {
       if (this.s.volume) this.drawVolume(a, b);
       this.drawSeries(a, b);
       this.drawOverlays(a, b);
+      this.drawBoxes();
       this.drawDrawings();
       this.drawLines();
       this.drawTrades();
@@ -719,6 +723,23 @@ export class ChartRenderer {
       else { ctx.moveTo(x, y - 1); ctx.lineTo(x + 6, y - 11); ctx.lineTo(x + 2.5, y - 11); ctx.lineTo(x + 2.5, y - 17); ctx.lineTo(x - 2.5, y - 17); ctx.lineTo(x - 2.5, y - 11); ctx.lineTo(x - 6, y - 11); }
       ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0; ctx.stroke();
       if (m.text) { ctx.font = '10px ui-monospace, monospace'; ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.fillText(m.text, x, buy ? y + 28 : y - 24); ctx.textAlign = 'left'; ctx.font = '11px ui-monospace, "JetBrains Mono", monospace'; }
+    }
+  }
+
+  private drawBoxes() {
+    const { ctx } = this; const { theme } = this.s;
+    for (const b of this.s.boxes ?? []) {
+      const x0 = this.xOf(this.timeToIdx(b.t0)), x1 = Math.max(x0 + 6, this.xOf(this.timeToIdx(b.t1)));
+      if (x1 < -10 || x0 > this.plotW + 10) continue;
+      const ya = this.py(b.p0), yb = this.py(b.p1);
+      const top = Math.min(ya, yb) - (Math.abs(ya - yb) < 2 ? 1 : 0), hgt = Math.max(2, Math.abs(ya - yb));
+      const col = b.win ? theme.up : theme.down;
+      ctx.globalAlpha = 0.18; ctx.fillStyle = col; ctx.fillRect(x0, top, x1 - x0, hgt);
+      ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash(b.open ? [4, 3] : []);
+      ctx.strokeRect(Math.round(x0) + 0.5, Math.round(top) + 0.5, x1 - x0, hgt);
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(x0, Math.round(ya) + 0.5); ctx.lineTo(x1, Math.round(ya) + 0.5); ctx.stroke();
+      if (b.text && x1 - x0 > 14) this.labelBox(b.text, (x0 + x1) / 2, top - 13);
     }
   }
 

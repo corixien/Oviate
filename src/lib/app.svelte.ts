@@ -4,6 +4,8 @@ import type { ChartType } from './chart/transforms';
 import type { Drawing, DrawTool } from './chart/renderer';
 import type { Lang } from './i18n';
 import type { PineResult } from './pine/types.ts';
+import { library } from './library.svelte';
+import { parseSpec, companions } from './builder/model.ts';
 
 export interface ChartCfg {
   id: string;
@@ -59,8 +61,10 @@ class App {
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
   /** Latest backtest per chart (for the Strategy Tester panel). */
-  strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult }>>({});
-  page = $state<'chart' | 'news' | 'editor'>('chart');
+  strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number }>>({});
+  page = $state<'chart' | 'news' | 'editor' | 'builder'>('chart');
+  /** Strategy builder target: a saved builder strategy or a new one (name null). */
+  builder = $state<{ name: string | null }>({ name: null });
   /** Script editor target: an existing script or a new one (name null). */
   editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null }>({ kind: 'indicators', name: null });
   newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
@@ -93,6 +97,26 @@ class App {
     this.persist();
   }
   get count() { return LAYOUT_COUNT[this.layout]; }
+
+  /** Open a saved script in the right editor: the visual builder for builder strategies, the Pine editor otherwise. */
+  editScript(kind: 'indicators' | 'strategies', name: string) {
+    const f = library.get(kind, name);
+    if (kind === 'strategies' && f && parseSpec(f.code)) { this.builder = { name }; this.page = 'builder'; }
+    else { this.editor = { kind, name }; this.page = 'editor'; }
+  }
+
+  /** Put a strategy on the active chart (replacing the current one); builder strategies also bring their oscillator panes. */
+  addStrategy(name: string) {
+    const ch = this.chart;
+    ch.indicators = [...ch.indicators.filter((i) => !i.strategy), { uid: crypto.randomUUID(), id: name, params: {}, strategy: true }];
+    const spec = parseSpec(library.get('strategies', name)?.code ?? '');
+    if (!spec) return;
+    for (const c of companions(spec)) {
+      if (!library.get('indicators', c.id)) continue;
+      const have = ch.indicators.some((i) => !i.strategy && i.id === c.id && Object.entries(c.params).every(([k, v]) => i.params[k] === v));
+      if (!have) ch.indicators = [...ch.indicators, { uid: crypto.randomUUID(), id: c.id, params: { ...c.params } }];
+    }
+  }
 
   openNews(symbol: string | null = null, id: string | null = null) {
     this.newsFocus = { symbol, id };

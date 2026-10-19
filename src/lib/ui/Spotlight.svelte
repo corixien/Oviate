@@ -6,6 +6,7 @@
   import { library } from '$lib/library.svelte';
   import { paper } from '$lib/paper/paper.svelte';
   import { DRAW_TOOLS } from '$lib/chart/renderer';
+  import { parseSpec } from '$lib/builder/model.ts';
   import { t } from '$lib/i18n';
 
   interface Item { key: string; title: string; sub?: string; tag: string; run: () => void }
@@ -24,10 +25,12 @@
     ...CHART_TYPES.map((ct) => ({ key: `type ${ct}`, title: `Chart type: ${ct}`, tag: 'type', run: () => { app.chart.type = ct; } })),
     { key: 'ind add new create pine script editor', title: 'New indicator (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'indicator', run: () => { app.editor = { kind: 'indicators', name: null }; app.page = 'editor'; } },
     { key: 'strat add new create pine strategy editor', title: 'New strategy (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'strategy', run: () => { app.editor = { kind: 'strategies', name: null }; app.page = 'editor'; } },
+    { key: 'strat add new create builder visual blocks scratch', title: 'New strategy (visual builder)', sub: 'Build entry / exit rules from indicator blocks', tag: 'strategy', run: () => { app.builder = { name: null }; app.page = 'builder'; } },
+    ...library.strategies.filter((f) => parseSpec(f.code)).map((f) => ({ key: `strat edit builder ${f.name} ${f.title}`, title: `Edit in builder: ${f.title}`, sub: f.name, tag: 'strategy', run: () => { app.builder = { name: f.name }; app.page = 'builder'; } })),
     ...library.indicators.map((f) => ({ key: `ind add ${f.name} ${f.title}`, title: `Add ${f.title}`, sub: f.name, tag: 'indicator',
       run: () => { app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: f.name, params: {} }]; } })),
     ...library.strategies.map((f) => ({ key: `strat add ${f.name} ${f.title}`, title: `Add strategy: ${f.title}`, sub: f.name, tag: 'strategy',
-      run: () => { app.chart.indicators = [...app.chart.indicators.filter((i) => !i.strategy), { uid: crypto.randomUUID(), id: f.name, params: {}, strategy: true }]; paper.panelOpen = true; paper.panelTab = 'tester'; paper.persist(); } })),
+      run: () => { app.addStrategy(f.name); paper.panelOpen = true; paper.panelTab = 'tester'; paper.persist(); } })),
     { key: 'strat remove delete strategy', title: 'Remove strategy from chart', tag: 'strategy', run: () => { app.chart.indicators = app.chart.indicators.filter((i) => !i.strategy); } },
     { key: 'paper new account create', title: 'New paper account', tag: 'paper', run: () => { paper.accountDialog = true; } },
     { key: 'paper panel toggle trading', title: 'Toggle paper trading panel', tag: 'paper', run: () => { paper.panelOpen = !paper.panelOpen; paper.persist(); } },

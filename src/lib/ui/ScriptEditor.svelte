@@ -3,6 +3,7 @@
   import { library, type ScriptKind } from '$lib/library.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick } from 'svelte';
+  import { parseSpec } from '$lib/builder/model.ts';
 
   const kind = $derived<ScriptKind>(app.editor.kind);
   const files = $derived(library.list(kind));
@@ -140,6 +141,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
         <input class="name" bind:value={name} placeholder={isNew ? 'File name (default: script title)' : 'File name'} spellcheck="false" disabled={!isNew} />
         <span class="ext">.pine</span>
         <div class="spacer"></div>
+        {#if kind === 'strategies'}<button onclick={() => { app.builder = { name: !isNew && parseSpec(code) ? app.editor.name : null }; app.page = 'builder'; }} title="Build the strategy from indicator blocks">Visual builder</button>{/if}
         <button onclick={check}>Check</button>
         {#if kind === 'indicators' && !isNew}<button onclick={addToChart}>Add to chart</button>{/if}
         {#if !isNew}<button class="danger" onclick={remove}>Delete</button>{/if}

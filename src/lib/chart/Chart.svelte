@@ -8,7 +8,7 @@
   import { runScript } from '$lib/pine/runner.ts';
   import type { PineResult } from '$lib/pine/types.ts';
   import Icons from '$lib/ui/Icons.svelte';
-  import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type PriceLine } from './renderer';
+  import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
   import * as PE from '$lib/paper/engine.ts';
   import { t } from '$lib/i18n';
@@ -111,6 +111,9 @@
     return out;
   });
   let stratTrades = $state<TradeMark[]>([]);
+  let stratBoxes = $state<TradeBox[]>([]);
+  /** Number of most recent strategy trades drawn as boxes (older ones stay as arrows). */
+  const BOX_TRADES = 20;
 
   let lastPoll = $state(0);
   let nowMs = $state(Date.now());
@@ -181,16 +184,24 @@
   /** Backtest result of the first strategy on this chart: feeds the tester panel and the trade arrows. */
   function publishStrategy(list: typeof cfg.indicators, out: Record<string, PineResult>, sym: string) {
     const s = list.find((i) => i.strategy && out[i.uid]?.strategy && !out[i.uid]?.error);
-    if (!s) { delete app.strategyResults[cfg.id]; stratTrades = []; return; }
+    if (!s) { delete app.strategyResults[cfg.id]; stratTrades = []; stratBoxes = []; return; }
     const res = out[s.uid];
-    app.strategyResults[cfg.id] = { uid: s.uid, name: s.id, symbol: sym, tf: cfg.tf, result: res };
+    const d = display;
+    app.strategyResults[cfg.id] = { uid: s.uid, name: s.id, symbol: sym, tf: cfg.tf, result: res, stepSec: step, firstClose: d.n ? d.c[0] : 0, lastClose: d.n ? d.c[d.n - 1] : 0 };
+    const trades = res.strategy!.trades;
+    const split = Math.max(0, trades.length - BOX_TRADES);
     const marks: TradeMark[] = [];
-    for (const t of res.strategy!.trades) {
+    for (const t of trades.slice(0, split)) {
       const long = t.dir === 'long';
       marks.push({ t: t.entryTime, price: t.entryPrice, side: long ? 'buy' : 'sell' });
       if (!t.open) marks.push({ t: t.exitTime, price: t.exitPrice, side: long ? 'sell' : 'buy' });
     }
     stratTrades = marks;
+    const lastT = d.n ? d.t[d.n - 1] : 0;
+    stratBoxes = trades.slice(split).map((t) => {
+      const pct = t.entryPrice * t.qty ? (t.pnl / (t.entryPrice * t.qty)) * 100 : 0;
+      return { t0: t.entryTime, t1: t.open ? lastT : t.exitTime, p0: t.entryPrice, p1: t.exitPrice, win: t.pnl >= 0, open: t.open, text: `${t.dir === 'long' ? 'L' : 'S'} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` };
+    });
   }
 
   /** Strategies attached to a paper account: act on the orders the strategy has pending after each newly closed bar. */
@@ -275,7 +286,7 @@
       onEditText: (id, x, y, text) => openEditor(id, x, y, text)
     }, {
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
-      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, trades: tradeMarks, lines: priceLines
+      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
     });
     const ro = new ResizeObserver(([e]) => r!.resize(e.contentRect.width, e.contentRect.height));
     ro.observe(box);
@@ -323,7 +334,7 @@
     r?.setState({
       data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet,
-      tool: app.active === index ? app.tool : 'cursor', news: newsMarks, trades: tradeMarks, lines: priceLines
+      tool: app.active === index ? app.tool : 'cursor', news: newsMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
     });
   });
 
@@ -414,7 +425,7 @@
                 <button onclick={() => { ind.showParams = !(ind.showParams ?? app.showParams); menuFor = ''; app.persist(); }}>{ind.showParams ?? app.showParams ? 'Hide parameters' : 'Show parameters'}</button>
                 <button onclick={() => { cfg.indicators = [...cfg.indicators, { ...$state.snapshot(ind), uid: crypto.randomUUID() }]; menuFor = ''; app.persist(); }}>Duplicate</button>
                 <button onclick={() => { ind.params = {}; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
-                <button onclick={() => { app.editor = { kind: ind.strategy ? 'strategies' : 'indicators', name: ind.id }; app.page = 'editor'; menuFor = ''; }}>Edit source</button>
+                <button onclick={() => { app.editScript(ind.strategy ? 'strategies' : 'indicators', ind.id); menuFor = ''; }}>Edit source</button>
                 {#if ind.strategy}
                   <button class="hd2" disabled>Trade on paper account</button>
                   {#each paper.accounts as acc (acc.id)}

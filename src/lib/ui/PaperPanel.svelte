@@ -4,6 +4,7 @@
   import * as E from '$lib/paper/engine.ts';
   import { fmtPrice } from '$lib/chart/renderer';
   import Select from './Select.svelte';
+  import { detailedStats } from '$lib/pine/stats.ts';
 
   const acc = $derived(paper.active);
   const st = $derived(acc ? E.accountStats(acc) : null);
@@ -46,14 +47,16 @@
 
   // ----- strategy tester -----
   const sres = $derived(tester?.result.strategy);
-  const sClosed = $derived((sres?.trades ?? []).filter((t) => !t.open));
-  const sStats = $derived.by(() => {
-    if (!sres) return null;
-    const eq = Array.from(sres.equity).filter((v) => Number.isFinite(v));
-    const last = eq[eq.length - 1] ?? sres.initialCapital;
-    return E.statsFor(sClosed, eq.map((e) => ({ eq: e })), sres.initialCapital, last, (sres.trades.filter((t) => t.open).reduce((s, t) => s + t.pnl, 0)));
-  });
+  const dstats = $derived(sres && tester ? detailedStats(sres, { stepSec: tester.stepSec, firstClose: tester.firstClose, lastClose: tester.lastClose }) : null);
   const sCurve = $derived(curve(sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : []));
+  const ddCurve = $derived.by(() => {
+    const d = dstats?.drawdown ?? [];
+    if (d.length < 2) return { path: '', area: '', lo: 0 };
+    const lo = Math.min(...d, -0.01);
+    const pts = d.map((v, i) => `${((i / (d.length - 1)) * 800).toFixed(1)},${(6 + (v / lo) * 138).toFixed(1)}`);
+    return { path: 'M' + pts.join('L'), area: `M0,6L${pts.join('L')}L800,6Z`, lo };
+  });
+  const dur = (bars: number) => (Number.isFinite(bars) ? bars.toFixed(1) : '—');
   let testerSub = $state<'overview' | 'trades'>('overview');
   const sTrades = $derived([...(sres?.trades ?? [])].reverse());
 
@@ -152,17 +155,17 @@
         </div>
       {/if}
     {:else}
-      {#if !tester || !sres || !sStats}
+      {#if !tester || !sres || !dstats}
         <div class="empty"><p>No strategy on the active chart.</p><p class="dim">Type <kbd>/strat add</kbd> in the command bar to add one, or <kbd>/strat add new</kbd> to write your own in Pine.</p></div>
       {:else}
         <div class="acc">
           <b class="sname">{tester.name}</b><span class="dim">{tester.symbol} · {tester.tf.toUpperCase()}</span>
-          <span class="m">Net profit <b class={cls(sStats.netProfit)}>{signed(sStats.netProfit)}</b></span>
-          <span class="m">Return <b class={cls(sStats.returnPct)}>{signed(sStats.returnPct)}%</b></span>
-          <span class="m">Trades <b>{sStats.trades}</b></span>
-          <span class="m">Win rate <b>{sStats.winRate.toFixed(1)}%</b></span>
-          <span class="m">Profit factor <b>{pf(sStats.profitFactor)}</b></span>
-          <span class="m">Max DD <b class="dn">{sStats.maxDrawdownPct.toFixed(1)}%</b></span>
+          <span class="m">Net profit <b class={cls(dstats.netProfit)}>{signed(dstats.netProfit)}</b></span>
+          <span class="m">Return <b class={cls(dstats.returnPct)}>{signed(dstats.returnPct)}%</b></span>
+          <span class="m">Trades <b>{dstats.trades}</b></span>
+          <span class="m">Win rate <b>{dstats.winRate.toFixed(1)}%</b></span>
+          <span class="m">Profit factor <b>{pf(dstats.profitFactor)}</b></span>
+          <span class="m">Max DD <b class="dn">{dstats.maxDrawdownPct.toFixed(1)}%</b></span>
         </div>
         <div class="subs">
           <button class:on={testerSub === 'overview'} onclick={() => (testerSub = 'overview')}>Overview</button>
@@ -170,17 +173,48 @@
         </div>
         <div class="body">
           {#if testerSub === 'overview'}
-            <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq small">
-              <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
-              <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" />
-            </svg>
-            <div class="grid">
-              {#each [['Initial capital', money(sres.initialCapital), ''], ['Final equity', money(sStats.equity), cls(sStats.equity - sres.initialCapital)], ['Open P&L', signed(sStats.openPnl), cls(sStats.openPnl)], ['Gross profit', money(sStats.grossProfit), 'up'],
-                ['Gross loss', money(sStats.grossLoss), 'dn'], ['Avg trade', signed(sStats.avgTrade), cls(sStats.avgTrade)], ['Avg win', signed(sStats.avgWin), 'up'], ['Avg loss', signed(sStats.avgLoss), 'dn'],
-                ['Best trade', signed(sStats.best), 'up'], ['Worst trade', signed(sStats.worst), 'dn'], ['Max drawdown', money(sStats.maxDrawdown), 'dn'], ['Fees', money(sStats.commission), '']] as [k, v, c]}
-                <div class="cell"><span>{k}</span><b class={c}>{v}</b></div>
-              {/each}
+            <div class="two">
+              <div>
+                <h5>Equity</h5>
+                <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq small">
+                  <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
+                  <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" />
+                </svg>
+              </div>
+              <div>
+                <h5>Drawdown <span class="dim">max {dstats.maxDrawdownPct.toFixed(2)}%</span></h5>
+                <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq small">
+                  <path d={ddCurve.area} fill="var(--down)" opacity="0.22" />
+                  <path d={ddCurve.path} fill="none" stroke="var(--down)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+                </svg>
+              </div>
             </div>
+            {#each [
+              ['Performance', [['Net profit', signed(dstats.netProfit), cls(dstats.netProfit)], ['Return', signed(dstats.returnPct) + '%', cls(dstats.returnPct)], ['Buy & hold', signed(dstats.buyHold) + '%', cls(dstats.buyHold)], ['Initial capital', money(dstats.initial), ''],
+                ['Final equity', money(dstats.equity), cls(dstats.equity - dstats.initial)], ['Open P&L', signed(dstats.openPnl), cls(dstats.openPnl)], ['Gross profit', money(dstats.grossProfit), 'up'], ['Gross loss', money(dstats.grossLoss), 'dn'],
+                ['Profit factor', pf(dstats.profitFactor), ''], ['Fees paid', money(dstats.commission), '']]],
+              ['Trades', [['Closed trades', String(dstats.trades), ''], ['Win rate', dstats.winRate.toFixed(1) + '%', ''], ['Wins / losses', dstats.wins + ' / ' + dstats.losses + (dstats.even ? ' / ' + dstats.even : ''), ''], ['Avg trade', signed(dstats.avgTrade) + '  (' + signed(dstats.avgTradePct) + '%)', cls(dstats.avgTrade)],
+                ['Avg win', signed(dstats.avgWin), 'up'], ['Avg loss', signed(dstats.avgLoss), 'dn'], ['Payoff ratio', dstats.payoff ? dstats.payoff.toFixed(2) : '—', ''], ['Expectancy', signed(dstats.expectancy), cls(dstats.expectancy)],
+                ['Best trade', signed(dstats.best) + '  (' + signed(dstats.bestPct) + '%)', 'up'], ['Worst trade', signed(dstats.worst) + '  (' + signed(dstats.worstPct) + '%)', 'dn'], ['Max win streak', String(dstats.maxWinStreak), ''], ['Max loss streak', String(dstats.maxLossStreak), ''],
+                ['Avg bars in trade', dur(dstats.avgBars), ''], ['Avg bars win / loss', dur(dstats.avgBarsWin) + ' / ' + dur(dstats.avgBarsLoss), ''], ['Time in market', dstats.exposurePct.toFixed(1) + '%', ''], ['Avg run-up / drawdown', money(dstats.avgMfe) + ' / ' + money(dstats.avgMae), '']]],
+              ['Risk', [['Max drawdown', money(dstats.maxDrawdown) + '  (' + dstats.maxDrawdownPct.toFixed(2) + '%)', 'dn'], ['Max run-up', money(dstats.maxRunup), 'up'], ['Recovery factor', dstats.recovery ? dstats.recovery.toFixed(2) : '—', ''], ['Ulcer index', dstats.ulcer.toFixed(2), ''],
+                ['Sharpe ratio', dstats.sharpe.toFixed(2), cls(dstats.sharpe)], ['Sortino ratio', dstats.sortino.toFixed(2), cls(dstats.sortino)], ['Calmar ratio', dstats.calmar.toFixed(2), cls(dstats.calmar)]]],
+            ] as [title, cells]}
+              <h5 class="sec">{title}</h5>
+              <div class="grid">
+                {#each cells as [k, v, c]}<div class="cell"><span>{k}</span><b class={c}>{v}</b></div>{/each}
+              </div>
+            {/each}
+            <h5 class="sec">Long vs short</h5>
+            <table class="ls">
+              <thead><tr><th></th><th>Trades</th><th>Win rate</th><th>Net profit</th><th>Gross profit</th><th>Gross loss</th><th>Profit factor</th><th>Avg trade</th><th>Best</th><th>Worst</th></tr></thead>
+              <tbody>
+                {#each [{ nm: 'Long', ss: dstats.long }, { nm: 'Short', ss: dstats.short }] as { nm, ss }}
+                  <tr><td><b class={nm === 'Long' ? 'up' : 'dn'}>{nm}</b></td><td>{ss.trades}</td><td>{ss.winRate.toFixed(1)}%</td><td class={cls(ss.net)}>{signed(ss.net)}</td><td class="up">{money(ss.grossProfit)}</td><td class="dn">{money(ss.grossLoss)}</td>
+                    <td>{pf(ss.profitFactor)}</td><td class={cls(ss.avg)}>{signed(ss.avg)}</td><td class="up">{signed(ss.best)}</td><td class="dn">{signed(ss.worst)}</td></tr>
+                {/each}
+              </tbody>
+            </table>
           {:else}
             <table>
               <thead><tr><th>#</th><th>Entry</th><th>Exit</th><th>Side</th><th>Qty</th><th>Entry px</th><th>Exit px</th><th>P&L</th><th>Run-up</th><th>Drawdown</th></tr></thead>
@@ -230,6 +264,9 @@
   .cell { background: var(--bar); padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; } .cell span { color: var(--dim); font-size: 11px; } .cell b { font: 600 14px ui-monospace, monospace; }
   .eq { width: calc(100% - 24px); height: 150px; margin: 12px; background: #000; border: 1px solid var(--line); } .eq.small { height: 110px; }
   .base { stroke: var(--line); stroke-dasharray: 4 4; } .eqinfo { display: flex; gap: 18px; padding: 0 14px 12px; color: var(--dim); font: 11.5px ui-monospace, monospace; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 4px; } .two .eq { width: calc(100% - 24px); }
+  h5 { margin: 12px 14px 0; font: 700 10.5px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); } h5 .dim { color: var(--dim); text-transform: none; letter-spacing: 0; margin-left: 6px; }
+  h5.sec { margin-top: 14px; } .ls { margin: 8px 12px 14px; width: calc(100% - 24px); }
   .empty { padding: 26px; text-align: center; color: var(--fg); } .empty p { margin: 6px 0; } .empty .dim { color: var(--dim); font-size: 13px; }
   .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 9px 18px; font: 700 13px system-ui, sans-serif; cursor: pointer; margin-top: 8px; }
   kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); padding: 1px 6px; }

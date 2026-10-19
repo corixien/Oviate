@@ -7,6 +7,7 @@
   import LeftBar from '$lib/ui/LeftBar.svelte';
   import Watchlist from '$lib/ui/Watchlist.svelte';
   import Analysis from '$lib/ui/Analysis.svelte';
+  import StrategyBuilder from '$lib/ui/StrategyBuilder.svelte';
   import NewsPage from '$lib/ui/NewsPage.svelte';
   import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
   import { library } from '$lib/library.svelte';
@@ -90,6 +91,7 @@
   <TopBar />
   {#if app.page === 'news'}<NewsPage />{/if}
   {#if app.page === 'editor'}<ScriptEditor />{/if}
+  {#if app.page === 'builder'}<StrategyBuilder />{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
     <div class="center">
