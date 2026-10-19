@@ -8,7 +8,8 @@ Fast, keyboard-first desktop charting tool with a black and purple UI. Linux fir
 
 ## Features
 
-- **Charts:** 1, 2, 3 or 4 charts with draggable splits, 8 chart types (candles, hollow, bars, line, area, baseline, Heikin-Ashi, Renko), log scale, volume, crosshair/zoom/scroll sync between charts, full drawing tools (trend line, ray, arrow, horizontal/vertical line, rectangle, Fibonacci, text, measure).
+- **Charts:** 1, 2, 3 or 4 charts with draggable splits, 8 chart types (candles, hollow, bars, line, area, baseline, Heikin-Ashi, Renko), log scale, volume, crosshair/zoom/scroll sync between charts, 26 drawing tools (lines, rays, channels, pitchfork, shapes, Fibonacci retracement and extension, long/short position, price and date range, measure, brush, markers, text and callout with an inline editor).
+- **Navigation:** scroll = move through time, `Shift`+scroll = stretch or squeeze the price axis, `Ctrl`+scroll = zoom both axes (stops when one axis reaches its limit), hold and drag = move the chart 1:1 with the cursor. Scrolling stops 10 candles after the newest one. `Ctrl` `+`/`-`/`0` zooms the whole app.
 - **Data:** Alpaca (primary, live WebSocket for stocks and crypto) with Yahoo Finance as fallback. Candles and news are cached locally in SQLite, only missing ranges are fetched.
 - **Command bar:** `Enter` (or typing a letter) opens it. Plain text searches tickers and companies, `/` runs commands (timeframe, chart type, layout, indicators, strategies, news, paper trading, settings).
 - **Indicators and strategies:** Pine Script (v5/v6 subset) files. 94 indicators ship in `indicators/`, strategies are user-written. Add your own with `/ind add new` and `/strat add new` (paste Pine code, saved as a `.pine` file).
@@ -36,6 +37,10 @@ npm run tauri dev
 | `npm run check` | Svelte/TypeScript type check |
 | `npm test` | Pine engine, indicator library, strategy and paper engine tests (Node), then Rust tests |
 | `npm run tauri build` | Release bundle |
+
+## Desktop launcher (Linux)
+
+`npm run tauri build -- --no-bundle` builds `src-tauri/target/release/oviate`. A `~/.local/share/applications/oviate.desktop` entry pointing at that binary puts Oviate in the app menu; rebuild after code changes.
 
 ## Configuration
 

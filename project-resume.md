@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-18 (navigation, tools, logos)
+Last updated: 2026-10-19
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
@@ -46,9 +46,9 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Git: push directly to `main`, no PRs unless asked. Commit ends with Co-Authored-By line from session.
 
 ## 6. Current state
-- Branch / last commit: main, `c15630d` (all work below is uncommitted)
-- Working tree: modified `renderer.ts`, `Chart.svelte`, `LeftBar`, `Icons`, `Spotlight`, `OrderDialog`, `AccountDialog`, `IndicatorDialog`, `Settings`, `app.svelte.ts`, `+page.svelte`, `capabilities/default.json`; new `logos/`, `project-resume.md`
-- Goal of current task: chart navigation, app zoom, dialog polish, more drawing tools, logo concepts.
+- Branch / last commit: main, everything committed and pushed
+- Working tree: clean
+- Goal of current task: none (navigation, tools, logo, launcher finished and pushed).
 
 ### Done
 - [x] Wheel navigation in `renderer.ts` (eased via rAF target `tgt`): scroll = time, Shift+scroll = stretch/squeeze price axis around its centre (like dragging the price axis), Ctrl+scroll = zoom both axes, stops when either axis hits its limit (`BAR_MIN/BAR_MAX`, `spanLimits()` = 4x data range)
@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - [x] Text/callout tools: bordered box, inline contenteditable editor in `Chart.svelte` (click to edit, Enter commit, Shift+Enter newline, Esc cancel, empty = delete)
 - [x] Hold-and-drag pan rewritten: `applyPan()` runs once per frame in `draw()` from latest cursor pos, 1:1 whole-pixel shift on both axes; auto price range eases (`autoSm`) instead of jumping; Chart.svelte defers live ticks, polling and Pine reruns while `r.dragging`; auto price range fits last 30+ bars when view is mostly empty
 - [x] Right scroll limit: hard stop at newest candle + `RIGHT_PAD` (10) empty bars (`clampStartV`, resetView, scrollToEnd)
+- [x] App-menu entry `~/.local/share/applications/oviate.desktop` -> `src-tauri/target/release/oviate` (release build, no bundle)
 - [x] Logo adopted: breakout concept without background, icons/favicon/README updated
 - [x] 10 logo concepts in `logos/` (SVG + `index.html` gallery)
 
@@ -67,12 +68,11 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - none
 
 ### Next steps
-1. Logo chosen (breakout, transparent): `logos/oviate-logo.svg`; app icons regenerated via `npx tauri icon`, favicon and README header set. Other concepts stay in `logos/` for reference.
-2. User tests in `npm run tauri dev`: wheel feel, dialog flash, text editor, new tools. Tune `wheelTime` (0.6), zoom speed (0.003), easing (65 ms) if needed.
-3. Always commit `project-resume.md` together with other changes and push to main when asked.
+1. No active task. Ask the user what to build next.
+2. After code changes the app-menu entry needs a rebuild: `npm run tauri build -- --no-bundle` (about 4 min), then restart the app.
+3. Always commit `project-resume.md` with other changes; push to main only when asked.
 
 ### Open questions / blockers
-- Dialog flash cause unverified (only GUI can confirm).
 - none
 
 ## 7. Decisions log
