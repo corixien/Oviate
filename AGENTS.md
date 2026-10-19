@@ -32,5 +32,8 @@ Tauri 2 + Rust core (`src-tauri/`) + Svelte 5/SvelteKit (SPA, adapter-static) + 
 ## Secrets
 Alpaca, Finnhub, NewsAPI, Groq keys and Liquid tokens live in the OS keyring only. Never in repo, logs, commits, `.env.example` values. Liquid OAuth requests the `read` scope only, never `trade`. Paper trading only, no live orders.
 
+## Local install (always)
+The newest version of Oviate must always be installed on the user's computer. Right after every push to `main`, run `scripts/install-local.sh` (about 4 min, run it in the background) so the app-menu entry launches the new build, then tell the user to restart Oviate. Also do it whenever the user says the installed app lacks a feature.
+
 ## Git
 Push directly to `main`. No PRs unless asked. Commit `project-resume.md` with every change. If `git push` fails with an invalid token, push once with `git -c credential.helper= -c "credential.helper=!gh auth git-credential" push origin main`. Commit messages end with the Co-Authored-By line from the session.

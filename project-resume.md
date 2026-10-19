@@ -71,7 +71,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 
 ### Next steps
 1. No active task. Ask the user what to build next.
-2. Untested in the real Tauri app (only vite browser preview): rebuild and check builder save to the app data folder.
+2. Local install rule: after every push to main run `scripts/install-local.sh` (rebuilds the release binary the menu entry launches), then user restarts the app. Builder untested in real Tauri app until user confirms.
 3. After code changes the app-menu entry needs a rebuild: `npm run tauri build -- --no-bundle` (about 4 min), then restart the app.
 4. Always commit `project-resume.md` with other changes; push to main only when asked.
 
