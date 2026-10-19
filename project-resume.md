@@ -58,7 +58,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - [x] All dialogs share one outline (`1px glass-line` + faint purple ring), no glow
 - [x] 17 new drawing tools (extline, hray, crossline, channel, pitchfork, ellipse, circle, triangle, fibext, longpos, shortpos, pricerange, daterange, brush, arrowup, arrowdown, callout); toolbar grouped (`DRAW_GROUPS`)
 - [x] Text/callout tools: bordered box, inline contenteditable editor in `Chart.svelte` (click to edit, Enter commit, Shift+Enter newline, Esc cancel, empty = delete)
-- [x] Hold-and-drag pan: absolute (no movementX drift), vertical dead zone without jump, right limit extended into empty future (`clampStartV`), auto price range fits last 30+ bars when view is mostly empty
+- [x] Hold-and-drag pan: strictly 1:1 with cursor on both axes (whole-pixel shift from drag start, no dead zone, hover hook skipped while dragging), right limit extended into empty future (`clampStartV`), auto price range fits last 30+ bars when view is mostly empty
 - [x] Logo adopted: breakout concept without background, icons/favicon/README updated
 - [x] 10 logo concepts in `logos/` (SVG + `index.html` gallery)
 

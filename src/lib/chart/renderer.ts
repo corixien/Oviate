@@ -1142,10 +1142,10 @@ export class ChartRenderer {
       const i = Math.max(0, Math.min(this.s.data.n - 1, Math.round(this.idxOf(x))));
       const inPlot = x < this.plotW && y < this.h - TIME_H;
       const m0 = this.panes[0];
-      this.hooks.onHover(inPlot ? i : null, this.s.data.n ? this.s.data.t[i] : null, inPlot && m0 && y >= m0.y0 && y <= m0.y1 ? (y - m0.y0) / (m0.y1 - m0.y0) : null);
+      if (!this.drag) this.hooks.onHover(inPlot ? i : null, this.s.data.n ? this.s.data.t[i] : null, inPlot && m0 && y >= m0.y0 && y <= m0.y1 ? (y - m0.y0) / (m0.y1 - m0.y0) : null);
       const hn = this.drag ? null : this.newsAt(x, y);
       if (hn !== this.hoverNews) { this.hoverNews = hn; this.invalidate(); }
-      el.style.cursor = hn ? 'pointer' : this.drag ? (this.drag.kind === 'move' ? 'grabbing' : el.style.cursor)
+      el.style.cursor = hn ? 'pointer' : this.drag ? (this.drag.kind === 'move' || this.drag.kind === 'pan' ? 'grabbing' : el.style.cursor)
         : this.s.tool === 'cursor' && this.handleAt(x, y) ? 'move'
         : x > this.plotW ? 'ns-resize' : y > this.h - TIME_H ? 'ew-resize' : this.s.tool !== 'cursor' ? 'crosshair' : this.hit(x, y) ? 'pointer' : 'crosshair';
       if (this.draft?.type === 'brush') {
@@ -1157,13 +1157,14 @@ export class ChartRenderer {
       const d = this.drag;
       if (d) {
         if (d.kind === 'pan') {
-          this.start = this.clampStartV(d.s0! - (x - d.x) / this.barW, this.barW);
-          // vertical: small dead zone (no price lock from hand jitter), subtracted so there is no jump when it ends
-          const dy = y - d.y, eff = dy - Math.max(-4, Math.min(4, dy));
-          if (eff !== 0 || this.manual) {
-            const m = this.panes[0]; const span = (d.hi! - d.lo!);
-            if (eff !== 0) { const dp = (eff / (m.y1 - m.y0)) * span; this.manual = { lo: d.lo! + dp, hi: d.hi! + dp }; }
-          }
+          // 1:1 with the cursor: whole-pixel shift of everything, same offset on both axes
+          const dx = Math.round(x - d.x), dy = Math.round(y - d.y);
+          this.start = this.clampStartV(d.s0! - dx / this.barW, this.barW);
+          if (dy !== 0) {
+            const m = this.panes[0]; const a0 = this.tx(d.lo!), b0 = this.tx(d.hi!);
+            const shift = (dy / (m.y1 - m.y0)) * (b0 - a0);
+            this.manual = { lo: this.itx(a0 + shift), hi: this.itx(b0 + shift) };
+          } else if (this.manual) this.manual = { lo: d.lo!, hi: d.hi! };
           this.checkHistory();
           this.hooks.onViewChange();
         } else if (d.kind === 'paxis') {
