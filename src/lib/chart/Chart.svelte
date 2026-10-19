@@ -173,7 +173,8 @@
     void JSON.stringify(cfg.indicators.map((i) => [i.uid, i.id, i.params, i.hidden]));
     untrack(() => {
       clearTimeout(pineTimer);
-      pineTimer = setTimeout(runIndicators, Date.now() - lastPineRun < 500 ? 500 : 30);
+      const go = () => { if (r?.dragging) pineTimer = setTimeout(go, 250); else runIndicators(); };
+      pineTimer = setTimeout(go, Date.now() - lastPineRun < 500 ? 500 : 30);
     });
   });
 
@@ -254,7 +255,7 @@
   }
 
   async function poll() {
-    if (status !== 'ok' || document.hidden) return;
+    if (status !== 'ok' || document.hidden || r?.dragging) return;
     try {
       const to = Math.floor(Date.now() / 1000) + step;
       const c = await getCandles(cfg.symbol, cfg.tf, to - step * 6, to);
@@ -297,7 +298,8 @@
   $effect(() => {
     const tk = app.ticks[cfg.symbol];
     if (!tk || tickTimer) return;
-    tickTimer = setTimeout(() => { tickTimer = undefined; const l = app.ticks[cfg.symbol]; if (l) applyTick(l.p, l.s, l.t); }, 200);
+    const flush = () => { if (r?.dragging) { tickTimer = setTimeout(flush, 200); return; } tickTimer = undefined; const l = app.ticks[cfg.symbol]; if (l) applyTick(l.p, l.s, l.t); };
+    tickTimer = setTimeout(flush, 200);
   });
 
   function applyTick(p: number, size: number, t: number) {

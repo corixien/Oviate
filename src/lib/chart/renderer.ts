@@ -93,6 +93,9 @@ export class ChartRenderer {
   /** Wheel animation target: wheel input moves this, a rAF loop eases the view toward it. */
   private tgt: null | { start: number; barW: number; a: number; span: number; zoomT: boolean; ax: number; aIdx: number; price: boolean; pZoom: boolean; pFrac: number; pAnchor: number } = null;
   private animRaf = 0; private lastAnim = 0;
+  /** Eased auto price range (glides instead of jumping while bars enter or leave the view). */
+  private autoSm: { lo: number; hi: number } | null = null;
+  private easing = false; private easeT = 0;
   private range: { key: Float64Array | null; n: number; lo: number; hi: number } = { key: null, n: -1, lo: 0, hi: 1 };
 
   private ctx: CanvasRenderingContext2D;
@@ -175,6 +178,7 @@ export class ChartRenderer {
   shiftIndex(added: number) {
     this.start += added;
     if (this.tgt) { this.tgt.start += added; this.tgt.aIdx += added; }
+    if (this.drag?.kind === 'pan' && this.drag.s0 !== undefined) this.drag.s0 += added;
   }
 
   visible(): [number, number] {
@@ -259,8 +263,22 @@ export class ChartRenderer {
     }
     if (!Number.isFinite(lo)) { lo = 0; hi = 1; }
     const pad = (hi - lo) * 0.1 || Math.abs(hi) * 0.01 || 1;
-    m.lo = lo - pad; m.hi = hi + pad + (this.s.volume ? (hi - lo) * 0.12 : 0);
-    if (this.manual) { m.lo = this.manual.lo; m.hi = this.manual.hi; }
+    const tl = lo - pad, th = hi + pad + (this.s.volume ? (hi - lo) * 0.12 : 0);
+    if (this.manual) { m.lo = this.manual.lo; m.hi = this.manual.hi; this.autoSm = null; }
+    else {
+      const now = performance.now();
+      if (this.easing && this.autoSm) {
+        const k = 1 - Math.exp(-Math.min(50, now - this.easeT) / 90);
+        const c = this.autoSm, sp = Math.max(c.hi - c.lo, 1e-12);
+        c.lo += (tl - c.lo) * k; c.hi += (th - c.hi) * k;
+        if (Math.abs(tl - c.lo) < sp * 0.002 && Math.abs(th - c.hi) < sp * 0.002) {
+          c.lo = tl; c.hi = th;
+          if (!this.drag && !this.tgt) this.easing = false;
+        } else this.invalidate();
+      } else this.autoSm = { lo: tl, hi: th };
+      this.easeT = now;
+      m.lo = this.autoSm!.lo; m.hi = this.autoSm!.hi;
+    }
     if (this.s.log && m.lo <= 0) m.lo = Math.max(1e-6, lo * 0.9);
     for (const p of this.panes.slice(1)) {
       const r = p.ind!.result;
@@ -282,7 +300,25 @@ export class ChartRenderer {
   }
 
   // ---------- drawing ----------
+  /** Hold-and-drag: place the view from the latest cursor position, once per frame, 1:1 with the cursor. */
+  private applyPan() {
+    const d = this.drag;
+    if (!d || d.kind !== 'pan' || this.mx < 0) return;
+    const dx = Math.round(this.mx - d.x), dy = Math.round(this.my - d.y);
+    this.start = this.clampStartV(d.s0! - dx / this.barW, this.barW);
+    if (dy !== 0) {
+      const m = this.panes[0]; const a0 = this.tx(d.lo!), b0 = this.tx(d.hi!);
+      const shift = (dy / (m.y1 - m.y0)) * (b0 - a0);
+      this.manual = { lo: this.itx(a0 + shift), hi: this.itx(b0 + shift) };
+    } else if (this.manual) this.manual = { lo: d.lo!, hi: d.hi! };
+    this.checkHistory();
+    this.hooks.onViewChange();
+  }
+
+  get dragging() { return this.drag?.kind === 'pan'; }
+
   private draw() {
+    this.applyPan();
     const { ctx, w, h, dpr } = this;
     const { theme, data } = this.s;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1134,7 +1170,7 @@ export class ChartRenderer {
       const hit = this.hit(x, y);
       this.select(hit?.id ?? null);
       if (hit) this.drag = { kind: 'move', x, y, orig: hit.pts.map((p) => ({ ...p })) };
-      else { const m = this.panes[0]; this.drag = { kind: 'pan', x, y, lo: m.lo, hi: m.hi, s0: this.start }; }
+      else { const m = this.panes[0]; this.mx = x; this.my = y; this.drag = { kind: 'pan', x, y, lo: m.lo, hi: m.hi, s0: this.start }; this.easing = true; this.easeT = performance.now(); }
       this.invalidate();
     });
     on('pointermove', (e) => {
@@ -1157,16 +1193,7 @@ export class ChartRenderer {
       const d = this.drag;
       if (d) {
         if (d.kind === 'pan') {
-          // 1:1 with the cursor: whole-pixel shift of everything, same offset on both axes
-          const dx = Math.round(x - d.x), dy = Math.round(y - d.y);
-          this.start = this.clampStartV(d.s0! - dx / this.barW, this.barW);
-          if (dy !== 0) {
-            const m = this.panes[0]; const a0 = this.tx(d.lo!), b0 = this.tx(d.hi!);
-            const shift = (dy / (m.y1 - m.y0)) * (b0 - a0);
-            this.manual = { lo: this.itx(a0 + shift), hi: this.itx(b0 + shift) };
-          } else if (this.manual) this.manual = { lo: d.lo!, hi: d.hi! };
-          this.checkHistory();
-          this.hooks.onViewChange();
+          // applied once per frame in draw() (applyPan) from the latest cursor position
         } else if (d.kind === 'paxis') {
           const f = Math.exp((y - d.y) * 0.006); const mid = (d.hi! + d.lo!) / 2; const half = ((d.hi! - d.lo!) / 2) * f;
           this.manual = { lo: mid - half, hi: mid + half };
@@ -1187,6 +1214,7 @@ export class ChartRenderer {
       this.invalidate();
     });
     on('pointerup', () => {
+      this.applyPan();
       const d = this.drag; this.drag = null;
       if (d?.kind === 'brush') { if (this.draft && this.draft.pts.length > 1) this.finishDraft(); else this.draft = null; this.invalidate(); return; }
       if (d?.kind === 'move' || d?.kind === 'point') this.hooks.onDrawings([...this.s.drawings]);
@@ -1288,7 +1316,7 @@ export class ChartRenderer {
     return [Math.max(Math.abs((a + b) / 2) * 1e-4, 1e-9), full * 4];
   }
 
-  private kick() { if (!this.animRaf) this.animRaf = requestAnimationFrame(this.animate); }
+  private kick() { this.easing = true; if (!this.animRaf) this.animRaf = requestAnimationFrame(this.animate); }
 
   private drawNow() {
     if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
