@@ -49,6 +49,7 @@
     { key: 'lang en english', title: 'Language: English', tag: 'ui', run: () => { app.lang = 'en'; } },
     { key: 'lang de deutsch', title: 'Sprache: Deutsch', tag: 'ui', run: () => { app.lang = 'de'; } },
     { key: 'settings alpaca keys', title: t('settings', app.lang), sub: 'Alpaca keys, theme, language', tag: 'ui', run: () => { app.settingsOpen = true; } },
+    { key: 'chart reset view zoom scale fit', title: 'Reset chart', sub: 'Fit the view like on a fresh timeframe (Alt+R)', tag: 'chart', run: () => { app.resetChart(); } },
     { key: 'log logarithmic scale', title: 'Toggle log scale', tag: 'chart', run: () => { app.chart.log = !app.chart.log; } },
     { key: 'volume toggle add', title: 'Volume indicator: toggle', tag: 'indicator', run: () => { app.chart.volume = !app.chart.volume; app.chart.volumeVisible = true; } },
     { key: 'grid toggle', title: 'Toggle grid', tag: 'chart', run: () => { app.grid = !app.grid; } },

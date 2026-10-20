@@ -169,6 +169,7 @@ export class ChartRenderer {
     this.barW = Math.max(2, Math.min(40, (this.w - AXIS_W) / bars));
     this.start = Math.max(-5, this.s.data.n + RIGHT_PAD - (this.w - AXIS_W) / this.barW);
     this.manual = null;
+    this.autoSm = null;
     this.invalidate();
   }
 

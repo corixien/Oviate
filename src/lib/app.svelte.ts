@@ -64,6 +64,8 @@ class App {
   strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number }>>({});
   /** Strategy Tester settings (simulation only: not stored in strategies, not shown in chart drawings). */
   tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippageTicks: 0 });
+  /** Request to reset the view of a chart (right-click menu, command bar). */
+  resetReq = $state({ id: '', n: 0 });
   page = $state<'chart' | 'news' | 'editor' | 'builder'>('chart');
   /** Strategy builder target: a saved builder strategy or a new one (name null). */
   builder = $state<{ name: string | null }>({ name: null });
@@ -99,6 +101,8 @@ class App {
     this.persist();
   }
   get count() { return LAYOUT_COUNT[this.layout]; }
+
+  resetChart() { this.resetReq = { id: this.chart.id, n: this.resetReq.n + 1 }; }
 
   /** Open the strategy builder, on the chart's builder strategy if it has one (else the last edited or a new one). */
   openBuilder() {

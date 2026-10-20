@@ -25,6 +25,14 @@
   let exhausted = false, loadingMore = false;
   let menuFor = $state('');
   let selectedId = $state<string | null>(null);
+  let ctxMenu = $state<{ x: number; y: number } | null>(null);
+  function resetChart() { ctxMenu = null; r?.resetView(); if (r && app.sync) { const [l, rr] = r.getTimeRange(); app.view = { l, r: rr, from: cfg.id }; } }
+  function openCtx(e: MouseEvent) {
+    if (edit) return;
+    e.preventDefault();
+    const b = box.getBoundingClientRect();
+    ctxMenu = { x: Math.min(e.clientX - b.left, b.width - 170), y: Math.min(e.clientY - b.top, b.height - 50) };
+  }
   let news = $state<NewsItem[]>([]);
 
   // ----- inline editor for text / callout drawings -----
@@ -345,6 +353,12 @@
   });
 
   $effect(() => {
+    const q = app.resetReq;
+    if (!r || !q.n || q.id !== cfg.id) return;
+    untrack(() => resetChart());
+  });
+
+  $effect(() => {
     if (!r) return;
     const ext = app.sync && app.crossT.from !== cfg.id;
     r.externalT = ext ? app.crossT.t : null;
@@ -384,7 +398,9 @@
   const col = $derived(chg >= 0 ? 'var(--up)' : 'var(--down)');
 </script>
 
-<div class="pane" class:active={app.active === index} bind:this={box} onpointerdowncapture={() => (app.active = index)} role="presentation">
+<svelte:window onpointerdown={() => (ctxMenu = null)} onkeydown={(e) => { if (e.key === 'Escape') ctxMenu = null; }} onblur={() => (ctxMenu = null)} />
+
+<div class="pane" class:active={app.active === index} bind:this={box} onpointerdowncapture={() => (app.active = index)} oncontextmenu={openCtx} role="presentation">
   <canvas bind:this={main} class="layer"></canvas>
   <canvas bind:this={over} class="layer top"></canvas>
 
@@ -449,6 +465,12 @@
     {/each}
   </div>
 
+  {#if ctxMenu}
+    <div class="cmenu" style:left="{ctxMenu.x}px" style:top="{ctxMenu.y}px" role="menu" tabindex="-1" onpointerdown={(e) => e.stopPropagation()}>
+      <button role="menuitem" onclick={resetChart}>Reset chart <kbd>Alt+R</kbd></button>
+    </div>
+  {/if}
+
   {#if edit}
     <div class="tedit" contenteditable="true" role="textbox" tabindex="0" bind:this={editEl} style:left="{edit.x}px" style:top="{edit.y}px"
       onkeydown={editKey} onpaste={editPaste} onblur={() => { if (Date.now() >= editArmed) closeEditor(true); }} onpointerdown={(e) => e.stopPropagation()}></div>
@@ -500,6 +522,10 @@
   .mwrap { position: relative; }
   .mmenu { position: absolute; top: 26px; right: 0; z-index: 30; min-width: 160px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--glass-line); }
   .mmenu button { width: auto; height: auto; padding: 8px 12px; text-align: left; color: var(--fg); font: 12px system-ui, sans-serif; }
+  .cmenu { position: absolute; z-index: 40; min-width: 160px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--glass-line); box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22); }
+  .cmenu button { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 8px 12px; background: none; border: 0; color: var(--fg); text-align: left; font: 12px system-ui, sans-serif; cursor: pointer; }
+  .cmenu button:hover { background: var(--accent); color: #fff; }
+  .cmenu kbd { font: 10px ui-monospace, monospace; opacity: 0.6; }
   .tedit { position: absolute; z-index: 5; min-width: 40px; min-height: 17px; padding: 5px 7px; box-sizing: content-box; white-space: pre; outline: 0; background: var(--glass); border: 1px solid var(--accent); color: var(--fg); font: 13px/17px system-ui, sans-serif; margin: -1px 0 0 -1px; }
   .seltools { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; background: var(--glass); border: 1px solid var(--accent); font: 12px system-ui, sans-serif; color: var(--dim); animation: st 0.2s ease both; }
   .seltools button { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--fg); padding: 5px 10px; cursor: pointer; font: 600 12px system-ui, sans-serif; }

@@ -5,8 +5,8 @@
   import { describeScript } from '$lib/pine/describe.ts';
   import Select from './Select.svelte';
   import {
-    INDICATORS, PRICE_SRCS, CMP_LABEL, defaultSpec, generate, parseSpec, companions, emptyGroup, cond, indOperand, priceOperand, numOperand, indDef,
-    type Spec, type Group, type Cond, type Operand, type Cmp, type Side,
+    INDICATORS, PRICE_SRCS, GENERIC, defaultSpec, generate, parseSpec, companions, emptyGroup, indOperand, priceOperand, numOperand, indDef, scenariosFor, scenarioFor, scenarioCond,
+    type Spec, type Group, type Cond, type Operand, type Side, type ArgDef,
   } from '$lib/builder/model.ts';
 
   let spec = $state<Spec>(defaultSpec());
@@ -36,31 +36,45 @@
   const back = () => (app.page = 'chart');
 
   // ---------- operands ----------
-  const SRC_OPTS = [
+  const SRC_ALL = [
     ...PRICE_SRCS.map((s) => ({ value: 'p:' + s, label: 'Price · ' + s })),
     ...INDICATORS.map((d) => ({ value: 'i:' + d.key, label: d.group + ' · ' + d.label })),
     { value: 'n', label: 'Value' },
   ];
+  const SRC_SUBJECT = SRC_ALL.filter((o) => o.value !== 'n');
   const srcOf = (o: Operand) => (o.k === 'price' ? 'p:' + o.src : o.k === 'ind' ? 'i:' + o.ind : 'n');
-  const CMP_OPTS = (Object.keys(CMP_LABEL) as Cmp[]).map((c) => ({ value: c, label: CMP_LABEL[c] }));
-  const numOnly = (c: Cmp) => c === 'rising' || c === 'falling';
+  const operandOf = (v: string, prev?: Operand): Operand => (v === 'n' ? numOperand(prev?.k === 'num' ? prev.v : 0) : v.startsWith('p:') ? priceOperand(v.slice(2) as never) : indOperand(v.slice(2)));
 
-  function pick(c: Cond, field: 'lhs' | 'rhs' | 'rhs2', v: string) {
-    const prev = c[field];
-    c[field] = v === 'n' ? numOperand(prev?.k === 'num' ? prev.v : 0) : v.startsWith('p:') ? priceOperand(v.slice(2) as never) : indOperand(v.slice(2));
+  /** What this subject can do: its own scenarios, plus the current one if it came from an older spec. */
+  function scenarioOpts(c: Cond) {
+    const list = scenariosFor(c.lhs).map((x) => ({ value: x.id, label: x.label }));
+    if (!list.some((o) => o.value === c.cmp)) { const g = GENERIC.find((x) => x.id === c.cmp); if (g) list.push({ value: g.id, label: 'Compare output: ' + g.label }); }
+    return list;
   }
-  function pickCmp(c: Cond, v: Cmp) {
-    c.cmp = v;
-    if (numOnly(v)) { c.rhs = numOperand(c.rhs.k === 'num' && c.rhs.v >= 1 ? c.rhs.v : 3); c.rhs2 = undefined; }
-    else if (v === 'between') { if (c.rhs.k !== 'num') c.rhs = numOperand(30); c.rhs2 = c.rhs2?.k === 'num' ? c.rhs2 : numOperand(70); }
-    else c.rhs2 = undefined;
+  function pickSubject(c: Cond, v: string) {
+    c.lhs = operandOf(v);
+    if (!scenariosFor(c.lhs).some((x) => x.id === c.cmp)) pickScenario(c, scenariosFor(c.lhs)[0].id);
   }
+  function pickScenario(c: Cond, id: string) {
+    const n = scenarioCond(c.lhs, id);
+    c.cmp = n.cmp; c.rhs = n.rhs; c.rhs2 = n.rhs2;
+  }
+  function pickArg(c: Cond, field: 'rhs' | 'rhs2', v: string) { c[field] = operandOf(v, c[field]); }
+  function setArgNum(c: Cond, field: 'rhs' | 'rhs2', int: boolean | undefined, e: Event) {
+    let v = parseFloat((e.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(v)) return;
+    if (int) v = Math.max(1, Math.trunc(v));
+    const o = c[field];
+    if (o?.k === 'num') o.v = v; else c[field] = numOperand(v);
+  }
+  const showOut = (c: Cond) => c.lhs.k === 'ind' && (indDef(c.lhs.ind)?.outputs.length ?? 0) > 1 && !!scenarioFor(c.lhs, c.cmp).adv;
+
   const val = (e: Event) => parseFloat((e.currentTarget as HTMLInputElement).value);
   function setNum(o: Operand, e: Event) { const v = val(e); if (o.k === 'num' && Number.isFinite(v)) o.v = v; }
   function setParam(o: Operand, i: number, e: Event) { const v = val(e); if (o.k === 'ind' && Number.isFinite(v)) o.p[i] = v; }
 
   // ---------- groups ----------
-  function newCond(): Cond { return cond(indOperand('rsi'), 'cross_above', numOperand(30)); }
+  function newCond(): Cond { return scenarioCond(indOperand('rsi')); }
   function setQty(e: Event) { let v = val(e); if (!Number.isFinite(v) || v < 0) return; if (spec.qtyType === 'percent_of_equity') v = Math.min(100, v); spec.qty = v; }
   function setSideNum(s: Side, k: 'sl' | 'tp', e: Event) { const v = val(e); s[k] = Number.isFinite(v) && v >= 0 ? v : 0; }
 
@@ -104,36 +118,34 @@
 
   function onKey(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
-    else if (e.key === 'Escape' && (e.target as HTMLElement)?.tagName !== 'INPUT') back();
+    else if (e.key === 'Escape' && !app.spotlight.open && (e.target as HTMLElement)?.tagName !== 'INPUT') back();
   }
 </script>
 
 <svelte:window onkeydown={(e) => { if (app.page === 'builder') onKey(e); }} />
 
-{#snippet operand(c: Cond, field: 'lhs' | 'rhs' | 'rhs2')}
-  {@const o = c[field]}
-  {#if o}
-    <div class="op">
-      {#if (field !== 'lhs' && (numOnly(c.cmp) || c.cmp === 'between'))}
-        <input class="num" type="number" step="any" value={o.k === 'num' ? o.v : 0} oninput={(e) => setNum(o, e)} aria-label="value" />
-      {:else}
-        <Select value={srcOf(o)} options={SRC_OPTS} onchange={(v) => pick(c, field, v)} width="170px" />
-        {#if o.k === 'ind'}
-          {@const d = indDef(o.ind)}
-          {#if d}
-            {#each d.params as pd, i (pd.id)}
-              <label class="pp" title={pd.label}><i>{pd.label}</i><input class="num sm" type="number" min={pd.min} step={pd.step ?? 1} value={o.p[i]} oninput={(e) => setParam(o, i, e)} /></label>
-            {/each}
-            {#if d.outputs.length > 1}
-              <Select value={String(o.out)} options={d.outputs.map((n, i) => ({ value: String(i), label: n }))} onchange={(v) => { o.out = Number(v); }} width="130px" />
-            {/if}
-          {/if}
-        {:else if o.k === 'num'}
-          <input class="num" type="number" step="any" value={o.v} oninput={(e) => setNum(o, e)} aria-label="value" />
-        {/if}
-      {/if}
-    </div>
+{#snippet indParams(o: Operand)}
+  {#if o.k === 'ind'}
+    {@const d = indDef(o.ind)}
+    {#if d}
+      {#each d.params as pd, i (pd.id)}
+        <label class="pp" title={pd.label}><i>{pd.label}</i><input class="num sm" type="number" min={pd.min} step={pd.step ?? 1} value={o.p[i]} oninput={(e) => setParam(o, i, e)} /></label>
+      {/each}
+    {/if}
   {/if}
+{/snippet}
+
+{#snippet arg(c: Cond, field: 'rhs' | 'rhs2', d: ArgDef)}
+  {@const o = c[field]}
+  <div class="op">
+    {#if d.num}
+      <label class="pp"><i>{d.label}</i><input class="num" type="number" step={d.int ? 1 : 'any'} min={d.int ? 1 : undefined} value={o?.k === 'num' ? o.v : 0} oninput={(e) => setArgNum(c, field, d.int, e)} /></label>
+    {:else if o}
+      <Select value={srcOf(o)} options={SRC_ALL} onchange={(v) => pickArg(c, field, v)} width="170px" />
+      {#if o.k === 'ind'}{@render indParams(o)}
+      {:else if o.k === 'num'}<input class="num" type="number" step="any" value={o.v} oninput={(e) => setNum(o, e)} aria-label="value" />{/if}
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet grp(g: Group, depth: number, onremove: (() => void) | null)}
@@ -149,13 +161,22 @@
     {#each g.items as it, i (i)}
       {#if i > 0}<div class="join">{g.op === 'and' ? 'AND' : 'OR'}</div>{/if}
       {#if it.t === 'cond'}
+        {@const sc = scenarioFor(it.lhs, it.cmp)}
         <div class="card">
           <button class="x" onclick={() => g.items.splice(i, 1)} aria-label="Remove condition" title="Remove condition">×</button>
           <div class="row">
-            {@render operand(it, 'lhs')}
-            <Select value={it.cmp} options={CMP_OPTS} onchange={(v) => pickCmp(it, v as Cmp)} width="170px" />
-            {@render operand(it, 'rhs')}
-            {#if it.cmp === 'between'}<span class="and">and</span>{@render operand(it, 'rhs2')}{/if}
+            <div class="op">
+              <Select value={srcOf(it.lhs)} options={SRC_SUBJECT} onchange={(v) => pickSubject(it, v)} width="170px" />
+              {@render indParams(it.lhs)}
+              {#if showOut(it) && it.lhs.k === 'ind'}
+                {@const lo = it.lhs}
+                <Select value={String(lo.out)} options={(indDef(lo.ind)?.outputs ?? []).map((n, i) => ({ value: String(i), label: n }))} onchange={(v) => { lo.out = Number(v); }} width="130px" />
+              {/if}
+            </div>
+            <Select value={it.cmp} options={scenarioOpts(it)} onchange={(v) => pickScenario(it, v)} width="300px" />
+            {#each sc.args ?? [] as d, k}
+              {@render arg(it, k === 0 ? 'rhs' : 'rhs2', d)}
+            {/each}
           </div>
         </div>
       {:else}

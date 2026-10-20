@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runPine } from '../pine/index.ts';
-import { INDICATORS, defaultSpec, generate, parseSpec, companions, cond, emptyGroup, indOperand, numOperand, priceOperand, defaultParams } from './model.ts';
+import { INDICATORS, defaultSpec, generate, parseSpec, companions, cond, emptyGroup, indOperand, numOperand, priceOperand, defaultParams, scenariosFor, scenarioCond } from './model.ts';
 import type { Spec } from './model.ts';
 
 /** Zig-zag price series so crosses and oscillator extremes happen. */
@@ -92,4 +92,41 @@ test('companions list oscillator panes with matching input titles', () => {
   assert.deepEqual(c.find((x) => x.id === 'rsi')!.params, { Length: 9 });
   assert.deepEqual(c.find((x) => x.id === 'macd')!.params, { 'Fast Length': 12, 'Slow Length': 26, 'Signal Length': 9 });
   assert.deepEqual(defaultParams('stoch'), [14, 1, 3]);
+});
+
+test('every scenario of every indicator and price source compiles with its default arguments', () => {
+  const subjects = [...INDICATORS.map((d) => indOperand(d.key, 0)), ...INDICATORS.filter((d) => d.outputs.length > 1).map((d) => indOperand(d.key, d.outputs.length - 1)), priceOperand('close')];
+  let n = 0;
+  for (const lhs of subjects) {
+    for (const sc of scenariosFor(lhs)) {
+      const s = defaultSpec();
+      s.short.on = false;
+      s.long.entry = { t: 'group', op: 'and', items: [scenarioCond(lhs, sc.id)] };
+      run(s);
+      n++;
+    }
+  }
+  assert.ok(n > 150, `scenarios ${n}`);
+});
+
+test('supertrend up/down scenarios follow the direction flag', () => {
+  const s = defaultSpec();
+  s.short.on = true;
+  s.long.entry = { t: 'group', op: 'and', items: [scenarioCond(indOperand('supertrend'), 'flip_up')] };
+  s.long.exit = { t: 'group', op: 'and', items: [scenarioCond(indOperand('supertrend'), 'flip_down')] };
+  s.short.on = false;
+  const r = run(s);
+  assert.ok(r.strategy!.trades.length > 1);
+  assert.ok(r.strategy!.trades.every((t) => t.dir === 'long'));
+});
+
+test('each indicator has its own scenario list; old comparator ids still resolve', () => {
+  const ids = (k: string) => scenariosFor(indOperand(k)).map((x) => x.id);
+  assert.ok(ids('supertrend').includes('flip_up') && !ids('supertrend').includes('cross_above'));
+  assert.ok(ids('macd').includes('hist_pos') && ids('macd').includes('cross_above'));
+  assert.ok(ids('ema').includes('price_cross_above'));
+  assert.ok(!ids('rsi').includes('price_cross_above'));
+  const s = defaultSpec();
+  s.long.entry = { t: 'group', op: 'and', items: [cond(indOperand('supertrend'), 'cross_above', numOperand(0))] };
+  run(s); // legacy generic id on an indicator that does not list it
 });
