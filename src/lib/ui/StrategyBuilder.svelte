@@ -61,6 +61,7 @@
 
   // ---------- groups ----------
   function newCond(): Cond { return cond(indOperand('rsi'), 'cross_above', numOperand(30)); }
+  function setQty(e: Event) { let v = val(e); if (!Number.isFinite(v) || v < 0) return; if (spec.qtyType === 'percent_of_equity') v = Math.min(100, v); spec.qty = v; }
   function setSideNum(s: Side, k: 'sl' | 'tp', e: Event) { const v = val(e); s[k] = Number.isFinite(v) && v >= 0 ? v : 0; }
 
   // ---------- save / apply ----------
@@ -205,7 +206,13 @@
       </div>
 
       <div class="scroll">
-        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, position size, fees and slippage are set in the Strategy Tester (Settings tab).</p>
+        <div class="settings">
+          <label><span>Position size per entry</span>
+            <Select value={spec.qtyType} options={[{ value: 'percent_of_equity', label: '% of account' }, { value: 'cash', label: 'Cash amount ($)' }, { value: 'fixed', label: 'Amount (units)' }]} onchange={(v) => { spec.qtyType = v as Spec['qtyType']; if (v === 'percent_of_equity') spec.qty = Math.min(100, spec.qty); }} width="170px" />
+            <input class="num" type="number" min="0" max={spec.qtyType === 'percent_of_equity' ? 100 : undefined} step="any" value={spec.qty} oninput={setQty} />
+            <span class="dim">{spec.qtyType === 'percent_of_equity' ? '% of equity per entry' : spec.qtyType === 'cash' ? 'invested per entry' : 'units per entry'}</span></label>
+        </div>
+        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, fees and slippage are set in the Strategy Tester (Settings tab).</p>
         <p class="flow help"><b>Conditions</b> are single rules like "RSI crosses above 30". Several conditions are joined with <b>ALL</b> (every one must be true) or <b>ANY</b> (one is enough). A <b>sub-group</b> lets you mix both, like (A and B) or (C and D).</p>
 
         <div class="sides">
@@ -272,6 +279,7 @@
   .bar .danger:hover { border-color: var(--down); color: var(--down); }
   kbd { font: 10px ui-monospace, monospace; opacity: 0.8; margin-left: 6px; }
   .scroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 24px; }
+  .settings { padding-bottom: 8px; } .settings label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); }
   .risk label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); }
   .flow { margin: 2px 0 8px; color: var(--dim); font-size: 12px; } .flow b { color: var(--fg); } .flow.help { margin-bottom: 14px; }
   .num { width: 96px; padding: 6px 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; }

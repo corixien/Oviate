@@ -56,10 +56,9 @@
     const pts = d.map((v, i) => `${((i / (d.length - 1)) * 800).toFixed(1)},${(6 + (v / lo) * 138).toFixed(1)}`);
     return { path: 'M' + pts.join('L'), area: `M0,6L${pts.join('L')}L800,6Z`, lo };
   });
-  function setT(k: 'initialCapital' | 'qtyValue' | 'commissionValue' | 'slippageTicks', e: Event) {
+  function setT(k: 'initialCapital' | 'commissionValue' | 'slippageTicks', e: Event) {
     let v = parseFloat((e.currentTarget as HTMLInputElement).value);
     if (!Number.isFinite(v) || v < 0) return;
-    if (k === 'qtyValue' && app.tester.qtyType === 'percent_of_equity') v = Math.min(100, v);
     if (k === 'initialCapital' && v <= 0) return;
     app.tester[k] = v; app.persist();
   }
@@ -225,15 +224,12 @@
             </table>
           {:else if testerSub === 'settings'}
             <div class="tset">
-              <p class="dim">These settings only change the simulation in the Strategy Tester. They are not saved in the strategy and do not change the entry and exit boxes on the chart.</p>
+              <p class="dim">Capital, fees and slippage only change the simulation in the Strategy Tester. They are not saved in the strategy and do not change the entry and exit boxes on the chart.</p>
               <label><span>Initial capital</span><input class="in" type="number" min="0" step="any" value={app.tester.initialCapital} oninput={(e) => setT('initialCapital', e)} /></label>
-              <label><span>Position size per trade</span>
-                <Select value={app.tester.qtyType} options={[{ value: 'percent_of_equity', label: '% of account' }, { value: 'cash', label: 'Cash amount' }, { value: 'fixed', label: 'Contracts / shares' }]} onchange={(v) => { app.tester.qtyType = v as typeof app.tester.qtyType; if (v === 'percent_of_equity') app.tester.qtyValue = Math.min(100, app.tester.qtyValue); app.persist(); }} width="170px" />
-                <input class="in" type="number" min="0" max={app.tester.qtyType === 'percent_of_equity' ? 100 : undefined} step="any" value={app.tester.qtyValue} oninput={(e) => setT('qtyValue', e)} />
-                <span class="unit">{app.tester.qtyType === 'percent_of_equity' ? '% of equity' : app.tester.qtyType === 'cash' ? 'in account currency' : 'units'}</span></label>
+              <label><span>Position size</span><b class="fixed">{sres.config.qtyType === 'percent_of_equity' ? sres.config.qtyValue + '% of equity' : sres.config.qtyType === 'cash' ? money(sres.config.qtyValue) + ' per entry' : sres.config.qtyValue + ' units'}</b><span class="unit">set in the strategy (builder or Pine script)</span></label>
               <label><span>Commission per fill</span><input class="in" type="number" min="0" step="any" value={app.tester.commissionValue} oninput={(e) => setT('commissionValue', e)} /><span class="unit">% of trade value, on buy and sell</span></label>
               <label><span>Slippage</span><input class="in" type="number" min="0" step="1" value={app.tester.slippageTicks} oninput={(e) => setT('slippageTicks', e)} /><span class="unit">ticks per fill, against you</span></label>
-              <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, qtyType: 'percent_of_equity', qtyValue: 100, commissionValue: 0, slippageTicks: 0 }; app.persist(); }}>Reset to defaults</button>
+              <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, commissionValue: 0, slippageTicks: 0 }; app.persist(); }}>Reset to defaults</button>
             </div>
           {:else}
             <table>
@@ -280,8 +276,8 @@
   .none { text-align: center; color: var(--dim); padding: 22px; font-family: system-ui, sans-serif; }
   .up { color: var(--up); } .dn { color: var(--down); } .dim { color: var(--dim); }
   .act { text-align: right; } td.st.open { color: var(--accent); } td.st.filled { color: var(--up); } td.st.rejected, td.st.cancelled { color: var(--dim); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 1px; background: var(--line); margin: 12px; border: 1px solid var(--line); }
-  .cell { background: var(--bar); padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; } .cell span { color: var(--dim); font-size: 11px; } .cell b { font: 600 14px ui-monospace, monospace; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); margin: 12px; padding: 0 1px 1px 0; }
+  .cell { border: 1px solid var(--line); margin: 0 -1px -1px 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; } .cell span { color: var(--dim); font-size: 11px; } .cell b { font: 600 14px ui-monospace, monospace; }
   .eq { width: calc(100% - 24px); height: 150px; margin: 12px; background: #000; border: 1px solid var(--line); } .eq.small { height: 110px; }
   .base { stroke: var(--line); stroke-dasharray: 4 4; } .eqinfo { display: flex; gap: 18px; padding: 0 14px 12px; color: var(--dim); font: 11.5px ui-monospace, monospace; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 4px; } .two .eq { width: calc(100% - 24px); }
@@ -290,6 +286,7 @@
   .tset { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; } .tset p { margin: 0 0 2px; max-width: 640px; }
   .tset label { display: flex; align-items: center; gap: 10px; font-size: 12.5px; } .tset label > span:first-child { width: 170px; color: var(--dim); }
   .in { width: 110px; padding: 6px 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; } .in:focus { border-color: var(--accent); }
+  .fixed { font: 600 13px ui-monospace, monospace; }
   .unit { color: var(--dim); font-size: 11.5px; }
   .empty { padding: 26px; text-align: center; color: var(--fg); } .empty p { margin: 6px 0; } .empty .dim { color: var(--dim); font-size: 13px; }
   .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 9px 18px; font: 700 13px system-ui, sans-serif; cursor: pointer; margin-top: 8px; }

@@ -38,7 +38,6 @@
     {/if}
   </div>
   <button class="ib" onclick={() => (app.spotlight = { open: true, seed: '/ind add ' })} title="Indicators"><Icons name="ind" /> <span>Indicators</span></button>
-  <button class="ib" class:on={app.page === 'builder'} onclick={() => (app.page === 'builder' ? (app.page = 'chart') : app.openBuilder())} title="Strategy builder"><Icons name="blocks" /> <span>Strategies</span></button>
   <div class="grow"></div>
   <button class="ib" class:on={app.page === 'news'} onclick={() => (app.page = app.page === 'news' ? 'chart' : 'news')} title="News"><Icons name="news" /> <span>News</span></button>
   <div class="menuwrap">

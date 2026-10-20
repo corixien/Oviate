@@ -63,7 +63,7 @@ class App {
   /** Latest backtest per chart (for the Strategy Tester panel). */
   strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number }>>({});
   /** Strategy Tester settings (simulation only: not stored in strategies, not shown in chart drawings). */
-  tester = $state<TesterSettings>({ initialCapital: 10000, qtyType: 'percent_of_equity', qtyValue: 100, commissionValue: 0, slippageTicks: 0 });
+  tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippageTicks: 0 });
   page = $state<'chart' | 'news' | 'editor' | 'builder'>('chart');
   /** Strategy builder target: a saved builder strategy or a new one (name null). */
   builder = $state<{ name: string | null }>({ name: null });

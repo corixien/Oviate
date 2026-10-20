@@ -314,7 +314,7 @@ NATIVES['strategy'] = {
       slippageTicks: num(a[15]) ?? 0,
     };
     const ov = x.brokerCfg;
-    if (ov) { cfg.initialCapital = ov.initialCapital; cfg.qtyType = ov.qtyType; cfg.qtyValue = ov.qtyValue; cfg.commissionType = 'percent'; cfg.commissionValue = ov.commissionValue; cfg.slippageTicks = ov.slippageTicks; }
+    if (ov) { cfg.initialCapital = ov.initialCapital; cfg.commissionType = 'percent'; cfg.commissionValue = ov.commissionValue; cfg.slippageTicks = ov.slippageTicks; }
     x.meta.initialCapital = cfg.initialCapital; x.meta.pyramiding = cfg.pyramiding;
     if (!x.broker) x.broker = new Broker(x, cfg); // the declaration runs on every bar; create the broker once
     return NaN;

@@ -110,7 +110,7 @@ export interface TradeRec {
 }
 
 /** Strategy Tester settings: override what a strategy declares, for the simulation only. */
-export interface TesterSettings { initialCapital: number; qtyType: 'fixed' | 'cash' | 'percent_of_equity'; qtyValue: number; commissionValue: number; slippageTicks: number }
+export interface TesterSettings { initialCapital: number; commissionValue: number; slippageTicks: number }
 
 export interface PendingOrder {
   id: string;

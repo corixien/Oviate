@@ -58,6 +58,15 @@ test('short side and stop loss / take profit', () => {
   assert.ok(closed.every((t) => t.dir === 'short'));
 });
 
+test('position size is written into the strategy declaration', () => {
+  const s = defaultSpec();
+  s.qtyType = 'cash'; s.qty = 2500;
+  assert.match(generate(s), /default_qty_type=strategy\.cash, default_qty_value=2500/);
+  const r = run(s);
+  assert.equal(r.strategy!.config.qtyType, 'cash'); assert.equal(r.strategy!.config.qtyValue, 2500);
+  assert.equal(parseSpec(generate(s))!.qty, 2500);
+});
+
 test('empty entry never trades', () => {
   const s = defaultSpec();
   s.long.entry = emptyGroup();
