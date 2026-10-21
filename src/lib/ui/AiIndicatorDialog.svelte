@@ -18,7 +18,7 @@
   async function generate() {
     if (busy) return;
     busy = true; error = ''; code = '';
-    try { code = await genIndicator(text, aiComplete); }
+    try { code = await genIndicator(text, aiComplete, library.indicators); }
     catch (e) { error = e instanceof Error ? e.message : String(e); }
     finally { busy = false; }
   }
