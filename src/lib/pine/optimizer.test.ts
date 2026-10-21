@@ -93,10 +93,13 @@ test('variants: up to 10 distinct, ranked, the 3 category winners present, guard
   assert.deepEqual(r.variants.map((v) => v.rank), r.variants.map((_, i) => i + 1));
   assert.ok(r.variants.every((v, i) => i === 0 || r.variants[i - 1].score >= v.score - 1e-12), 'ranked by score');
   assert.equal(new Set(r.variants.map((v) => JSON.stringify(v.params))).size, r.variants.length, 'distinct parameter sets');
-  for (const k of ['best-win', 'best-profit', 'best-drawdown']) assert.ok(r.variants.some((v) => v.kind === k), k);
+  for (const k of ['best-win', 'best-profit', 'best-drawdown']) assert.ok(r.variants.some((v) => v.kinds.includes(k)), k);
   assert.ok(r.variants.every((v) => v.metrics.trades >= r.minTrades));
-  const win = r.variants.find((v) => v.kind === 'best-win')!;
-  assert.ok(r.variants.every((v) => v.metrics.winRate <= win.metrics.winRate + 1e-9), 'best win rate has the highest win rate');
+  // "best" means the best value shown in the table: no other variant beats a category winner in its column
+  const win = r.variants.find((v) => v.kinds.includes('best-win'))!, prof = r.variants.find((v) => v.kinds.includes('best-profit'))!, dd = r.variants.find((v) => v.kinds.includes('best-drawdown'))!;
+  assert.ok(r.variants.every((v) => v.metrics.rawWinRate <= win.metrics.rawWinRate + 1e-9), 'best win rate has the highest win rate');
+  assert.ok(r.variants.every((v) => v.metrics.ret <= prof.metrics.ret + 1e-9), 'best profit has the highest return');
+  assert.ok(r.variants.every((v) => v.metrics.maxDD >= dd.metrics.maxDD - 1e-9), 'lowest drawdown has the lowest drawdown');
 });
 
 test('budget, stop flag and progress', () => {

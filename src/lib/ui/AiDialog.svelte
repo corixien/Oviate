@@ -4,7 +4,7 @@
   import { paper } from '$lib/paper/paper.svelte';
   import { aiComplete } from '$lib/api';
   import { genIndicator, genStrategy, strategyCheck, type StrategyOpts } from '$lib/ai/pine.ts';
-  import Select from './Select.svelte';
+  import AiStrategyFields from './AiStrategyFields.svelte';
 
   const kind = $derived(app.aiDialog);
   const strat = $derived(kind === 'strategies');
@@ -72,21 +72,7 @@
         <p class="dim">{strat
           ? 'Describe the strategy in your own words: entries, exits, filters, which indicators. The AI writes the Pine strategy, it is checked with a test backtest, saved and put on the chart with the Strategy Tester.'
           : 'Describe the indicator in your own words. The AI writes the Pine code, it is saved as a normal indicator and added to the chart.'}</p>
-        {#if strat}
-          <div class="form">
-            <div class="f req">
-              <span>Position size per entry <b>required</b></span>
-              <div class="inline">
-                <Select value={qtyType} options={[{ value: 'percent_of_equity', label: '% of account' }, { value: 'cash', label: 'Cash amount ($)' }, { value: 'fixed', label: 'Amount (units)' }]} onchange={(v) => (qtyType = v as StrategyOpts['qtyType'])} width="150px" />
-                <input class="num" class:bad={!qtyOk} bind:value={qty} inputmode="decimal" aria-label="Position size" />
-              </div>
-            </div>
-            <div class="f"><span>Stop loss % <i>optional</i></span><input class="num" bind:value={sl} inputmode="decimal" placeholder="none" aria-label="Stop loss percent" /></div>
-            <div class="f"><span>Take profit % <i>optional</i></span><input class="num" bind:value={tp} inputmode="decimal" placeholder="none" aria-label="Take profit percent" /></div>
-            <div class="f"><span>Direction</span>
-              <Select value={direction} options={[{ value: 'auto', label: 'As described' }, { value: 'long', label: 'Long only' }, { value: 'short', label: 'Short only' }, { value: 'both', label: 'Long and short' }]} onchange={(v) => (direction = v as StrategyOpts['direction'])} width="150px" /></div>
-          </div>
-        {/if}
+        {#if strat}<AiStrategyFields bind:qtyType bind:qty bind:sl bind:tp bind:direction />{/if}
         <textarea bind:this={ta} bind:value={text} rows={strat ? 5 : 4} spellcheck="false"
           placeholder={strat
             ? 'e.g. Buy when the EMA 20 crosses above the EMA 50 and RSI is above 50. Sell when the EMA 20 crosses back below. Only trade when ADX is above 20.'
@@ -111,13 +97,6 @@
   h2 { margin: 0; font-size: 16px; flex: 1; }
   .x { background: none; border: 0; color: var(--dim); font-size: 22px; cursor: pointer; } .x:hover { color: var(--fg); }
   section { padding: 12px 18px; }
-  .form { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 12px; }
-  .f { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--dim); }
-  .f b { color: var(--accent); font-weight: 700; margin-left: 4px; text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.06em; }
-  .f i { font-style: normal; opacity: 0.7; margin-left: 4px; }
-  .inline { display: flex; gap: 6px; }
-  .num { width: 96px; padding: 7px 9px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; }
-  .num:focus { border-color: var(--accent); } .num.bad { border-color: var(--down); }
   textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 10px 12px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px/1.5 system-ui, sans-serif; outline: none; }
   textarea:focus { border-color: var(--accent); }
   .warn { color: var(--accent); font-size: 12.5px; }

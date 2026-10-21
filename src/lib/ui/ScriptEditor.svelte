@@ -3,6 +3,9 @@
   import { library, type ScriptKind } from '$lib/library.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick } from 'svelte';
+  import { aiComplete } from '$lib/api';
+  import { editIndicator, editStrategy, extractStrategyForm, type StrategyOpts } from '$lib/ai/pine.ts';
+  import AiStrategyFields from './AiStrategyFields.svelte';
 
   const kind = $derived<ScriptKind>(app.editor.kind);
   let search = $state('');
@@ -42,18 +45,59 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   let ta = $state<HTMLTextAreaElement>();
   let gutter = $state<HTMLDivElement>();
   const lines = $derived(code.split('\n').length);
-  const isNew = $derived(app.editor.name === null);
+  const blank = $derived(!!app.editor.blank);
+  const isNew = $derived(app.editor.name === null && !blank);
+
+  // ----- AI edit of the open script -----
+  let aiOpen = $state(false);
+  let aiText = $state('');
+  let aiBusy = $state(false);
+  let aiError = $state('');
+  let undoCode = $state<string | null>(null);
+  let qtyType = $state<StrategyOpts['qtyType']>('percent_of_equity');
+  let qty = $state('100');
+  let sl = $state('');
+  let tp = $state('');
+  let direction = $state<StrategyOpts['direction']>('auto');
+  const num = (v: string) => { const n = parseFloat(v.replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+  const qtyOk = $derived(num(qty) > 0 && (qtyType !== 'percent_of_equity' || num(qty) <= 100));
+  const canAi = $derived(!aiBusy && (aiText.trim().length > 0 || kind === 'strategies') && (kind === 'indicators' || qtyOk));
+
+  /** Fill the strategy form from the code that is open. */
+  function readForm() {
+    const f = extractStrategyForm(code);
+    qtyType = f.qtyType; qty = String(f.qty); sl = f.sl ? String(f.sl) : ''; tp = f.tp ? String(f.tp) : ''; direction = f.direction;
+  }
+  function toggleAi() {
+    aiOpen = !aiOpen; aiError = '';
+    if (aiOpen && kind === 'strategies') readForm();
+  }
+  async function runAi() {
+    if (!canAi) return;
+    aiBusy = true; aiError = '';
+    try {
+      const out = kind === 'strategies'
+        ? await editStrategy(code, aiText, { qtyType, qty: num(qty), sl: num(sl) > 0 ? num(sl) : 0, tp: num(tp) > 0 ? num(tp) : 0, direction }, aiComplete)
+        : await editIndicator(code, aiText, aiComplete);
+      undoCode = code; code = out; aiText = '';
+      status = { ok: true, text: 'AI edit applied to the editor. Review it, then Save (Ctrl+S).' };
+      if (kind === 'strategies') readForm();
+    } catch (e) { aiError = e instanceof Error ? e.message : String(e); }
+    finally { aiBusy = false; }
+  }
+  function undoAi() { if (undoCode !== null) { code = undoCode; undoCode = null; status = null; if (kind === 'strategies') readForm(); } }
 
   function open(k: ScriptKind, n: string | null) {
     app.editor = { kind: k, name: n };
   }
 
   $effect(() => {
-    const key = kind + '|' + (app.editor.name ?? '');
+    const key = kind + '|' + (app.editor.name ?? '') + (app.editor.blank ? '|blank' : '');
     if (key === loadedKey) return;
     loadedKey = key;
-    status = null;
-    if (app.editor.name === null) { name = ''; code = TEMPLATES[kind]; }
+    status = null; aiOpen = false; aiError = ''; undoCode = null;
+    if (app.editor.blank) { name = ''; code = ''; }
+    else if (app.editor.name === null) { name = ''; code = TEMPLATES[kind]; }
     else {
       const f = library.get(kind, app.editor.name);
       name = f?.name ?? app.editor.name;
@@ -71,7 +115,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   }
 
   async function save() {
-    if (saving) return;
+    if (saving || blank) return;
     const info = describeScript(code);
     const finalName = (name.trim() || info.meta.title || '').trim();
     if (!finalName) { status = { ok: false, text: 'Give the script a name' }; return; }
@@ -143,17 +187,36 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
 
     <section class="main">
       <div class="bar">
-        <input class="name" bind:value={name} placeholder={isNew ? 'File name (default: script title)' : 'File name'} spellcheck="false" disabled={!isNew} />
+        <input class="name" bind:value={name} placeholder={blank ? '' : isNew ? 'File name (default: script title)' : 'File name'} spellcheck="false" disabled={!isNew} />
         <span class="ext">.pine</span>
         <div class="spacer"></div>
-        <button onclick={check}>Check</button>
-        {#if kind === 'indicators' && !isNew}<button onclick={addToChart}>Add to chart</button>{/if}
-        {#if !isNew}<button class="danger" onclick={remove}>Delete</button>{/if}
-        <button class="primary" onclick={save} disabled={saving}>Save <kbd>Ctrl+S</kbd></button>
+        <button class:on={aiOpen} onclick={toggleAi} disabled={blank} title="Change this {label.toLowerCase()} with AI">AI</button>
+        <button onclick={check} disabled={blank}>Check</button>
+        {#if kind === 'indicators' && !isNew && !blank}<button onclick={addToChart}>Add to chart</button>{/if}
+        {#if !isNew && !blank}<button class="danger" onclick={remove}>Delete</button>{/if}
+        <button class="primary" onclick={save} disabled={saving || blank}>Save <kbd>Ctrl+S</kbd></button>
       </div>
+      {#if aiOpen && !blank}
+        <div class="ai">
+          {#if kind === 'strategies'}<AiStrategyFields bind:qtyType bind:qty bind:sl bind:tp bind:direction />{/if}
+          <textarea bind:value={aiText} rows="3" spellcheck="false" placeholder={kind === 'strategies' ? 'What should change? e.g. add an RSI filter above 50 for entries, exit on a close below the EMA 20. Leave empty to only apply the settings above.' : 'What should change? e.g. add a signal line (EMA 9) and colour the histogram green above zero'}
+            onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runAi(); } }}></textarea>
+          <div class="aibar">
+            <button class="primary" onclick={runAi} disabled={!canAi}>{aiBusy ? 'Editing…' : 'Edit with AI'} <kbd>Ctrl+Enter</kbd></button>
+            {#if undoCode !== null}<button onclick={undoAi}>Undo last AI edit</button>{/if}
+            <button onclick={() => (aiOpen = false)}>Close</button>
+            {#if aiBusy}<span class="hint">Writing and test-running the change, this can take up to a minute…</span>{/if}
+            {#if aiError}<span class="aierr">{aiError}</span>{/if}
+          </div>
+        </div>
+      {/if}
       <div class="editor">
-        <div class="gutter" bind:this={gutter}>{#each Array(lines) as _, i}<div>{i + 1}</div>{/each}</div>
-        <textarea bind:this={ta} bind:value={code} onscroll={sync} spellcheck="false" autocomplete="off" wrap="off" placeholder={`Paste your Pine Script v5 ${label.toLowerCase()} here`}></textarea>
+        {#if blank}
+          <div class="blank">Select {kind === 'indicators' ? 'an indicator' : 'a strategy'} on the left, or create a new one.</div>
+        {:else}
+          <div class="gutter" bind:this={gutter}>{#each Array(lines) as _, i}<div>{i + 1}</div>{/each}</div>
+          <textarea bind:this={ta} bind:value={code} onscroll={sync} spellcheck="false" autocomplete="off" wrap="off" placeholder={`Paste your Pine Script v5 ${label.toLowerCase()} here`}></textarea>
+        {/if}
       </div>
       {#if status}<div class="status" class:ok={status.ok}>{status.text}</div>{/if}
     </section>
@@ -195,6 +258,15 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .editor { flex: 1; min-height: 0; display: flex; background: #000; }
   .gutter { width: 48px; flex: none; overflow: hidden; text-align: right; padding: 12px 8px 12px 0; color: var(--dim); font: 13px/1.55 ui-monospace, monospace; border-right: 1px solid var(--line); user-select: none; }
   textarea { flex: 1; min-width: 0; resize: none; background: #000; color: var(--fg); border: 0; outline: 0; padding: 12px 14px; font: 13px/1.55 ui-monospace, monospace; tab-size: 4; white-space: pre; overflow: auto; }
+  .bar button.on { border-color: var(--accent); color: var(--accent); } .bar button:disabled { opacity: 0.45; cursor: default; }
+  .ai { padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--bar); }
+  .ai textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px/1.5 system-ui, sans-serif; outline: none; }
+  .ai textarea:focus { border-color: var(--accent); }
+  .aibar { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .aibar button { background: none; border: 1px solid var(--line); color: var(--fg); padding: 6px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; } .aibar button:hover:not(:disabled) { border-color: var(--accent); }
+  .aibar .primary { background: var(--accent); border-color: var(--accent); color: #fff; } .aibar button:disabled { opacity: 0.5; cursor: default; }
+  .hint { color: var(--dim); font-size: 12px; } .aierr { color: var(--down); font-size: 12px; }
+  .blank { flex: 1; display: grid; place-items: center; color: var(--dim); font-size: 14px; }
   .status { padding: 8px 16px; border-top: 1px solid var(--line); font: 12.5px ui-monospace, monospace; color: var(--down); }
   .status.ok { color: var(--up); }
 </style>

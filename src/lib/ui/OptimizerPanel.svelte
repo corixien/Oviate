@@ -38,11 +38,11 @@
   </div>
   <div class="body">
     {#if opt.status === 'error'}<p class="err">{opt.error}</p>{/if}
-    <div class="cols">
-      <div class="params">
+    <div class="stack">
+      <section class="params">
         <h5>Parameters to tune</h5>
         {#if !opt.rows.length}<p class="dim">This strategy has no numeric inputs (<code>input.int</code> / <code>input.float</code>) to tune.</p>{/if}
-        <table>
+        <div class="tw"><table class="pt">
           <thead><tr><th></th><th>Input</th><th>Current</th><th>Min</th><th>Max</th><th>Step</th></tr></thead>
           <tbody>
             {#each opt.rows as r (r.id)}
@@ -52,15 +52,15 @@
               </tr>
             {/each}
           </tbody>
-        </table>
+        </table></div>
         <p class="note">Score: win rate counts most, then profit, then drawdown. The history is cut into 5 parts and newer parts weigh up to 6.5x more, so long history limits overfitting while the recent market counts most. Variants also look at the neighbours of a setting: a plateau beats a lone spike.</p>
-      </div>
-      <div class="res">
+      </section>
+      <section class="res">
         <h5>10 variants, ranked</h5>
         {#if !opt.result}
           <p class="dim">{run ? 'Searching…' : 'Press "Run optimizer". It climbs each parameter step by step: a better step is repeated with double size, a worse one is dropped.'}</p>
         {:else}
-          <table>
+          <div class="tw"><table>
             <thead><tr><th>#</th><th>Variant</th><th>Parameters</th><th>Win rate</th><th>Return</th><th>Max DD</th><th>Trades</th><th>Last part</th><th>Score</th><th></th></tr></thead>
             <tbody>
               {#if opt.result.baseline}
@@ -77,10 +77,10 @@
                 </tr>
               {/each}
             </tbody>
-          </table>
+          </table></div>
           {#if best}<p class="note">Rank 1 is the best overall mix. "Best win rate", "Best profit" and "Lowest drawdown" are the best single values per category (with enough trades); the other variants trade them off. Return and drawdown are over the whole history, "Last part" is the newest fifth. Optimized on past data: a good variant is a candidate, not a promise.</p>{/if}
         {/if}
-      </div>
+      </section>
     </div>
   </div>
 {/if}
@@ -95,20 +95,23 @@
   .mini:hover { border-color: var(--accent); color: var(--accent); }
   .acc .mini { height: 30px; padding: 0 12px; font-size: 12px; }
   .body { flex: 1; min-height: 0; overflow: auto; padding: 0 0 10px; }
-  .cols { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 0 4px; align-items: start; }
-  @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  section { min-width: 0; }
+  .tw { overflow-x: auto; margin: 0 14px; border: 1px solid var(--line); }
+  .pt { width: auto; min-width: 0; }
   h5 { margin: 12px 14px 4px; font: 700 10.5px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
   table { width: 100%; border-collapse: collapse; font: 12px ui-monospace, monospace; }
-  th { text-align: left; color: var(--dim); font: 600 10.5px system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bar); }
+  th { text-align: left; color: var(--dim); font: 600 10.5px system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   td { padding: 5px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   td.t { max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-family: system-ui, sans-serif; }
-  td.p { max-width: 330px; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+  td.p { max-width: 360px; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
   td.tag { font-family: system-ui, sans-serif; font-weight: 600; }
   tr.off td { opacity: 0.45; } tr.base td { color: var(--dim); font-style: italic; } tr.top td.tag { color: var(--accent); }
   tr:hover td { background: var(--hover); } .act { text-align: right; }
   .in { width: 58px; padding: 3px 5px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12px ui-monospace, monospace; outline: none; box-sizing: border-box; } .in:focus { border-color: var(--accent); }
   input[type='checkbox'] { accent-color: var(--accent); }
   .up { color: var(--up); } .dn { color: var(--down); }
+  .res > .dim, .params > .dim { margin: 6px 14px; font-size: 12.5px; line-height: 1.5; }
   .note { margin: 8px 14px 0; color: var(--dim); font-size: 11.5px; line-height: 1.5; max-width: 760px; } .err { margin: 8px 14px; color: var(--down); font-size: 12.5px; }
   .empty { padding: 26px; text-align: center; color: var(--fg); } .empty p { margin: 6px 0; } .empty .dim { font-size: 13px; }
   kbd, code { font: 11px ui-monospace, monospace; border: 1px solid var(--line); padding: 1px 6px; }

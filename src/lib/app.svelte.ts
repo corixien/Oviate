@@ -69,7 +69,8 @@ class App {
   aiDialog = $state<'indicators' | 'strategies' | null>(null);
   page = $state<'chart' | 'news' | 'editor'>('chart');
   /** Script editor target: an existing script or a new one (name null). */
-  editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null }>({ kind: 'indicators', name: null });
+  /** name null = a new script; blank = nothing selected yet (opened with /ind or /strat) */
+  editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean }>({ kind: 'indicators', name: null });
   newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
   showNews = $state(true);
   showParams = $state(false);
@@ -103,9 +104,9 @@ class App {
 
   resetChart() { this.resetReq = { id: this.chart.id, n: this.resetReq.n + 1 }; }
 
-  /** Open the code editor on the first script of a kind (what `/ind` and `/strat` do). */
+  /** Open the code editor with nothing selected (what `/ind` and `/strat` do). */
   openEditor(kind: 'indicators' | 'strategies') {
-    this.editor = { kind, name: library.list(kind)[0]?.name ?? null };
+    this.editor = { kind, name: null, blank: true };
     this.page = 'editor';
   }
 

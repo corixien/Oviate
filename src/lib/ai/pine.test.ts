@@ -396,3 +396,43 @@ test('realistic model strategies run and trade on the sample', () => {
     assert.equal(r.error, null, k);
   }
 });
+
+// ---------------------------------------------------------------- editing
+import { extractStrategyForm, editIndicator, editStrategy } from './pine.ts';
+
+test('extractStrategyForm reads size, stop loss, take profit and directions from existing code', () => {
+  const a = extractStrategyForm(STRATEGY_EXAMPLE_LONG);
+  assert.deepEqual(a, { qtyType: 'percent_of_equity', qty: 100, sl: 2, tp: 4, direction: 'long' });
+  const b = extractStrategyForm(STRATEGY_EXAMPLE_BOTH);
+  assert.deepEqual(b, { qtyType: 'percent_of_equity', qty: 50, sl: 3, tp: 0, direction: 'both' });
+  const c = extractStrategyForm('//@version=5\nstrategy("x", default_qty_type=strategy.cash, default_qty_value=2500)\nstopPct = input.float(1.5, "SL %")\nif close > open\n    strategy.entry("S", strategy.short)');
+  assert.deepEqual(c, { qtyType: 'cash', qty: 2500, sl: 1.5, tp: 0, direction: 'short' });
+  assert.equal(extractStrategyForm('//@version=6\nstrategy("n")').qty, 100);
+});
+
+test('editIndicator: asks for the code with the change, rejects no-ops, accepts a real edit', async () => {
+  const orig = '//@version=6\nindicator("T", overlay=false)\nlen = input.int(14, "Length")\nplot(ta.rsi(close, len), "RSI")';
+  const edited = '//@version=6\nindicator("T", overlay=false)\nlen = input.int(14, "Length")\nplot(ta.rsi(close, len), "RSI")\nhline(70, "OB")\nhline(30, "OS")';
+  const m = seq('```pine\n' + orig + '\n```', '```pine\n' + edited + '\n```');
+  assert.equal(await editIndicator(orig, 'add overbought and oversold lines', m.fn), edited);
+  assert.equal(m.seen.length, 2);
+  assert.match(m.seen[0][0], /EDITING an existing script/); assert.match(m.seen[0][1], /Current script:[\s\S]*ta\.rsi[\s\S]*Change wanted: add overbought/);
+  assert.match(m.seen[1][m.seen[1].length - 1], /Nothing was changed/);
+  await assert.rejects(editIndicator(orig, '  ', m.fn), /Describe the change/);
+});
+
+test('editStrategy: a no-op reply is rejected and repaired; the form size is forced into the result', async () => {
+  const same = extractStrategyForm(STRATEGY_EXAMPLE_LONG);
+  const edited = STRATEGY_EXAMPLE_LONG.replace('rsi > 50', 'rsi > 55');
+  const m = seq('```pine\n' + STRATEGY_EXAMPLE_LONG + '\n```', '```pine\n' + edited + '\n```');
+  assert.match(await editStrategy(STRATEGY_EXAMPLE_LONG, 'require RSI above 55', same, m.fn), /rsi > 55/);
+  assert.equal(m.seen.length, 2);
+  assert.match(m.seen[1][m.seen[1].length - 1], /Nothing was changed/);
+  assert.match(m.seen[0][0], /EDITING an existing script/); assert.match(m.seen[0][0], /NEXT BAR/);
+  const opts = { ...same, qtyType: 'cash' as const, qty: 750, sl: 3 };
+  const m2 = seq('```pine\n' + edited + '\n```');
+  const out = await editStrategy(STRATEGY_EXAMPLE_LONG, 'require RSI above 55', opts, m2.fn);
+  assert.match(out, /default_qty_type=strategy\.cash, default_qty_value=750/);
+  assert.match(m2.seen[0][1], /750 \(account currency\)/); assert.match(m2.seen[0][1], /Stop loss: 3%/);
+  await assert.rejects(editStrategy(STRATEGY_EXAMPLE_LONG, 'x', { ...opts, qty: 0 }, m2.fn), /position size/);
+});

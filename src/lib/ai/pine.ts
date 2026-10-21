@@ -356,5 +356,55 @@ export async function genStrategy(text: string, opts: StrategyOpts, complete: Co
   return loop(STRATEGY_SYSTEM, req, complete, (code) => strategyCheck(code, opts).error, 4, (code) => setPositionSize(code, opts.qtyType, opts.qty), (err) => err.startsWith('It never trades'));
 }
 
+// ---------------------------------------------------------------- editing existing scripts
+
+const EDIT_RULES = `
+
+### You are EDITING an existing script
+The request contains the current script and the change wanted. Return the COMPLETE modified script. Change only what the request needs: keep every other input, variable, plot and rule exactly as it is, keep the script's own //@version line and its title, and keep its style. Do not rewrite or "improve" parts that were not asked about. If an input or setting is listed as fixed in the request, the result must have exactly that.`;
+
+const sameCode = (a: string, b: string) => a.replace(/\s+/g, '') === b.replace(/\s+/g, '');
+
+/** Read the strategy form back out of existing code: position size from strategy(), stop loss / take profit from inputs titled so, directions from the orders used. */
+export function extractStrategyForm(code: string): StrategyOpts {
+  const out: StrategyOpts = { qtyType: 'percent_of_equity', qty: 100, sl: 0, tp: 0, direction: 'auto' };
+  const span = declSpan(code);
+  if (span) {
+    const args = splitArgs(code.slice(span[0] + 1, span[1]));
+    const arg = (k: string) => args.find((a) => new RegExp(`^${k}\\s*=`).test(a))?.replace(/^[^=]+=\s*/, '');
+    const t = arg('default_qty_type')?.replace('strategy.', '');
+    if (t === 'percent_of_equity' || t === 'cash' || t === 'fixed') out.qtyType = t;
+    const v = Number(arg('default_qty_value'));
+    if (Number.isFinite(v) && v > 0) out.qty = v;
+  }
+  for (const m of code.matchAll(/input\.(?:float|int)\(\s*(-?[\d.]+)\s*,\s*"([^"]*)"/g)) {
+    const val = Number(m[1]), title = m[2];
+    if (/stop\s*loss|\bsl\b/i.test(title) && val > 0) out.sl = val;
+    else if (/take\s*profit|\btp\b/i.test(title) && val > 0) out.tp = val;
+  }
+  const long = /strategy\.long\b/.test(code), short = /strategy\.short\b/.test(code);
+  out.direction = long && short ? 'both' : long ? 'long' : short ? 'short' : 'auto';
+  return out;
+}
+
+/** Change an existing indicator as described. The result is checked like a new one and must differ from the input. */
+export async function editIndicator(code: string, change: string, complete: Complete): Promise<string> {
+  if (!change.trim()) throw new Error('Describe the change first.');
+  const req = `Current script:\n\`\`\`pine\n${code}\n\`\`\`\n\nChange wanted: ${change.trim()}`;
+  return loop(INDICATOR_SYSTEM + EDIT_RULES, req, complete, (c) => (sameCode(c, code) ? 'Nothing was changed. Apply the requested change.' : sanity(c)), 4);
+}
+
+/** Change an existing strategy as described, with the settings of the form (size, stop loss, take profit, direction) holding after the edit. */
+export async function editStrategy(code: string, change: string, opts: StrategyOpts, complete: Complete): Promise<string> {
+  if (!change.trim() && !opts.qty) throw new Error('Describe the change first.');
+  if (!(opts.qty > 0)) throw new Error('Set the position size first.');
+  const req = `Current script:\n\`\`\`pine\n${code}\n\`\`\`\n\nChange wanted: ${change.trim() || '(only the settings below changed)'}\n\n${strategyRequest('the edited strategy (same strategy as above, with the change applied)', opts).split('\n').slice(1).join('\n')}`;
+  const settled = setPositionSize(code, opts.qtyType, opts.qty); // the original with the form's size: a reply equal to it changed nothing
+  return loop(STRATEGY_SYSTEM + EDIT_RULES, req, complete, (c) => {
+    const same = change.trim() && sameCode(c, settled) ? 'Nothing was changed. Apply the requested change.' : null;
+    return same ?? strategyCheck(c, opts).error;
+  }, 4, (c) => setPositionSize(c, opts.qtyType, opts.qty), (err) => err.startsWith('It never trades'));
+}
+
 /** Rules of the Pine dialect and the backtester, for humans and for the CLI guide. */
 export const GUIDE = { indicator: INDICATOR_SYSTEM, strategy: STRATEGY_SYSTEM };

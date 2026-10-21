@@ -110,9 +110,10 @@ export const blend = (m: Metrics, minT: number, [a, b, c]: Weights) => (a * m.wi
 type Objective = (m: Metrics, minT: number) => number;
 const OBJ: Record<'balanced' | 'win' | 'pnl' | 'dd', Objective> = {
   balanced: (m, t) => blend(m, t, [0.5, 0.3, 0.2]),
-  win: (m, t) => m.winRate * conf(m.trades, t) * (m.ret > 0 ? 1 : 0.5),
-  pnl: (m, t) => m.retW * conf(m.trades, t),
-  dd: (m, t) => (m.trades < t ? -100 + m.trades : m.ret > 0 ? -m.ddW : -50 - m.ddW),
+  // the three category objectives use the figures the table shows (whole history, not recency weighted): "best" must be the best visible value
+  win: (m, t) => m.rawWinRate * conf(m.trades, t) * (m.ret > 0 ? 1 : 0.5),
+  pnl: (m, t) => m.ret * conf(m.trades, t),
+  dd: (m, t) => (m.trades < t ? -100 + m.trades : m.ret > 0 ? -m.maxDD : -50 - m.maxDD),
 };
 
 /** Scores of the 7 in-between profiles. */
@@ -131,7 +132,7 @@ const PROFILES: { kind: string; tag: string; score: (m: Metrics, t: number) => n
   { kind: 'consistent', tag: 'Consistent', score: (m, t) => (0.6 * (m.segs.filter((s) => s.ret > 0).length / SEGS) + 0.4 * P(m.retW)) * conf(m.trades, t) },
 ];
 
-export interface Variant { rank: number; tag: string; kind: string; params: Record<string, number>; metrics: Metrics; score: number; robust: number }
+export interface Variant { rank: number; tag: string; kind: string; /** every category this point is the absolute best of, plus its own kind */ kinds: string[]; params: Record<string, number>; metrics: Metrics; score: number; robust: number }
 export interface OptimizeProgress { evals: number; budget: number; best: number; phase: string }
 export interface OptimizeOpts {
   code: string; data: PineCandles; stepSec: number; space: ParamDef[]; settings: TesterSettings;
@@ -236,24 +237,33 @@ export function optimize(o: OptimizeOpts): OptimizeResult {
   // ---- pick the 10 variants
   const all = pts().filter((p) => p.m.trades > 0);
   const ok = (p: Point, needProfit: boolean) => p.m.trades >= minT && (!needProfit || p.m.ret > 0);
-  const chosen: { p: Point; tag: string; kind: string }[] = [];
+  const chosen: { p: Point; tag: string; kind: string; kinds: string[] }[] = [];
   const near = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]) / Math.max(1, K[i]) < 0.04);
   const pick = (kind: string, tag: string, score: (p: Point) => number, pool: Point[]) => {
     const free = pool.filter((p) => !chosen.some((c) => key(c.p.idx) === key(p.idx)));
     const distinct = free.filter((p) => !chosen.some((c) => near(c.p.idx, p.idx)));
     const best = (distinct.length ? distinct : free).sort((a, b) => score(b) - score(a))[0];
-    if (best) chosen.push({ p: best, tag, kind });
+    if (best) chosen.push({ p: best, tag, kind, kinds: [kind] });
+  };
+  /** Category winner: the absolute best value of the table column among the guarded points. A point that wins several categories carries all tags. */
+  const category = (kind: string, tag: string, score: (p: Point) => number, pool: Point[]) => {
+    const best = pool.slice().sort((a, b) => score(b) - score(a) || b.m.trades - a.m.trades)[0];
+    if (!best) return;
+    const same = chosen.find((c) => key(c.p.idx) === key(best.idx));
+    if (same) { same.tag += ' + ' + tag; same.kinds.push(kind); } else chosen.push({ p: best, tag, kind, kinds: [kind] });
   };
   const guarded = (needProfit: boolean) => { const g = all.filter((p) => ok(p, needProfit)); return g.length ? g : all; };
-  pick('best-win', 'Best win rate', (p) => OBJ.win(p.m, minT), guarded(true));
-  pick('best-profit', 'Best profit', (p) => p.m.retW, guarded(false));
-  pick('best-drawdown', 'Lowest drawdown', (p) => -p.m.ddW, guarded(true));
+  category('best-win', 'Best win rate', (p) => p.m.rawWinRate, guarded(true));
+  category('best-profit', 'Best profit', (p) => p.m.ret, guarded(false));
+  category('best-drawdown', 'Lowest drawdown', (p) => -p.m.maxDD, guarded(true));
   for (const pr of PROFILES) pick(pr.kind, pr.tag, (p) => pr.score(p.m, minT), guarded(true));
   const hasRob = all.filter((p) => robust.has(key(p.idx)));
   pick('robust', 'Robust plateau', (p) => rob(p), hasRob.length ? hasRob : guarded(true));
+  // a point that won several categories leaves slots free: fill them with the next best settings
+  while (chosen.length < 10 && chosen.length < guarded(true).length) { const n = chosen.length; pick('next', 'Next best', rankScore, guarded(true)); if (chosen.length === n) break; }
 
   const variants = chosen.sort((a, b) => rankScore(b.p) - rankScore(a.p)).map((c, i): Variant => ({
-    rank: i + 1, tag: c.tag, kind: c.kind, params: valueOf(c.p.idx), metrics: c.p.m, score: rankScore(c.p), robust: rob(c.p),
+    rank: i + 1, tag: c.tag, kind: c.kind, kinds: c.kinds, params: valueOf(c.p.idx), metrics: c.p.m, score: rankScore(c.p), robust: rob(c.p),
   }));
   o.onProgress?.({ evals, budget, best: bestSeen, phase: 'done' });
   return { variants, baseline, evals, minTrades: minT, space, stopped };

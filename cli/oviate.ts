@@ -235,7 +235,7 @@ function cmdOptimize(a: Args) {
   const r = optimize({ code, data, stepSec: TF_SEC[tf], space, settings, base: fixed, budget: Math.max(20, Math.trunc(numFlag(a, 'budget', 600))) });
   const secs = (Date.now() - t0) / 1000;
   const flags = (p: Record<string, number>) => Object.entries(p).map(([k, v]) => `--param "${k}=${v}"`).join(' ');
-  const row = (v: (typeof r.variants)[number]) => ({ rank: v.rank, variant: v.tag, params: v.params, winRate: +(v.metrics.rawWinRate * 100).toFixed(1), returnPct: +v.metrics.ret.toFixed(1), maxDrawdownPct: +v.metrics.maxDD.toFixed(1), trades: v.metrics.trades, lastFifthReturnPct: +v.metrics.recentRet.toFixed(1), lastFifthWinRate: +(v.metrics.recentWin * 100).toFixed(1), score: +v.score.toFixed(4), backtestFlags: flags(v.params) });
+  const row = (v: (typeof r.variants)[number]) => ({ rank: v.rank, variant: v.tag, categories: v.kinds, params: v.params, winRate: +(v.metrics.rawWinRate * 100).toFixed(1), returnPct: +v.metrics.ret.toFixed(1), maxDrawdownPct: +v.metrics.maxDD.toFixed(1), trades: v.metrics.trades, lastFifthReturnPct: +v.metrics.recentRet.toFixed(1), lastFifthWinRate: +(v.metrics.recentWin * 100).toFixed(1), score: +v.score.toFixed(4), backtestFlags: flags(v.params) });
   const result = {
     strategy: info.meta.title, source: label, symbol, tf, bars: data.n, from: day(data.t[0]), to: day(data.t[data.n - 1]), tests: r.evals, seconds: +secs.toFixed(1), minTradesPerVariant: r.minTrades, settings,
     tuned: space.map((p) => ({ input: p.title, min: p.min, max: p.max, step: p.step, current: p.def })),
