@@ -1,10 +1,13 @@
-//! Groq OpenAI-compatible API: news summaries and Pine code generation.
+//! OpenAI-compatible chat APIs: Groq for news summaries, OpenRouter (free models) for Pine code generation.
 use crate::model::{Error, Result};
 use crate::news::NewsItem;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const BASE: &str = "https://api.groq.com/openai/v1";
+pub const GROQ: &str = "https://api.groq.com/openai/v1";
+const OPENROUTER: &str = "https://openrouter.ai/api/v1";
+/// Free OpenRouter models for code, best first; the next one is tried when a model is retired, rate limited or fails.
+pub const CODE_MODELS: &[&str] = &["poolside/laguna-s-2.1:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "nvidia/nemotron-3-super-120b-a12b:free", "google/gemma-4-31b-it:free"];
 const PREFERRED: &[&str] = &["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -55,7 +58,7 @@ pub fn parse_summary(content: &str, model: &str) -> Result<AiSummary> {
 }
 
 pub async fn pick_model(http: &reqwest::Client, key: &str) -> Result<String> {
-    let v: Value = http.get(format!("{BASE}/models")).bearer_auth(key).send().await?.error_for_status()
+    let v: Value = http.get(format!("{GROQ}/models")).bearer_auth(key).send().await?.error_for_status()
         .map_err(|e| Error::Other(format!("groq: {e}")))?.json().await?;
     let ids: Vec<String> = v["data"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_string)).collect()).unwrap_or_default();
     PREFERRED.iter().find(|p| ids.iter().any(|i| i == *p)).map(|p| p.to_string())
@@ -63,16 +66,30 @@ pub async fn pick_model(http: &reqwest::Client, key: &str) -> Result<String> {
         .ok_or_else(|| Error::Other("groq: no usable model".into()))
 }
 
+/// Pine code generation on OpenRouter free models, falling back down `CODE_MODELS`.
+pub async fn code_chat(http: &reqwest::Client, key: &str, messages: Value) -> Result<String> {
+    let mut last = Error::Other("no model".into());
+    for model in CODE_MODELS {
+        // reasoning models spend tokens thinking first: leave room for the code
+        match chat(http, OPENROUTER, key, model, messages.clone(), 0.2, 8000, false).await {
+            Ok(c) if !c.trim().is_empty() => return Ok(c),
+            Ok(_) => last = Error::Other(format!("{model}: empty reply")),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
 /// One chat completion; returns the message content.
-pub async fn chat(http: &reqwest::Client, key: &str, model: &str, messages: Value, temperature: f64, max_tokens: u32, json_mode: bool) -> Result<String> {
+pub async fn chat(http: &reqwest::Client, base: &str, key: &str, model: &str, messages: Value, temperature: f64, max_tokens: u32, json_mode: bool) -> Result<String> {
     let mut body = json!({ "model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens });
     if json_mode { body["response_format"] = json!({"type": "json_object"}); }
-    let resp = http.post(format!("{BASE}/chat/completions")).bearer_auth(key).json(&body).send().await?;
+    let resp = http.post(format!("{base}/chat/completions")).bearer_auth(key).json(&body).send().await?;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         let msg = serde_json::from_str::<Value>(&body).ok().and_then(|v| v["error"]["message"].as_str().map(str::to_string)).unwrap_or(body);
-        return Err(Error::Other(format!("groq {}: {}", status.as_u16(), msg.chars().take(200).collect::<String>())));
+        return Err(Error::Other(format!("{} {}: {}", if base == OPENROUTER { "openrouter" } else { "groq" }, status.as_u16(), msg.chars().take(200).collect::<String>())));
     }
     let v: Value = resp.json().await?;
     Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())

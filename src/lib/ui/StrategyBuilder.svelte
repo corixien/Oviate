@@ -262,7 +262,7 @@
             <input class="num" type="number" min="0" max={spec.qtyType === 'percent_of_equity' ? 100 : undefined} step="any" value={spec.qty} oninput={setQty} />
             <span class="dim">{spec.qtyType === 'percent_of_equity' ? '% of equity per entry' : spec.qtyType === 'cash' ? 'invested per entry' : 'units per entry'}</span></label>
         </div>
-        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, fees and slippage are set in the Strategy Tester (Settings tab). Choose <b>Describe in words (AI)</b> in any condition to write the rule in plain text; Groq turns it into Pine.</p>
+        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, fees and slippage are set in the Strategy Tester (Settings tab). Choose <b>Describe in words (AI)</b> in any condition to write the rule in plain text; the AI turns it into Pine.</p>
         <p class="flow help"><b>Conditions</b> are single rules like "RSI crosses above 30". Several conditions are joined with <b>ALL</b> (every one must be true) or <b>ANY</b> (one is enough). A <b>sub-group</b> lets you mix both, like (A and B) or (C and D).</p>
 
         <div class="sides">

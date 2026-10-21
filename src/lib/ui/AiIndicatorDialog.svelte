@@ -44,7 +44,7 @@
     <div class="card" onpointerdown={(e) => e.stopPropagation()} onkeydown={key} role="dialog" tabindex="-1" aria-label="New indicator from text">
       <header><h2>New indicator from text</h2><button class="x" onclick={close} aria-label="Close">×</button></header>
       <section>
-        <p class="dim">Describe the indicator in your own words. Groq writes the Pine code, it is saved as a normal indicator and added to the chart.</p>
+        <p class="dim">Describe the indicator in your own words. the AI writes the Pine code, it is saved as a normal indicator and added to the chart.</p>
         <textarea bind:this={ta} bind:value={text} rows="4" spellcheck="false" placeholder="e.g. RSI of the volume-weighted close, with a signal line (EMA 9) and highlighted zones above 70 and below 30"></textarea>
         {#if error}<p class="err">{error}</p>{/if}
         {#if code}<pre>{code}</pre>{/if}

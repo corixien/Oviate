@@ -124,18 +124,18 @@ fn save_liquid_tokens(t: &mcp::Tokens) -> Result<()> {
 }
 
 #[derive(serde::Serialize)]
-struct NewsStatus { finnhub: bool, newsapi: bool, alpaca: bool, liquid: bool, groq: bool }
+struct NewsStatus { finnhub: bool, newsapi: bool, alpaca: bool, liquid: bool, groq: bool, openrouter: bool }
 
 #[tauri::command]
 fn news_status() -> NewsStatus {
     let k = news_keys();
-    NewsStatus { finnhub: k.finnhub.is_some(), newsapi: k.newsapi.is_some(), alpaca: k.alpaca.is_some(), liquid: liquid_tokens().is_some(), groq: secret_get("groq_key").is_some() }
+    NewsStatus { finnhub: k.finnhub.is_some(), newsapi: k.newsapi.is_some(), alpaca: k.alpaca.is_some(), liquid: liquid_tokens().is_some(), groq: secret_get("groq_key").is_some(), openrouter: secret_get("openrouter_key").is_some() }
 }
 
 /// Save (non-empty value) or clear (empty value) a news provider key: `finnhub` or `newsapi`.
 #[tauri::command]
 fn save_news_key(provider: String, value: String) -> Result<()> {
-    let name = match provider.as_str() { "finnhub" => "finnhub_key", "newsapi" => "newsapi_key", "groq" => "groq_key", p => return Err(Error::Other(format!("unknown provider {p}"))) };
+    let name = match provider.as_str() { "finnhub" => "finnhub_key", "newsapi" => "newsapi_key", "groq" => "groq_key", "openrouter" => "openrouter_key", p => return Err(Error::Other(format!("unknown provider {p}"))) };
     let e = keyring_entry(name)?;
     if value.trim().is_empty() { let _ = e.delete_credential(); Ok(()) } else { e.set_password(value.trim()).map_err(|e| Error::Keyring(e.to_string())) }
 }
@@ -189,22 +189,23 @@ async fn news_window(st: State<'_>, symbol: Option<String>, from: i64, to: i64, 
 async fn groq_chat(st: &State<'_>, messages: serde_json::Value, temperature: f64, max_tokens: u32, json_mode: bool) -> Result<(String, String)> {
     let key = secret_get("groq_key").ok_or_else(|| Error::Other("Groq API key not set (Settings)".into()))?;
     let mut model = match st.cache.kv_get("groq_model")? { Some(m) => m, None => ai::pick_model(&st.http, &key).await? };
-    let content = match ai::chat(&st.http, &key, &model, messages.clone(), temperature, max_tokens, json_mode).await {
+    let content = match ai::chat(&st.http, ai::GROQ, &key, &model, messages.clone(), temperature, max_tokens, json_mode).await {
         Ok(c) => c,
         Err(_) => {
             model = ai::pick_model(&st.http, &key).await?;
-            ai::chat(&st.http, &key, &model, messages, temperature, max_tokens, json_mode).await?
+            ai::chat(&st.http, ai::GROQ, &key, &model, messages, temperature, max_tokens, json_mode).await?
         }
     };
     st.cache.kv_set("groq_model", &model)?;
     Ok((content, model))
 }
 
-/// Plain Groq completion for code generation (Pine indicators and builder conditions).
+/// Code generation (Pine indicators and builder conditions) on OpenRouter free models.
 #[tauri::command]
 async fn ai_complete(st: State<'_>, messages: serde_json::Value) -> Result<String> {
     if !messages.is_array() { return Err(Error::Other("messages must be an array".into())); }
-    Ok(groq_chat(&st, messages, 0.2, 1800, false).await?.0)
+    let key = secret_get("openrouter_key").ok_or_else(|| Error::Other("OpenRouter API key not set (Settings)".into()))?;
+    ai::code_chat(&st.http, &key, messages).await
 }
 
 /// Short AI summary of a cached news item (Groq). Cached per item and language.
