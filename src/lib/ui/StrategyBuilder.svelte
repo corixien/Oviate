@@ -4,8 +4,10 @@
   import { paper } from '$lib/paper/paper.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
   import Select from './Select.svelte';
+  import { aiComplete } from '$lib/api';
+  import { genCondition } from '$lib/builder/ai.ts';
   import {
-    INDICATORS, PRICE_SRCS, GENERIC, defaultSpec, generate, parseSpec, companions, emptyGroup, indOperand, priceOperand, numOperand, indDef, scenariosFor, scenarioFor, scenarioCond,
+    INDICATORS, PRICE_SRCS, GENERIC, defaultSpec, generate, parseSpec, companions, emptyGroup, indOperand, priceOperand, numOperand, indDef, scenariosFor, scenarioFor, scenarioCond, AI_ID,
     type Spec, type Group, type Cond, type Operand, type Side, type ArgDef,
   } from '$lib/builder/model.ts';
 
@@ -53,11 +55,24 @@
   }
   function pickSubject(c: Cond, v: string) {
     c.lhs = operandOf(v);
+    if (c.ai) c.ai.code = ''; // generated for the old subject: write it again
     if (!scenariosFor(c.lhs).some((x) => x.id === c.cmp)) pickScenario(c, scenariosFor(c.lhs)[0].id);
   }
   function pickScenario(c: Cond, id: string) {
-    const n = scenarioCond(c.lhs, id);
-    c.cmp = n.cmp; c.rhs = n.rhs; c.rhs2 = n.rhs2;
+    const n = scenarioCond(c.lhs, id, c.ai);
+    c.cmp = n.cmp; c.rhs = n.rhs; c.rhs2 = n.rhs2; c.ai = n.ai;
+  }
+
+  // ---------- AI conditions ----------
+  let aiBusy = $state<Record<string, boolean>>({});
+  let aiErr = $state<Record<string, string>>({});
+  async function generateAi(c: Cond) {
+    const ai = c.ai;
+    if (!ai || aiBusy[ai.uid]) return;
+    aiBusy[ai.uid] = true; aiErr[ai.uid] = '';
+    try { ai.code = await genCondition($state.snapshot(c.lhs), ai.text, aiComplete); }
+    catch (e) { aiErr[ai.uid] = e instanceof Error ? e.message : String(e); }
+    finally { aiBusy[ai.uid] = false; }
   }
   function pickArg(c: Cond, field: 'rhs' | 'rhs2', v: string) { c[field] = operandOf(v, c[field]); }
   function setArgNum(c: Cond, field: 'rhs' | 'rhs2', int: boolean | undefined, e: Event) {
@@ -177,6 +192,20 @@
             {#each sc.args ?? [] as d, k}
               {@render arg(it, k === 0 ? 'rhs' : 'rhs2', d)}
             {/each}
+            {#if it.cmp === AI_ID && it.ai}
+              {@const ai = it.ai}
+              <div class="aibox">
+                <textarea rows="2" spellcheck="false" bind:value={ai.text} placeholder="Say what should happen, e.g. crosses above its signal line while price is above the EMA 50 and volume is rising"
+                  onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); generateAi(it); } }}></textarea>
+                <div class="aibar">
+                  <button class="mini" onclick={() => generateAi(it)} disabled={aiBusy[ai.uid] || !ai.text.trim()}>{aiBusy[ai.uid] ? 'Generating…' : ai.code ? 'Regenerate' : 'Generate'}</button>
+                  {#if aiErr[ai.uid]}<span class="aierr">{aiErr[ai.uid]}</span>
+                  {:else if ai.code}<span class="aiok">Ready</span>
+                  {:else}<span class="dim">Not generated yet: this condition never fires until you generate it.</span>{/if}
+                </div>
+                {#if ai.code}<details><summary>Pine code</summary><pre class="aicode">{ai.code}</pre></details>{/if}
+              </div>
+            {/if}
           </div>
         </div>
       {:else}
@@ -233,7 +262,7 @@
             <input class="num" type="number" min="0" max={spec.qtyType === 'percent_of_equity' ? 100 : undefined} step="any" value={spec.qty} oninput={setQty} />
             <span class="dim">{spec.qtyType === 'percent_of_equity' ? '% of equity per entry' : spec.qtyType === 'cash' ? 'invested per entry' : 'units per entry'}</span></label>
         </div>
-        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, fees and slippage are set in the Strategy Tester (Settings tab).</p>
+        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, fees and slippage are set in the Strategy Tester (Settings tab). Choose <b>Describe in words (AI)</b> in any condition to write the rule in plain text; Groq turns it into Pine.</p>
         <p class="flow help"><b>Conditions</b> are single rules like "RSI crosses above 30". Several conditions are joined with <b>ALL</b> (every one must be true) or <b>ANY</b> (one is enough). A <b>sub-group</b> lets you mix both, like (A and B) or (C and D).</p>
 
         <div class="sides">
@@ -331,6 +360,12 @@
   .grp.nested { position: relative; padding-right: 30px; } .grp.nested .ghead { flex-wrap: wrap; }
   .op { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .pp { display: inline-flex; align-items: center; gap: 3px; } .pp i { font-style: normal; color: var(--dim); font-size: 10.5px; }
+  .aibox { flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; }
+  .aibox textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 7px 9px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px/1.45 system-ui, sans-serif; outline: none; }
+  .aibox textarea:focus { border-color: var(--accent); }
+  .aibar { display: flex; align-items: center; gap: 10px; font-size: 11.5px; } .aierr { color: var(--down); } .aiok { color: var(--up); }
+  .aibox summary { cursor: pointer; color: var(--dim); font-size: 11.5px; } .aicode { margin: 6px 0 0; padding: 8px 10px; background: #000; border: 1px solid var(--line); font: 11.5px/1.5 ui-monospace, monospace; overflow: auto; white-space: pre; }
+  .mini:disabled { opacity: 0.5; cursor: default; }
   .and { color: var(--dim); font-size: 12px; }
   .hint { margin: 4px 2px; color: var(--dim); font-size: 12px; }
   .risk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding-top: 4px; }

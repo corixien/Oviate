@@ -185,6 +185,28 @@ async fn news_window(st: State<'_>, symbol: Option<String>, from: i64, to: i64, 
     Ok(news::NewsResult { items, errors })
 }
 
+/// Groq chat with the saved key and model; re-picks the model once if the saved one fails (it may have been retired).
+async fn groq_chat(st: &State<'_>, messages: serde_json::Value, temperature: f64, max_tokens: u32, json_mode: bool) -> Result<(String, String)> {
+    let key = secret_get("groq_key").ok_or_else(|| Error::Other("Groq API key not set (Settings)".into()))?;
+    let mut model = match st.cache.kv_get("groq_model")? { Some(m) => m, None => ai::pick_model(&st.http, &key).await? };
+    let content = match ai::chat(&st.http, &key, &model, messages.clone(), temperature, max_tokens, json_mode).await {
+        Ok(c) => c,
+        Err(_) => {
+            model = ai::pick_model(&st.http, &key).await?;
+            ai::chat(&st.http, &key, &model, messages, temperature, max_tokens, json_mode).await?
+        }
+    };
+    st.cache.kv_set("groq_model", &model)?;
+    Ok((content, model))
+}
+
+/// Plain Groq completion for code generation (Pine indicators and builder conditions).
+#[tauri::command]
+async fn ai_complete(st: State<'_>, messages: serde_json::Value) -> Result<String> {
+    if !messages.is_array() { return Err(Error::Other("messages must be an array".into())); }
+    Ok(groq_chat(&st, messages, 0.2, 1800, false).await?.0)
+}
+
 /// Short AI summary of a cached news item (Groq). Cached per item and language.
 #[tauri::command]
 async fn ai_summary(st: State<'_>, id: String, lang: String, force: Option<bool>) -> Result<ai::AiSummary> {
@@ -194,18 +216,9 @@ async fn ai_summary(st: State<'_>, id: String, lang: String, force: Option<bool>
             if let Ok(s) = serde_json::from_str::<ai::AiSummary>(&body) { return Ok(s); }
         }
     }
-    let key = secret_get("groq_key").ok_or_else(|| Error::Other("Groq API key not set (Settings)".into()))?;
     let item = st.cache.news_get(&id)?.ok_or_else(|| Error::Other("news item not found".into()))?;
-    let mut model = match st.cache.kv_get("groq_model")? { Some(m) => m, None => ai::pick_model(&st.http, &key).await? };
-    let summary = match ai::summarize(&st.http, &key, &model, &item, &lang).await {
-        Ok(s) => s,
-        Err(_) => {
-            // Model may have been retired: re-pick once and retry.
-            model = ai::pick_model(&st.http, &key).await?;
-            ai::summarize(&st.http, &key, &model, &item, &lang).await?
-        }
-    };
-    st.cache.kv_set("groq_model", &model)?;
+    let (content, model) = groq_chat(&st, ai::build_messages(&item, &lang), 0.2, 450, true).await?;
+    let summary = ai::parse_summary(&content, &model)?;
     st.cache.ai_put(&ck, &serde_json::to_string(&summary).map_err(|e| Error::Other(e.to_string()))?, chrono::Utc::now().timestamp())?;
     Ok(summary)
 }
@@ -290,6 +303,7 @@ pub fn run() {
             liquid_logout,
             news_window,
             ai_summary,
+            ai_complete,
             liquid_unusual,
             pine_list,
             pine_save,

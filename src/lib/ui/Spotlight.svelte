@@ -25,6 +25,7 @@
     ...CHART_TYPES.map((ct) => ({ key: `type ${ct}`, title: `Chart type: ${ct}`, tag: 'type', run: () => { app.chart.type = ct; } })),
     { key: 'ind add new create pine script editor', title: 'New indicator (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'indicator', run: () => { app.editor = { kind: 'indicators', name: null }; app.page = 'editor'; } },
     { key: 'strat add new create pine strategy editor', title: 'New strategy (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'strategy', run: () => { app.editor = { kind: 'strategies', name: null }; app.page = 'editor'; } },
+    { key: 'ind ai text describe generate groq plain words new', title: 'New indicator from text (AI)', sub: 'Describe it in words, Groq writes the Pine code', tag: 'indicator', run: () => { app.aiDialog = true; } },
     { key: 'visual builder strategy blocks scratch open edit', title: 'Visual builder', sub: 'Open the strategy builder (current chart strategy)', tag: 'strategy', run: () => { app.openBuilder(); } },
     { key: 'strat add new create builder visual blocks scratch', title: 'New strategy (visual builder)', sub: 'Build entry / exit rules from indicator blocks', tag: 'strategy', run: () => { app.builder = { name: null }; app.page = 'builder'; } },
     ...library.strategies.filter((f) => parseSpec(f.code)).map((f) => ({ key: `strat edit builder ${f.name} ${f.title}`, title: `Edit in builder: ${f.title}`, sub: f.name, tag: 'strategy', run: () => { app.builder = { name: f.name }; app.page = 'builder'; } })),

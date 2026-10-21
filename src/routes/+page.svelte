@@ -6,6 +6,7 @@
   import TopBar from '$lib/ui/TopBar.svelte';
   import LeftBar from '$lib/ui/LeftBar.svelte';
   import Watchlist from '$lib/ui/Watchlist.svelte';
+  import AiIndicatorDialog from '$lib/ui/AiIndicatorDialog.svelte';
   import Analysis from '$lib/ui/Analysis.svelte';
   import StrategyBuilder from '$lib/ui/StrategyBuilder.svelte';
   import NewsPage from '$lib/ui/NewsPage.svelte';
@@ -130,6 +131,7 @@
 </div>
 
 <Spotlight />
+<AiIndicatorDialog />
 <Settings />
 <IndicatorDialog />
 <OrderDialog />

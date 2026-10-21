@@ -1,4 +1,4 @@
-//! Short AI news summaries via the Groq OpenAI-compatible API.
+//! Groq OpenAI-compatible API: news summaries and Pine code generation.
 use crate::model::{Error, Result};
 use crate::news::NewsItem;
 use serde::{Deserialize, Serialize};
@@ -63,11 +63,11 @@ pub async fn pick_model(http: &reqwest::Client, key: &str) -> Result<String> {
         .ok_or_else(|| Error::Other("groq: no usable model".into()))
 }
 
-pub async fn summarize(http: &reqwest::Client, key: &str, model: &str, item: &NewsItem, lang: &str) -> Result<AiSummary> {
-    let resp = http.post(format!("{BASE}/chat/completions")).bearer_auth(key).json(&json!({
-        "model": model, "messages": build_messages(item, lang), "temperature": 0.2, "max_tokens": 450,
-        "response_format": {"type": "json_object"},
-    })).send().await?;
+/// One chat completion; returns the message content.
+pub async fn chat(http: &reqwest::Client, key: &str, model: &str, messages: Value, temperature: f64, max_tokens: u32, json_mode: bool) -> Result<String> {
+    let mut body = json!({ "model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens });
+    if json_mode { body["response_format"] = json!({"type": "json_object"}); }
+    let resp = http.post(format!("{BASE}/chat/completions")).bearer_auth(key).json(&body).send().await?;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -75,7 +75,7 @@ pub async fn summarize(http: &reqwest::Client, key: &str, model: &str, item: &Ne
         return Err(Error::Other(format!("groq {}: {}", status.as_u16(), msg.chars().take(200).collect::<String>())));
     }
     let v: Value = resp.json().await?;
-    parse_summary(v["choices"][0]["message"]["content"].as_str().unwrap_or(""), model)
+    Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
 }
 
 #[cfg(test)]

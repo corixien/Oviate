@@ -66,6 +66,8 @@ class App {
   tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippageTicks: 0 });
   /** Request to reset the view of a chart (right-click menu, command bar). */
   resetReq = $state({ id: '', n: 0 });
+  /** AI indicator dialog (indicator from plain text). */
+  aiDialog = $state(false);
   page = $state<'chart' | 'news' | 'editor' | 'builder'>('chart');
   /** Strategy builder target: a saved builder strategy or a new one (name null). */
   builder = $state<{ name: string | null }>({ name: null });

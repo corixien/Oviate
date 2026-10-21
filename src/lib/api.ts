@@ -87,6 +87,10 @@ export interface AiSummary { what: string; impact: string; direction: 'bullish' 
 export const aiSummary = (id: string, lang: string, force = false) =>
   inTauri ? call<AiSummary>('ai_summary', { id, lang, force }) : Promise.reject('AI summaries need the desktop app');
 
+export type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string };
+export const aiComplete = (messages: ChatMsg[]) =>
+  inTauri ? call<string>('ai_complete', { messages }) : Promise.reject('AI needs the desktop app');
+
 export async function openUrl(url: string) {
   if (!inTauri) { window.open(url, '_blank'); return; }
   const m = await import('@tauri-apps/plugin-opener');

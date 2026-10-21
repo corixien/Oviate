@@ -130,3 +130,19 @@ test('each indicator has its own scenario list; old comparator ids still resolve
   s.long.entry = { t: 'group', op: 'and', items: [cond(indOperand('supertrend'), 'cross_above', numOperand(0))] };
   run(s); // legacy generic id on an indicator that does not list it
 });
+
+test('AI conditions: code with IND placeholders becomes a function, empty code never fires', () => {
+  const s = defaultSpec();
+  s.short.on = false;
+  const c = scenarioCond(indOperand('rsi', 0, [14]), 'ai');
+  s.long.entry = { t: 'group', op: 'and', items: [c] };
+  assert.equal(run(s).strategy!.trades.length, 0);
+  c.ai!.code = 'e = ta.ema(close, 20)\nIND0[1] < 50 and IND0 >= 50 and close > e';
+  const code = generate(s);
+  assert.match(code, /ai1\(\) =>/);
+  assert.doesNotMatch(code.split('\n').filter((l) => !l.startsWith('// @oviate-builder')).join('\n'), /IND0/);
+  const r = run(s);
+  assert.ok(r.strategy!.trades.length > 0, 'AI condition fires');
+  const back = parseSpec(code)!;
+  assert.equal(back.long.entry.items[0].t === 'cond' && back.long.entry.items[0].ai!.code, c.ai!.code);
+});

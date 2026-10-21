@@ -10,7 +10,9 @@ export type Operand =
   | { k: 'ind'; ind: string; p: number[]; out: number }
   | { k: 'num'; v: number };
 
-export interface Cond { t: 'cond'; lhs: Operand; cmp: Cmp; rhs: Operand; rhs2?: Operand }
+/** Free-text condition: `text` is what the user wants, `code` the Pine generated from it (IND0, IND1 ... stand for the subject's outputs). */
+export interface AiCond { text: string; code: string; uid: string }
+export interface Cond { t: 'cond'; lhs: Operand; cmp: Cmp; rhs: Operand; rhs2?: Operand; ai?: AiCond }
 export interface Group { t: 'group'; op: 'and' | 'or'; items: (Cond | Group)[] }
 
 export interface Side { on: boolean; entry: Group; exit: Group; sl: number; tp: number }
@@ -264,19 +266,32 @@ export const PRICE_SC: Scenario[] = [
   generic('between'),
 ];
 
+/** Last choice of every list: describe the condition in words, the AI writes the Pine. */
+export const AI_ID = 'ai';
+const AI_SC: Scenario = { id: AI_ID, label: 'Describe in words (AI)', code: () => 'false' };
+
 /** What the condition can check, depending on its subject. */
 export function scenariosFor(lhs: Operand): Scenario[] {
-  if (lhs.k === 'ind') return SCENARIOS[lhs.ind] ?? GENERIC;
-  if (lhs.k === 'price') return PRICE_SC;
-  return GENERIC;
+  const own = lhs.k === 'ind' ? SCENARIOS[lhs.ind] ?? GENERIC : lhs.k === 'price' ? PRICE_SC : GENERIC;
+  return [...own, AI_SC];
 }
 export function scenarioFor(lhs: Operand, id: string): Scenario {
   return scenariosFor(lhs).find((s) => s.id === id) ?? GENERIC.find((s) => s.id === id) ?? GENERIC[0];
 }
 /** Condition for a subject with the scenario's default arguments. */
-export function scenarioCond(lhs: Operand, id?: string): Cond {
+export function scenarioCond(lhs: Operand, id?: string, keep?: AiCond): Cond {
   const s = id ? scenarioFor(lhs, id) : scenariosFor(lhs)[0];
+  if (s.id === AI_ID) return { t: 'cond', lhs, cmp: AI_ID, rhs: numOperand(0), ai: keep ?? { text: '', code: '', uid: crypto.randomUUID() } };
   return { t: 'cond', lhs, cmp: s.id, rhs: s.args?.[0] ? s.args[0].def() : numOperand(0), ...(s.args?.[1] ? { rhs2: s.args[1].def() } : {}) };
+}
+
+/** Describe an indicator subject for the AI: name, parameters and what IND0.. mean. */
+export function subjectInfo(lhs: Operand): { name: string; outputs: string[] } {
+  if (lhs.k === 'price') return { name: `price (${lhs.src})`, outputs: [lhs.src] };
+  if (lhs.k === 'num') return { name: 'a fixed value', outputs: [String(lhs.v)] };
+  const d = indDef(lhs.ind);
+  if (!d) return { name: lhs.ind, outputs: [] };
+  return { name: `${d.label}(${lhs.p.join(', ')})`, outputs: d.outputs };
 }
 
 // ---------- constructors ----------
@@ -348,7 +363,23 @@ export function generate(spec: Spec): string {
     const inst = insts.find((i) => i.sig === sig);
     return inst ? inst.vars[Math.min(Math.max(0, o.out), inst.vars.length - 1)] : 'na';
   };
+  const fns: string[] = [];
   const condExpr = (c: Cond): string => {
+    if (c.cmp === AI_ID) {
+      const code = c.ai?.code.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim()).join('\n') ?? '';
+      if (!code) return 'false';
+      let names: string[];
+      if (c.lhs.k === 'ind') {
+        const def = indDef(c.lhs.ind);
+        const p = c.lhs.p;
+        const sig = def ? def.key + '|' + def.params.map((d, i) => (Number.isFinite(p[i]) ? p[i] : d.def)).join(',') : '';
+        names = insts.find((i) => i.sig === sig)?.vars ?? ['na'];
+      } else names = [ref(c.lhs)];
+      const body = code.replace(/\bIND(\d)\b/g, (_m, k) => names[Math.min(Number(k), names.length - 1)]);
+      const fn = `ai${fns.length + 1}`;
+      fns.push(`${fn}() =>`, ...body.split('\n').map((l) => '    ' + l));
+      return `${fn}()`;
+    }
     const sc = scenarioFor(c.lhs, c.cmp);
     let o: string[];
     if (c.lhs.k === 'ind') {
@@ -399,27 +430,30 @@ export function generate(spec: Spec): string {
     }
     L.push('');
   }
-  L.push('// scenarios');
+  const S: string[] = [];
+  S.push('// scenarios');
   const sides: [string, 'long' | 'short', Side][] = [['long', 'long', spec.long], ['short', 'short', spec.short]];
   for (const [nm, , s] of sides) {
     if (!s.on) continue;
-    L.push(`${nm}Entry = ${groupExpr(s.entry)}`, `${nm}Exit = ${groupExpr(s.exit)}`);
-    L.push(`${nm}Sl = input.float(${num(s.sl)}, "${nm === 'long' ? 'Long' : 'Short'} stop loss %", minval=0, step=0.1)`);
-    L.push(`${nm}Tp = input.float(${num(s.tp)}, "${nm === 'long' ? 'Long' : 'Short'} take profit %", minval=0, step=0.1)`);
+    S.push(`${nm}Entry = ${groupExpr(s.entry)}`, `${nm}Exit = ${groupExpr(s.exit)}`);
+    S.push(`${nm}Sl = input.float(${num(s.sl)}, "${nm === 'long' ? 'Long' : 'Short'} stop loss %", minval=0, step=0.1)`);
+    S.push(`${nm}Tp = input.float(${num(s.tp)}, "${nm === 'long' ? 'Long' : 'Short'} take profit %", minval=0, step=0.1)`);
   }
-  L.push('');
-  L.push('// rules: while flat or opposite, scan the entry; while in the trade, scan the exit');
+  S.push('');
+  S.push('// rules: while flat or opposite, scan the entry; while in the trade, scan the exit');
   for (const [nm, dir, s] of sides) {
     if (!s.on) continue;
     const Id = nm === 'long' ? 'Long' : 'Short';
     const inPos = dir === 'long' ? 'strategy.position_size > 0' : 'strategy.position_size < 0';
     const notIn = dir === 'long' ? 'strategy.position_size <= 0' : 'strategy.position_size >= 0';
-    L.push(`if ${nm}Exit and ${inPos}`, `    strategy.close("${Id}", comment="${Id} exit")`);
-    L.push(`if ${nm}Entry and ${notIn}`, `    strategy.entry("${Id}", strategy.${dir}, comment="${Id} entry")`);
+    S.push(`if ${nm}Exit and ${inPos}`, `    strategy.close("${Id}", comment="${Id} exit")`);
+    S.push(`if ${nm}Entry and ${notIn}`, `    strategy.entry("${Id}", strategy.${dir}, comment="${Id} entry")`);
     const sgn = dir === 'long' ? ['1 - ', '1 + '] : ['1 + ', '1 - '];
-    L.push(`if ${inPos}`);
-    L.push(`    strategy.exit("${Id} SL/TP", "${Id}", stop=${nm}Sl > 0 ? strategy.position_avg_price * (${sgn[0]}${nm}Sl / 100) : na, limit=${nm}Tp > 0 ? strategy.position_avg_price * (${sgn[1]}${nm}Tp / 100) : na)`);
+    S.push(`if ${inPos}`);
+    S.push(`    strategy.exit("${Id} SL/TP", "${Id}", stop=${nm}Sl > 0 ? strategy.position_avg_price * (${sgn[0]}${nm}Sl / 100) : na, limit=${nm}Tp > 0 ? strategy.position_avg_price * (${sgn[1]}${nm}Tp / 100) : na)`);
   }
+  if (fns.length) L.push('// AI conditions (generated from text)', ...fns, '');
+  L.push(...S);
   return L.join('\n') + '\n';
 }
 
