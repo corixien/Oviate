@@ -26,8 +26,9 @@ test('aggregates, streaks, sides and drawdown', () => {
   assert.equal(s.maxDrawdown, 30);
   assert.ok(Math.abs(s.maxDrawdownPct - (30 / 1050) * 100) < 1e-9);
   assert.equal(s.buyHold, 10);
-  // trades: 100->150, 100->80, 100->90, 100->130 (raw prices default to the fill prices), open one 100->105: compounded 1.5*.8*.9*1.3*1.05
-  assert.ok(Math.abs(s.buyHoldInvested - (1.5 * 0.8 * 0.9 * 1.3 * 1.05 - 1) * 100) < 1e-6, String(s.buyHoldInvested));
+  // buy & hold over invested time = (1 + whole-period change) ^ (invested bars / bars) - 1
+  const inv = (s.exposurePct / 100);
+  assert.ok(Math.abs(s.buyHoldInvested - (Math.pow(1.1, inv) - 1) * 100) < 1e-9, String(s.buyHoldInvested));
   assert.equal(s.openPnl, 5);
   assert.equal(s.drawdown.length, eq.length);
   assert.ok(s.exposurePct > 0 && s.exposurePct <= 100);
@@ -36,5 +37,5 @@ test('aggregates, streaks, sides and drawdown', () => {
 
 test('empty result is all zeros', () => {
   const s = detailedStats(res([], [1000, 1000, 1000]), { stepSec: 60, firstClose: 0, lastClose: 0 });
-  assert.equal(s.trades, 0); assert.equal(s.profitFactor, 0); assert.equal(s.sharpe, 0); assert.equal(s.maxDrawdown, 0);
+  assert.equal(s.trades, 0); assert.equal(s.buyHoldInvested, 0); assert.equal(s.profitFactor, 0); assert.equal(s.sharpe, 0); assert.equal(s.maxDrawdown, 0);
 });

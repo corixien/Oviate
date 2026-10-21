@@ -56,6 +56,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Buy & hold "invested time only" now = (1 + whole-period change)^(invested bars / total bars) - 1 (average per-bar growth applied over invested bars, `stats.ts`). Optimizer parameter table wrapper fits its content so the right border shows.
 - [x] Optimizer: category winners ("Best win rate / profit / Lowest drawdown") are the absolute best visible value of their column (raw whole-history figures, with trade-count and profit guards); a point winning several categories carries all tags; scoring of the mixes stays recency weighted. Layout fixed (vertical stack, tables in scroll wrappers).
 - [x] Code editor: `/ind` and `/strat` open with nothing selected; search bar; AI button left of Check opens an AI edit strip (`editIndicator`/`editStrategy`): strategy form prefilled from the code (`extractStrategyForm`), result goes into the editor (not saved), "Undo last AI edit".
 - [x] Strategy Optimizer tab (`pine/optimizer.ts`, worker, `OptimizerPanel`, `oviate optimize`): pattern search with step doubling, 5 recency-weighted segments, 10 variants, Fast<Slow ordering kept, Apply puts a variant on the chart.

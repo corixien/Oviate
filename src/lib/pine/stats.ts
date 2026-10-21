@@ -16,7 +16,7 @@ export interface DetailedStats {
   avgMfe: number; avgMae: number;
   /** underlying price change over the whole tested period, percent */
   buyHold: number;
-  /** compounded underlying price change over only the time the strategy was invested (entry to exit of every trade), percent */
+  /** buy & hold scaled to the invested time: whole-period change spread as an average per-bar growth rate, compounded over only the bars the strategy was invested, percent */
   buyHoldInvested: number;
   long: SideStats; short: SideStats;
   /** drawdown from the running peak per bar, in percent (<= 0) */
@@ -36,19 +36,6 @@ function side(ts: TradeRec[]): SideStats {
     profitFactor: gl > 0 ? gp / gl : gp > 0 ? Infinity : 0, avg: ts.length ? (gp - gl) / ts.length : 0,
     best: ts.length ? Math.max(...ts.map((t) => t.pnl)) : 0, worst: ts.length ? Math.min(...ts.map((t) => t.pnl)) : 0,
   };
-}
-
-/** Price change of the underlying while the strategy held a position: every trade's raw entry to exit move (no slippage), compounded; overlapping trades count once. */
-function investedMove(trades: TradeRec[]): number {
-  const spans = trades.map((t) => ({ a: t.entryBar, b: t.open ? Infinity : t.exitBar, p0: t.entryRaw ?? t.entryPrice, p1: t.open ? t.exitPrice : t.exitRaw ?? t.exitPrice }))
-    .filter((s) => s.p0 > 0).sort((x, y) => x.a - y.a);
-  let growth = 1, lastEnd = -1;
-  for (const s of spans) {
-    if (s.a <= lastEnd) continue; // pyramided or overlapping lot: the market was already counted
-    growth *= s.p1 / s.p0;
-    lastEnd = s.b;
-  }
-  return (growth - 1) * 100;
 }
 
 export function detailedStats(res: StrategyResult, o: StatsOpts): DetailedStats {
@@ -94,6 +81,7 @@ export function detailedStats(res: StrategyResult, o: StatsOpts): DetailedStats 
   const bars = res.equity.length;
   const inMarket = new Uint8Array(bars);
   for (const t of res.trades) for (let b = Math.max(0, t.entryBar); b <= (t.open ? bars - 1 : Math.min(bars - 1, t.exitBar)); b++) inMarket[b] = 1;
+  const investedBars = inMarket.reduce((s, v) => s + v, 0);
   const held = (t: TradeRec) => Math.max(0, (t.open ? bars - 1 : t.exitBar) - t.entryBar);
 
   return {
@@ -108,13 +96,13 @@ export function detailedStats(res: StrategyResult, o: StatsOpts): DetailedStats 
     bestPct: closed.length ? Math.max(...closed.map(pct)) : 0, worstPct: closed.length ? Math.min(...closed.map(pct)) : 0,
     maxWinStreak: maxW, maxLossStreak: maxL, curStreak: cur,
     avgBars: mean(closed.map(held)), avgBarsWin: mean(wins.map(held)), avgBarsLoss: mean(losses.map(held)),
-    exposurePct: bars ? (inMarket.reduce((s, v) => s + v, 0) / bars) * 100 : 0,
+    exposurePct: bars ? (investedBars / bars) * 100 : 0,
     maxDrawdown: ddAbs, maxDrawdownPct: ddPct, maxRunup: runup, recovery: ddAbs > 0 ? net / ddAbs : 0, calmar: ddPct > 0 ? cagr / ddPct : 0,
     ulcer: eq.length ? Math.sqrt(sq / eq.length) : 0,
     sharpe: sd > 0 ? (m / sd) * Math.sqrt(perYear) : 0, sortino: dsd > 0 ? (m / dsd) * Math.sqrt(perYear) : 0,
     avgMfe: mean(closed.map((t) => t.mfe)), avgMae: mean(closed.map((t) => t.mae)),
     buyHold: o.firstClose > 0 ? ((o.lastClose - o.firstClose) / o.firstClose) * 100 : 0,
-    buyHoldInvested: investedMove(res.trades),
+    buyHoldInvested: bars && o.firstClose > 0 && o.lastClose > 0 ? (Math.pow(o.lastClose / o.firstClose, investedBars / bars) - 1) * 100 : 0,
     long: side(closed.filter((t) => t.dir === 'long')), short: side(closed.filter((t) => t.dir === 'short')),
     drawdown,
   };

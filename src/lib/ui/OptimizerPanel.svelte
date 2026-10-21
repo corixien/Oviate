@@ -42,7 +42,7 @@
       <section class="params">
         <h5>Parameters to tune</h5>
         {#if !opt.rows.length}<p class="dim">This strategy has no numeric inputs (<code>input.int</code> / <code>input.float</code>) to tune.</p>{/if}
-        <div class="tw"><table class="pt">
+        <div class="tw fit"><table class="pt">
           <thead><tr><th></th><th>Input</th><th>Current</th><th>Min</th><th>Max</th><th>Step</th></tr></thead>
           <tbody>
             {#each opt.rows as r (r.id)}
@@ -98,6 +98,7 @@
   .stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   section { min-width: 0; }
   .tw { overflow-x: auto; margin: 0 14px; border: 1px solid var(--line); }
+  .tw.fit { width: fit-content; max-width: calc(100% - 28px); }
   .pt { width: auto; min-width: 0; }
   h5 { margin: 12px 14px 4px; font: 700 10.5px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
   table { width: 100%; border-collapse: collapse; font: 12px ui-monospace, monospace; }
