@@ -19,8 +19,9 @@ description: Build, check, install and backtest Pine Script indicators and strat
 | `oviate check <file\|-> [--strict]` | Compile and run. Prints kind, inputs, plots, hints. `--strict` exits 1 on scale/flat/na hints. |
 | `oviate add <indicator\|strategy> <file\|-> [--name N] [--force]` | Validate, then install into the app. Never overwrites without `--force`. |
 | `oviate backtest <name\|file\|-> --symbol S --tf TF [...]` | Backtest on cached candles. |
+| `oviate optimize <name\|file\|-> --symbol S --tf TF [...]` | Find good parameters: 10 ranked variants. |
 
-`backtest` options: `--from/--to 2023-01-01`, `--capital 10000`, `--commission 0.05` (percent per fill), `--slippage 0.1` (percent of price per fill, default 0.1), `--param "Input title=value"` (repeatable, title is the `input.*` title), `--trades 10`, `--json`. The position size comes from the strategy's `strategy()` declaration (`default_qty_type/value`), not from flags. Add `--json` when you want to process the numbers.
+`backtest` options: `--from/--to 2023-01-01`, `--capital 10000`, `--commission 0.05` (percent per fill), `--slippage 0.1` (percent of price per fill, default 0.1), `--fill close|next-open` (default `close`: market orders fill at the close of the bar that signalled, i.e. where a cross is confirmed; `next-open` is the stricter next-bar-open fill), `--param "Input title=value"` (repeatable, title is the `input.*` title), `--trades 10`, `--json`. The position size comes from the strategy's `strategy()` declaration (`default_qty_type/value`), not from flags. Add `--json` when you want to process the numbers.
 
 ## Workflow
 
@@ -28,7 +29,18 @@ description: Build, check, install and backtest Pine Script indicators and strat
 2. Write the script to a temp file (or pipe it with `-`). Pine v6. Indicators: `indicator(...)`; strategies: `strategy(...)`.
 3. `oviate check file.pine --strict` and fix every error and hint.
 4. Strategies: `oviate backtest file.pine --symbol <S> --tf <TF>` on one or two cached series. Judge trades, win rate, profit factor, drawdown, Sharpe, long vs short, and compare with buy and hold. Zero trades or one huge trade means the logic is wrong. Vary `--param` values to test robustness instead of curve-fitting one setting; use `--from/--to` for an out-of-sample check.
-5. `oviate add strategy file.pine` (or `indicator`). Tell the user it appears in Oviate after the window is focused: add with `/ind add` or `/strat add`.
+5. Tune it: `oviate optimize file.pine --symbol <S> --tf <TF>` (see below), then verify the chosen variant with `oviate backtest ... --param ...` on a DIFFERENT period (`--from/--to`) than the one it was optimized on.
+6. `oviate add strategy file.pine` (or `indicator`). Tell the user it appears in Oviate after the window is focused: add with `/ind add` or `/strat add`.
+
+## Optimizer
+
+`oviate optimize <strategy> --symbol AAPL --tf 1d [--budget 600] [--only "Fast EMA,Slow EMA"] [--range "Fast EMA=5:50:1"]... [--param "Input=value"]... [--json]`
+
+- Tunes the strategy's numeric `input.int` / `input.float` inputs (default 0 = "off" inputs are skipped). Ranges come from `minval/maxval/step` of the input, else around the default; override with `--range "Title=min:max[:step]"`, restrict with `--only`. Inputs that look like pairs (Fast/Slow, Short/Long, Min/Max) keep their order.
+- Search: pattern search on the parameter grid. A step that improves is repeated with double size, a step that does not improve is not extended; steps shrink to one grid step. Several objectives (balanced, win rate, profit, drawdown) and start points share one cache of tests (`--budget` = number of backtests, default 600; a 2500-bar run takes a few seconds).
+- Scoring: the whole cached history (use `--from/--to` to limit) is cut into 5 parts, newer parts weigh up to 6.5x more. Win rate matters most (shrunk toward 50% for few trades), then profit, then drawdown. Too few trades scales the score down. Variants also look at their neighbours (plateau beats spike).
+- Output: 10 ranked variants: 3 best of one category (win rate, profit, lowest drawdown) and 7 mixes (Balanced, Win-rate focus, Profit focus, Safety first, Recent market, Consistent, Robust plateau), each with win rate, return, max drawdown, trades, last-fifth return, score and the `--param` flags to reproduce it. The app has the same optimizer in the Strategy Tester's "Optimizer" tab (Apply puts a variant on the chart).
+- Judge honestly: the result is fitted to past data. Prefer variants that sit on a plateau, have enough trades, and also hold in a period the optimizer did not see (`--from/--to`). Report win rate AND return AND drawdown, not just the best number, and name the overfitting risk. Not investment advice.
 
 ## Rules
 

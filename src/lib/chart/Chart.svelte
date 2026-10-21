@@ -8,6 +8,7 @@
   import { runScript } from '$lib/pine/runner.ts';
   import type { PineResult } from '$lib/pine/types.ts';
   import { splitPanes } from '$lib/pine/panes.ts';
+  import { candleStore } from './candleStore';
   import Icons from '$lib/ui/Icons.svelte';
   import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
@@ -198,6 +199,7 @@
     if (!s) { delete app.strategyResults[cfg.id]; stratTrades = []; stratBoxes = []; return; }
     const res = out[s.uid];
     const d = display;
+    candleStore.set(cfg.id, d);
     app.strategyResults[cfg.id] = { uid: s.uid, name: s.id, symbol: sym, tf: cfg.tf, result: res, stepSec: step, firstClose: d.n ? d.c[0] : 0, lastClose: d.n ? d.c[d.n - 1] : 0 };
     const trades = res.strategy!.trades;
     const split = Math.max(0, trades.length - BOX_TRADES);
@@ -236,7 +238,7 @@
       const sliced = transform(raw, cfg.type);
       const n = sliced.n - 1;
       const cut = { n, t: sliced.t.subarray(0, n), o: sliced.o.subarray(0, n), h: sliced.h.subarray(0, n), l: sliced.l.subarray(0, n), c: sliced.c.subarray(0, n), v: sliced.v.subarray(0, n) };
-      const res = await runScript(file.code, cut, { params: $state.snapshot(i.params), step, symbol: cfg.symbol, broker: $state.snapshot(app.tester) });
+      const res = await runScript(file.code, cut, { params: $state.snapshot(i.params), step, symbol: cfg.symbol, broker: { ...$state.snapshot(app.tester), fillOnClose: false } }); // paper trading acts on the orders pending after the last closed bar
       if (res.strategy && !res.error) paper.applySignals(acc.id, cfg.symbol, res.strategy.pending, res.strategy.config, file.title);
     }
   }

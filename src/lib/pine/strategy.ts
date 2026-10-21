@@ -25,6 +25,8 @@ export interface BrokerConfig {
   slippageTicks: number;
   /** percent of the fill price (Strategy Tester setting) */
   slippagePct: number;
+  /** market orders fill at the close of the signal bar (strategy(process_orders_on_close=true) or the tester setting) */
+  fillOnClose: boolean;
 }
 
 const EPS = 1e-9;
@@ -261,7 +263,19 @@ export class Broker {
       lot.mfe = Math.max(lot.mfe, fav * lot.qty);
       lot.mae = Math.max(lot.mae, adv * lot.qty);
     }
+    if (this.cfg.fillOnClose) this.fillMarketOnClose(b);
     this.equityArr[b] = this.equity(x.c[b]);
+  }
+
+  /** process_orders_on_close: market orders of the bar that just ran fill at its close; limit and stop orders keep waiting. */
+  private fillMarketOnClose(b: number) {
+    const pending = this.orders;
+    this.orders = [];
+    for (const od of pending) {
+      const market = od.kind === 'close' || od.kind === 'close_all' || (od.limit === undefined && od.stop === undefined);
+      if (market) this.fillOrder(od, this.x.c[b]);
+      else this.orders.push(od);
+    }
   }
 
   result(): StrategyResult {
@@ -315,9 +329,10 @@ NATIVES['strategy'] = {
       commissionValue: num(a[17]) ?? 0,
       slippageTicks: num(a[15]) ?? 0,
       slippagePct: 0,
+      fillOnClose: a[18] === true,
     };
     const ov = x.brokerCfg;
-    if (ov) { cfg.initialCapital = ov.initialCapital; cfg.commissionType = 'percent'; cfg.commissionValue = ov.commissionValue; cfg.slippageTicks = 0; cfg.slippagePct = ov.slippagePct; }
+    if (ov) { cfg.initialCapital = ov.initialCapital; cfg.commissionType = 'percent'; cfg.commissionValue = ov.commissionValue; cfg.slippageTicks = 0; cfg.slippagePct = ov.slippagePct; cfg.fillOnClose = ov.fillOnClose; }
     x.meta.initialCapital = cfg.initialCapital; x.meta.pyramiding = cfg.pyramiding;
     if (!x.broker) x.broker = new Broker(x, cfg); // the declaration runs on every bar; create the broker once
     return NaN;

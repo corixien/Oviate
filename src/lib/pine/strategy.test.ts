@@ -81,7 +81,7 @@ test('equity curve matches realized + unrealized every bar', () => {
 test('tester settings override capital, commission and slippage (percent of price); slippage hits pnl but raw prices stay unslipped', () => {
   const d = bars([[100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100]]);
   const code = strat('default_qty_type=strategy.fixed, default_qty_value=1', `if bar_index == 1\n    strategy.entry("L", strategy.long)\nif bar_index == 3\n    strategy.close("L")`);
-  const s = ok(runPine(code, d, { mintick: 0.5, broker: { initialCapital: 500, commissionValue: 0, slippagePct: 1 } }));
+  const s = ok(runPine(code, d, { mintick: 0.5, broker: { initialCapital: 500, commissionValue: 0, slippagePct: 1, fillOnClose: false } }));
   const t = s.trades[0];
   assert.equal(s.initialCapital, 500);
   assert.equal(t.qty, 1);
@@ -89,4 +89,22 @@ test('tester settings override capital, commission and slippage (percent of pric
   // percent slippage: 1% of 100 = 1 against the trade on each fill
   assert.equal(t.entryRaw, 100); assert.equal(t.exitRaw, 100);
   assert.equal(t.pnl, -2);
+});
+
+test('fillOnClose: market orders fill at the close of the signal bar, with slippage and the right MFE', () => {
+  const d = bars([[100, 101, 99, 100], [100, 104, 99, 102], [102, 103, 100, 101], [101, 110, 100, 108], [108, 109, 107, 108]]);
+  const code = strat('default_qty_type=strategy.fixed, default_qty_value=1', `if bar_index == 1\n    strategy.entry("L", strategy.long)\nif bar_index == 3\n    strategy.close("L")`);
+  const s = ok(runPine(code, d, { broker: { initialCapital: 1000, commissionValue: 0, slippagePct: 0, fillOnClose: true } }));
+  const t = s.trades[0];
+  assert.equal(t.entryBar, 1); assert.equal(t.entryPrice, 102);
+  assert.equal(t.exitBar, 3); assert.equal(t.exitPrice, 108);
+  assert.equal(t.pnl, 6);
+  assert.equal(t.mfe, 8, 'excursion counts from the entry bar close, not its high');
+  const next = ok(runPine(code, d, { broker: { initialCapital: 1000, commissionValue: 0, slippagePct: 0, fillOnClose: false } })).trades[0];
+  assert.equal(next.entryBar, 2); assert.equal(next.entryPrice, 102); assert.equal(next.exitBar, 4);
+  const slip = ok(runPine(code, d, { broker: { initialCapital: 1000, commissionValue: 0, slippagePct: 1, fillOnClose: true } })).trades[0];
+  assert.ok(Math.abs(slip.entryPrice - 103.02) < 1e-9);
+  // the script can ask for it too
+  const decl = ok(runPine(code.replace('strategy("t",', 'strategy("t", process_orders_on_close=true,'), d)).trades[0];
+  assert.equal(decl.entryBar, 1);
 });

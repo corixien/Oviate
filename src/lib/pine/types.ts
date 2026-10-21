@@ -112,7 +112,13 @@ export interface TradeRec {
 }
 
 /** Strategy Tester settings: override what a strategy declares, for the simulation only. */
-export interface TesterSettings { initialCapital: number; commissionValue: number; /** percent of the fill price, against the trade */ slippagePct: number }
+export interface TesterSettings {
+  initialCapital: number; commissionValue: number;
+  /** percent of the fill price, against the trade */
+  slippagePct: number;
+  /** market orders fill at the close of the bar that signalled (where a cross is confirmed) instead of the next bar's open */
+  fillOnClose: boolean;
+}
 
 export interface PendingOrder {
   id: string;

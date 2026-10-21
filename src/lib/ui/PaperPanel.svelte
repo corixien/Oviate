@@ -4,6 +4,7 @@
   import * as E from '$lib/paper/engine.ts';
   import { fmtPrice } from '$lib/chart/renderer';
   import Select from './Select.svelte';
+  import OptimizerPanel from './OptimizerPanel.svelte';
   import { detailedStats } from '$lib/pine/stats.ts';
 
   const acc = $derived(paper.active);
@@ -22,7 +23,7 @@
 
   const SUBS: [PaperSub, string][] = [['positions', 'Positions'], ['orders', 'Orders'], ['history', 'History'], ['stats', 'Statistics'], ['equity', 'Equity']];
 
-  function setTab(t: 'paper' | 'tester') { paper.panelTab = t; paper.panelOpen = true; paper.persist(); }
+  function setTab(t: 'paper' | 'tester' | 'optimizer') { paper.panelTab = t; paper.panelOpen = true; paper.persist(); }
   function toggle() { paper.panelOpen = !paper.panelOpen; paper.persist(); }
 
   // ----- drag to resize -----
@@ -70,6 +71,7 @@
     <div class="tabs">
       <button class:on={paper.panelOpen && paper.panelTab === 'paper'} onclick={() => setTab('paper')}>Paper Trading</button>
       <button class:on={paper.panelOpen && paper.panelTab === 'tester'} onclick={() => setTab('tester')}>Strategy Tester</button>
+      <button class:on={paper.panelOpen && paper.panelTab === 'optimizer'} onclick={() => setTab('optimizer')}>Optimizer</button>
     </div>
     <div class="sp"></div>
     <button class="chev" onclick={toggle} title={paper.panelOpen ? 'Collapse' : 'Expand'}>{paper.panelOpen ? '⌄' : '⌃'}</button>
@@ -154,6 +156,8 @@
           {/if}
         </div>
       {/if}
+    {:else if paper.panelTab === 'optimizer'}
+      <OptimizerPanel />
     {:else}
       {#if !tester || !sres || !dstats}
         <div class="empty"><p>No strategy on the active chart.</p><p class="dim">Type <kbd>/strat add</kbd> in the command bar to add one, or <kbd>/strat add new</kbd> to write your own in Pine.</p></div>
@@ -216,7 +220,8 @@
               <label><span>Position size</span><b class="fixed">{sres.config.qtyType === 'percent_of_equity' ? sres.config.qtyValue + '% of equity' : sres.config.qtyType === 'cash' ? money(sres.config.qtyValue) + ' per entry' : sres.config.qtyValue + ' units'}</b><span class="unit">set in the strategy (AI form or Pine script)</span></label>
               <label><span>Commission per fill</span><input class="in" type="number" min="0" step="any" value={app.tester.commissionValue} oninput={(e) => setT('commissionValue', e)} /><span class="unit">% of trade value, on buy and sell</span></label>
               <label><span>Slippage</span><input class="in" type="number" min="0" step="0.05" value={app.tester.slippagePct} oninput={(e) => setT('slippagePct', e)} /><span class="unit">% of the price per fill, against you (default 0.1)</span></label>
-              <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, commissionValue: 0, slippagePct: 0.1 }; app.persist(); }}>Reset to defaults</button>
+              <label><span>Order fills</span><Select value={app.tester.fillOnClose ? 'close' : 'open'} options={[{ value: 'close', label: 'At the close of the signal bar' }, { value: 'open', label: 'At the next bar open' }]} onchange={(v) => { app.tester.fillOnClose = v === 'close'; app.persist(); }} width="230px" /><span class="unit">close = where the cross is confirmed (default)</span></label>
+              <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, commissionValue: 0, slippagePct: 0.1, fillOnClose: true }; app.persist(); }}>Reset to defaults</button>
             </div>
           {:else}
             <table>

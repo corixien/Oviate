@@ -62,7 +62,7 @@ class App {
   /** Latest backtest per chart (for the Strategy Tester panel). */
   strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number }>>({});
   /** Strategy Tester settings (simulation only: not stored in strategies, not shown in chart drawings). */
-  tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippagePct: 0.1 });
+  tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippagePct: 0.1, fillOnClose: true });
   /** Request to reset the view of a chart (right-click menu, command bar). */
   resetReq = $state({ id: '', n: 0 });
   /** AI indicator dialog (indicator from plain text). */
@@ -165,7 +165,7 @@ class App {
         if (s.split) this.split = { ...this.split, ...s.split };
         this.showWatchlist = s.showWatchlist ?? true;
         this.uiZoom = s.uiZoom ?? 1;
-        if (s.tester) this.tester = { ...this.tester, initialCapital: s.tester.initialCapital ?? this.tester.initialCapital, commissionValue: s.tester.commissionValue ?? this.tester.commissionValue, slippagePct: s.tester.slippagePct ?? this.tester.slippagePct }; // slippagePct is new: older saves (tick based) get the 0.1 default
+        if (s.tester) this.tester = { ...this.tester, initialCapital: s.tester.initialCapital ?? this.tester.initialCapital, commissionValue: s.tester.commissionValue ?? this.tester.commissionValue, slippagePct: s.tester.slippagePct ?? this.tester.slippagePct, fillOnClose: s.tester.fillOnClose ?? this.tester.fillOnClose }; // slippagePct is new: older saves (tick based) get the 0.1 default
         if (this.uiZoom !== 1) this.applyZoom();
       }
     } catch { /* corrupt state: keep defaults */ }

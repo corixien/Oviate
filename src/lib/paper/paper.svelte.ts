@@ -3,7 +3,7 @@ import * as E from './engine.ts';
 import type { Account, OrderInput, PaperOrder, Quote } from './engine.ts';
 import type { PendingOrder, StrategyConfig } from '../pine/types.ts';
 
-export type PanelTab = 'paper' | 'tester';
+export type PanelTab = 'paper' | 'tester' | 'optimizer';
 export type PaperSub = 'positions' | 'orders' | 'history' | 'stats' | 'equity';
 
 export interface LiveStrategy { uid: string; accountId: string; symbol: string; name: string; lastBar: number }

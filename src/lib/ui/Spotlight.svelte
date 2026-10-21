@@ -37,6 +37,7 @@
     { key: 'paper panel toggle trading', title: 'Toggle paper trading panel', tag: 'paper', run: () => { paper.panelOpen = !paper.panelOpen; paper.persist(); } },
     { key: `buy ${app.chart.symbol} paper order`, title: `Buy ${app.chart.symbol}`, tag: 'paper', run: () => { paper.orderDialog = { open: true, side: 'buy', symbol: app.chart.symbol }; } },
     { key: `sell ${app.chart.symbol} paper order`, title: `Sell ${app.chart.symbol}`, tag: 'paper', run: () => { paper.orderDialog = { open: true, side: 'sell', symbol: app.chart.symbol }; } },
+    { key: 'optimizer optimize strategy parameters tune', title: 'Open Strategy Optimizer', sub: 'Find the best parameters of the chart strategy', tag: 'paper', run: () => { paper.panelTab = 'optimizer'; paper.panelOpen = true; paper.persist(); } },
     { key: 'paper tester strategy panel', title: 'Open Strategy Tester', tag: 'paper', run: () => { paper.panelTab = 'tester'; paper.panelOpen = true; paper.persist(); } },
     ...paper.accounts.map((a) => ({ key: `paper account ${a.name}`, title: `Paper account: ${a.name}`, tag: 'paper', run: () => { paper.activeId = a.id; paper.panelTab = 'paper'; paper.panelOpen = true; paper.persist(); } })),
     { key: 'ind clear remove all indicators', title: 'Remove all indicators', tag: 'indicator', run: () => { app.chart.indicators = []; } },

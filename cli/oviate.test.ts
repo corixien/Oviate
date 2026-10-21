@@ -100,3 +100,37 @@ test('guide and examples print the rules', () => {
   assert.match(run(['guide']).out, /NEXT BAR/);
   assert.match(run(['examples']).out, /strategy\.exit/);
 });
+
+test('backtest --fill: signal-bar close (default) or next open', () => {
+  const a = JSON.parse(run(['backtest', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--json', '--slippage', '0', '--trades', '3']).out);
+  const b = JSON.parse(run(['backtest', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--json', '--slippage', '0', '--trades', '3', '--fill', 'next-open']).out);
+  assert.equal(a.settings.fillOnClose, true); assert.equal(b.settings.fillOnClose, false);
+  assert.notDeepEqual(a.lastTrades.map((t: { entry: string }) => t.entry), b.lastTrades.map((t: { entry: string }) => t.entry), 'fills move by one bar');
+  assert.match(run(['backtest', 'EMA Trend Pullback', '--symbol', 'TEST/USD']).out, /fills at signal-bar close/);
+  assert.match(run(['backtest', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--fill', 'next-open']).out, /fills at next open/);
+});
+
+test('optimize: ranked variants, tuned ranges, flags to verify, and clear errors', () => {
+  const r = run(['optimize', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--json', '--budget', '120']);
+  assert.equal(r.code, 0, r.err);
+  const j = JSON.parse(r.out);
+  assert.ok(j.variants.length >= 5 && j.variants.length <= 10, String(j.variants.length));
+  assert.deepEqual(j.variants.map((v: { rank: number }) => v.rank), j.variants.map((_: unknown, i: number) => i + 1));
+  assert.ok(j.tuned.some((p: { input: string }) => p.input === 'Fast EMA'));
+  for (const v of j.variants) { assert.ok(v.params['Fast EMA'] < v.params['Slow EMA'], 'Fast stays below Slow'); assert.match(v.backtestFlags, /--param "Fast EMA=/); }
+  assert.equal(JSON.stringify(JSON.parse(run(['optimize', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--json', '--budget', '120']).out).variants), JSON.stringify(j.variants), 'deterministic');
+  // the printed flags reproduce the variant
+  const v = j.variants[0];
+  const args = ['backtest', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--json', ...Object.entries(v.params).flatMap(([k, x]) => ['--param', `${k}=${x}`])];
+  const bt = JSON.parse(run(args).out);
+  assert.equal(bt.stats.trades, v.trades);
+  const h = run(['optimize', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--budget', '60']);
+  assert.match(h.out, /rank\s+variant/); assert.match(h.out, /Verify a variant with: oviate backtest/);
+  const only = JSON.parse(run(['optimize', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--json', '--budget', '60', '--only', 'Fast EMA', '--range', 'Fast EMA=3:20:1']).out);
+  assert.deepEqual(only.tuned.map((p: { input: string; min: number; max: number }) => [p.input, p.min, p.max]), [['Fast EMA', 3, 20]]);
+  assert.match(run(['optimize', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--only', 'Nope']).err, /no tunable input "Nope"/);
+  assert.match(run(['optimize', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--range', 'Fast EMA=9:3:1']).err, /empty|needs/);
+  const flat = file('noparams.pine', '//@version=6\nstrategy("np")\nif close > ta.sma(close, 20)\n    strategy.entry("L", strategy.long)');
+  assert.match(run(['optimize', flat, '--symbol', 'TEST/USD']).err, /no numeric inputs/);
+  assert.match(run(['optimize', 'EMA Trend Pullback']).err, /--symbol is required/);
+});

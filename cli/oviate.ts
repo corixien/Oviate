@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runPine } from '../src/lib/pine/index.ts';
 import { detailedStats } from '../src/lib/pine/stats.ts';
+import { paramSpace, optimize, type ParamDef } from '../src/lib/pine/optimizer.ts';
 import { sanity, GUIDE, STRAT_SAMPLE, STRATEGY_EXAMPLE_LONG, STRATEGY_EXAMPLE_BOTH } from '../src/lib/ai/pine.ts';
 import type { PineCandles, PineResult } from '../src/lib/pine/types.ts';
 
@@ -173,7 +174,7 @@ function cmdBacktest(a: Args) {
   const data = loadCandles(symbol, tf, flag(a, 'from'), flag(a, 'to'));
   const params: Record<string, number | boolean | string> = {};
   for (const p of a.flags.get('param') ?? []) { const i = p.indexOf('='); if (i < 1) fail(`--param needs "Input title=value", got "${p}"`); params[p.slice(0, i).trim()] = coerce(p.slice(i + 1)); }
-  const broker = { initialCapital: numFlag(a, 'capital', 10000), commissionValue: numFlag(a, 'commission', 0), slippagePct: numFlag(a, 'slippage', 0.1) };
+  const broker = { initialCapital: numFlag(a, 'capital', 10000), commissionValue: numFlag(a, 'commission', 0), slippagePct: numFlag(a, 'slippage', 0.1), fillOnClose: (flag(a, 'fill') ?? 'close') !== 'next-open' };
   const r = runPine(code, data, { params, step: TF_SEC[tf], symbol, broker });
   if (r.error) fail(`script error${r.error.line ? ' (line ' + r.error.line + ')' : ''}: ${r.error.message}`);
   if (!r.strategy) fail('this script is an indicator, not a strategy');
@@ -192,7 +193,7 @@ function cmdBacktest(a: Args) {
   };
   if (has(a, 'json')) return printJson(result);
   out(`${result.strategy}   ${symbol} ${tf}   ${result.from} .. ${result.to}   ${data.n} bars`);
-  out(`capital ${money(broker.initialCapital)}  size ${result.settings.positionSize}  commission ${broker.commissionValue}%  slippage ${broker.slippagePct}%`);
+  out(`capital ${money(broker.initialCapital)}  size ${result.settings.positionSize}  commission ${broker.commissionValue}%  slippage ${broker.slippagePct}%  fills ${broker.fillOnClose ? 'at signal-bar close' : 'at next open'}`);
   if (unknown.length) out(`warning: unknown --param ${unknown.join(', ')} (inputs: ${r.inputs.map((i) => i.title).join(', ') || 'none'})`);
   out('');
   out(`Net profit   ${money(st.netProfit)} (${pct(st.returnPct)})   buy & hold ${pct(st.buyHold)}   final equity ${money(st.equity)}`);
@@ -205,6 +206,52 @@ function cmdBacktest(a: Args) {
     out(''); out(`last ${result.lastTrades.length} trades`);
     for (const t of result.lastTrades) out(`  #${String(t.n).padEnd(4)} ${t.dir.padEnd(5)} ${t.entry} @ ${t.entryPrice}  ->  ${t.exit} @ ${t.exitPrice}   pnl ${money(t.pnl)}${t.exitComment ? '  ' + t.exitComment : ''}`);
   }
+}
+
+function cmdOptimize(a: Args) {
+  const ref = a.pos[1] ?? fail('usage: oviate optimize <strategy name|file.pine|-> --symbol AAPL --tf 1d [--budget 600] [--only "Fast,Slow"] [--range "Fast=5:50:1"] [--json]');
+  const symbol = flag(a, 'symbol') ?? fail('--symbol is required (see `oviate data` for cached symbols)');
+  const tf = flag(a, 'tf') ?? '1d';
+  if (!TF_SEC[tf]) fail(`--tf must be one of ${Object.keys(TF_SEC).join(' ')}`);
+  const { code, label } = readScript(ref, 'strategies');
+  const data = loadCandles(symbol, tf, flag(a, 'from'), flag(a, 'to'));
+  const settings = { initialCapital: numFlag(a, 'capital', 10000), commissionValue: numFlag(a, 'commission', 0), slippagePct: numFlag(a, 'slippage', 0.1), fillOnClose: (flag(a, 'fill') ?? 'close') !== 'next-open' };
+  const fixed: Record<string, number | boolean | string> = {};
+  for (const p of a.flags.get('param') ?? []) { const i = p.indexOf('='); if (i < 1) fail(`--param needs "Input title=value", got "${p}"`); fixed[p.slice(0, i).trim()] = coerce(p.slice(i + 1)); }
+  const info = runPine(code, data, { params: fixed, step: TF_SEC[tf], symbol, broker: settings });
+  if (info.error) fail(`script error${info.error.line ? ' (line ' + info.error.line + ')' : ''}: ${info.error.message}`);
+  if (!info.strategy) fail('this script is an indicator, not a strategy');
+  let space: ParamDef[] = paramSpace(info.inputs, fixed);
+  const only = flag(a, 'only')?.split(',').map((s) => s.trim()).filter(Boolean);
+  if (only) { const miss = only.filter((o) => !space.some((p) => p.title === o)); if (miss.length) fail(`--only: no tunable input "${miss.join('", "')}". Tunable: ${space.map((p) => p.title).join(', ') || 'none'}`); space = space.filter((p) => only.includes(p.title)); }
+  for (const rg of a.flags.get('range') ?? []) {
+    const m = /^(.+)=([-\d.]+):([-\d.]+)(?::([\d.]+))?$/.exec(rg) ?? fail(`--range needs "Input title=min:max[:step]", got "${rg}"`);
+    const p = space.find((q) => q.title === m[1].trim()) ?? fail(`--range: no tunable input "${m[1]}". Tunable: ${space.map((q) => q.title).join(', ') || 'none'}`);
+    p.min = Number(m[2]); p.max = Number(m[3]); if (m[4]) p.step = Number(m[4]);
+    if (!(p.max > p.min) || !(p.step > 0)) fail(`--range for "${p.title}" is empty`);
+  }
+  if (!space.length) fail('this strategy has no numeric inputs to tune (input.int / input.float with a non-zero default)');
+  const t0 = Date.now();
+  const r = optimize({ code, data, stepSec: TF_SEC[tf], space, settings, base: fixed, budget: Math.max(20, Math.trunc(numFlag(a, 'budget', 600))) });
+  const secs = (Date.now() - t0) / 1000;
+  const flags = (p: Record<string, number>) => Object.entries(p).map(([k, v]) => `--param "${k}=${v}"`).join(' ');
+  const row = (v: (typeof r.variants)[number]) => ({ rank: v.rank, variant: v.tag, params: v.params, winRate: +(v.metrics.rawWinRate * 100).toFixed(1), returnPct: +v.metrics.ret.toFixed(1), maxDrawdownPct: +v.metrics.maxDD.toFixed(1), trades: v.metrics.trades, lastFifthReturnPct: +v.metrics.recentRet.toFixed(1), lastFifthWinRate: +(v.metrics.recentWin * 100).toFixed(1), score: +v.score.toFixed(4), backtestFlags: flags(v.params) });
+  const result = {
+    strategy: info.meta.title, source: label, symbol, tf, bars: data.n, from: day(data.t[0]), to: day(data.t[data.n - 1]), tests: r.evals, seconds: +secs.toFixed(1), minTradesPerVariant: r.minTrades, settings,
+    tuned: space.map((p) => ({ input: p.title, min: p.min, max: p.max, step: p.step, current: p.def })),
+    current: r.baseline && { winRate: +(r.baseline.rawWinRate * 100).toFixed(1), returnPct: +r.baseline.ret.toFixed(1), maxDrawdownPct: +r.baseline.maxDD.toFixed(1), trades: r.baseline.trades },
+    variants: r.variants.map(row),
+  };
+  if (has(a, 'json')) return printJson(result);
+  out(`${result.strategy}   ${symbol} ${tf}   ${result.from} .. ${result.to}   ${data.n} bars   ${r.evals} tests in ${secs.toFixed(1)}s`);
+  out(`tuned: ${space.map((p) => `${p.title} ${p.min}..${p.max} (step ${p.step}, now ${p.def})`).join('; ')}`);
+  if (result.current) out(`current: win ${result.current.winRate}%  return ${pct(result.current.returnPct)}  max DD ${result.current.maxDrawdownPct}%  ${result.current.trades} trades`);
+  out('');
+  out('rank  variant            win%   return   maxDD  trades  lastFifth  score  parameters');
+  for (const v of result.variants) out(`${String(v.rank).padStart(3)}   ${v.variant.padEnd(16)}  ${String(v.winRate).padStart(5)}  ${pct(v.returnPct).padStart(7)}  ${String(v.maxDrawdownPct).padStart(5)}%  ${String(v.trades).padStart(5)}  ${pct(v.lastFifthReturnPct).padStart(8)}  ${v.score.toFixed(3)}  ${Object.entries(v.params).map(([k, x]) => `${k}=${x}`).join(', ')}`);
+  out('');
+  out('Verify a variant with: oviate backtest ' + JSON.stringify(ref) + ` --symbol ${symbol} --tf ${tf} ` + (result.variants[0] ? result.variants[0].backtestFlags : ''));
+  out('Optimized on past data: use --from/--to on a different period as an out-of-sample check.');
 }
 
 function cmdGuide() {
@@ -221,14 +268,17 @@ const HELP = `oviate: add and backtest Pine indicators and strategies for the Ov
                                                       validate and install into the app (never overwrites without --force)
   oviate data [--json]                                cached candle series (symbol, timeframe, range) usable for backtests
   oviate backtest <strategy name|file.pine|-> --symbol AAPL --tf 1d
-        [--from 2023-01-01] [--to 2024-12-31] [--capital 10000] [--commission 0.05] [--slippage 0.1]
+        [--from 2023-01-01] [--to 2024-12-31] [--capital 10000] [--commission 0.05] [--slippage 0.1] [--fill close|next-open]
         [--param "Fast EMA=12"]... [--trades 10] [--json]
+  oviate optimize <strategy name|file.pine|-> --symbol AAPL --tf 1d
+        [--budget 600] [--only "Fast EMA,Slow EMA"] [--range "Fast EMA=5:50:1"]... [--param "Input=value"]... [--json]
+                                                      find good parameters: 10 ranked variants (3 best-in-category, 7 mixes); history cut in 5 parts, newer parts weigh more
   oviate guide                                        the Pine dialect + backtester rules the in-app AI uses (read before writing code)
   oviate examples                                     two complete reference strategies
 
 Data: ${dataDir} (override with OVIATE_DATA). Candles are cached when a chart in Oviate loads them.`;
 
-const HANDLERS: Record<string, (a: Args) => void> = { list: cmdList, show: cmdShow, check: cmdCheck, add: cmdAdd, data: cmdData, backtest: cmdBacktest, guide: cmdGuide, examples: cmdExamples };
+const HANDLERS: Record<string, (a: Args) => void> = { list: cmdList, show: cmdShow, check: cmdCheck, add: cmdAdd, data: cmdData, backtest: cmdBacktest, optimize: cmdOptimize, guide: cmdGuide, examples: cmdExamples };
 
 export function main(argv: string[]): number {
   const a = parse(argv);
