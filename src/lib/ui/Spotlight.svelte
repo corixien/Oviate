@@ -6,7 +6,6 @@
   import { library } from '$lib/library.svelte';
   import { paper } from '$lib/paper/paper.svelte';
   import { DRAW_TOOLS } from '$lib/chart/renderer';
-  import { parseSpec } from '$lib/builder/model.ts';
   import { t } from '$lib/i18n';
 
   interface Item { key: string; title: string; sub?: string; tag: string; run: () => void }
@@ -21,18 +20,18 @@
   const setSymbol = (s: string) => { app.chart.symbol = s; app.persist(); close(); };
 
   const commands = $derived<Item[]>([
+    { key: 'ind indicator indicators editor code pine files', title: 'Indicator code editor', sub: 'Open your indicators (search, edit, save)', tag: 'indicator', run: () => { app.openEditor('indicators'); } },
+    { key: 'strat strategy strategies editor code pine files', title: 'Strategy code editor', sub: 'Open your strategies (search, edit, save)', tag: 'strategy', run: () => { app.openEditor('strategies'); } },
     ...TIMEFRAMES.map((tf) => ({ key: `tf ${tf}`, title: `Timeframe ${tf}`, tag: 'tf', run: () => { app.chart.tf = tf; } })),
     ...CHART_TYPES.map((ct) => ({ key: `type ${ct}`, title: `Chart type: ${ct}`, tag: 'type', run: () => { app.chart.type = ct; } })),
     { key: 'ind add new create pine script editor', title: 'New indicator (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'indicator', run: () => { app.editor = { kind: 'indicators', name: null }; app.page = 'editor'; } },
     { key: 'strat add new create pine strategy editor', title: 'New strategy (Pine editor)', sub: 'Paste Pine code, saved as .pine', tag: 'strategy', run: () => { app.editor = { kind: 'strategies', name: null }; app.page = 'editor'; } },
-    { key: 'ind ai text describe generate groq plain words new', title: 'New indicator from text (AI)', sub: 'Describe it in words, The AI writes the Pine code', tag: 'indicator', run: () => { app.aiDialog = true; } },
-    { key: 'visual builder strategy blocks scratch open edit', title: 'Visual builder', sub: 'Open the strategy builder (current chart strategy)', tag: 'strategy', run: () => { app.openBuilder(); } },
-    { key: 'strat add new create builder visual blocks scratch', title: 'New strategy (visual builder)', sub: 'Build entry / exit rules from indicator blocks', tag: 'strategy', run: () => { app.builder = { name: null }; app.page = 'builder'; } },
-    ...library.strategies.filter((f) => parseSpec(f.code)).map((f) => ({ key: `strat edit builder ${f.name} ${f.title}`, title: `Edit in builder: ${f.title}`, sub: f.name, tag: 'strategy', run: () => { app.builder = { name: f.name }; app.page = 'builder'; } })),
     ...library.indicators.map((f) => ({ key: `ind add ${f.name} ${f.title}`, title: `Add ${f.title}`, sub: f.name, tag: 'indicator',
       run: () => { app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: f.name, params: {} }]; } })),
+    { key: 'ind add ai text describe generate plain words new', title: 'New indicator from text (AI)', sub: 'Describe it in words, the AI writes the Pine code', tag: 'indicator', run: () => { app.aiDialog = 'indicators'; } },
     ...library.strategies.map((f) => ({ key: `strat add ${f.name} ${f.title}`, title: `Add strategy: ${f.title}`, sub: f.name, tag: 'strategy',
       run: () => { app.addStrategy(f.name); paper.panelOpen = true; paper.panelTab = 'tester'; paper.persist(); } })),
+    { key: 'strat add ai text describe generate plain words new', title: 'New strategy from text (AI)', sub: 'Describe it in words, the AI writes the Pine strategy', tag: 'strategy', run: () => { app.aiDialog = 'strategies'; } },
     { key: 'strat remove delete strategy', title: 'Remove strategy from chart', tag: 'strategy', run: () => { app.chart.indicators = app.chart.indicators.filter((i) => !i.strategy); } },
     { key: 'paper new account create', title: 'New paper account', tag: 'paper', run: () => { paper.accountDialog = true; } },
     { key: 'paper panel toggle trading', title: 'Toggle paper trading panel', tag: 'paper', run: () => { paper.panelOpen = !paper.panelOpen; paper.persist(); } },
@@ -73,7 +72,9 @@
   const items = $derived.by<Item[]>(() => {
     if (isCmd) {
       const words = q.slice(1).toLowerCase().split(/\s+/).filter(Boolean);
-      return commands.filter((c) => words.every((w) => c.key.toLowerCase().includes(w))).slice(0, 40);
+      const lead = q.slice(1).trim().toLowerCase();
+      // commands that start with what was typed come first (/ind add ai -> the AI dialog), list order otherwise
+      return commands.filter((c) => words.every((w) => c.key.toLowerCase().includes(w))).map((c, i) => ({ c, r: (c.key.toLowerCase().startsWith(lead) ? 0 : 1) * 1000 + i })).sort((a, b) => a.r - b.r).map((x) => x.c).slice(0, 40);
     }
     const local = app.list.symbols.filter((s) => q && s.toLowerCase().includes(q.toLowerCase())).map((s) => ({ key: s, title: s, sub: 'Watchlist', tag: 'symbol', run: () => setSymbol(s) }));
     const remote = hits.filter((h) => !local.some((l) => l.key === h.symbol)).map((h) => ({ key: h.symbol, title: h.symbol, sub: `${h.name}${h.exchange ? ' · ' + h.exchange : ''}`, tag: h.kind.toLowerCase() || 'symbol', run: () => setSymbol(h.symbol) }));

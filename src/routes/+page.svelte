@@ -6,9 +6,8 @@
   import TopBar from '$lib/ui/TopBar.svelte';
   import LeftBar from '$lib/ui/LeftBar.svelte';
   import Watchlist from '$lib/ui/Watchlist.svelte';
-  import AiIndicatorDialog from '$lib/ui/AiIndicatorDialog.svelte';
+  import AiDialog from '$lib/ui/AiDialog.svelte';
   import Analysis from '$lib/ui/Analysis.svelte';
-  import StrategyBuilder from '$lib/ui/StrategyBuilder.svelte';
   import NewsPage from '$lib/ui/NewsPage.svelte';
   import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
   import { library } from '$lib/library.svelte';
@@ -57,9 +56,12 @@
     app.load();
     library.load();
     paper.load();
+    // scripts added from outside (the oviate CLI) show up when the window gets focus again
+    const refresh = () => library.load();
+    window.addEventListener('focus', refresh);
     let off = () => {};
     onTick((t) => { app.ticks[t.symbol] = { p: t.price, s: t.size, t: t.t }; }).then((f) => (off = f));
-    return () => off();
+    return () => { off(); window.removeEventListener('focus', refresh); };
   });
   $effect(() => { if (app.ready) streamSymbols([...new Set(app.charts.slice(0, app.count).map((c) => c.symbol))]); });
 
@@ -92,7 +94,6 @@
   <TopBar />
   {#if app.page === 'news'}<NewsPage />{/if}
   {#if app.page === 'editor'}<ScriptEditor />{/if}
-  {#if app.page === 'builder'}<StrategyBuilder />{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
     <div class="center">
@@ -131,7 +132,7 @@
 </div>
 
 <Spotlight />
-<AiIndicatorDialog />
+<AiDialog />
 <Settings />
 <IndicatorDialog />
 <OrderDialog />

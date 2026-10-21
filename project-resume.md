@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-19 (strategy builder)
+Last updated: 2026-10-21 (AI strategies, CLI)
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
@@ -48,14 +48,13 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 ## 6. Current state
 - Branch / last commit: main, everything committed and pushed
 - Working tree: clean
-- Goal of current task: none (visual strategy builder + detailed tester finished and pushed).
+- Goal of current task: none (AI strategies, oviate CLI and skill finished and pushed).
 
 ### Done
-- [x] Visual strategy builder (`src/lib/ui/StrategyBuilder.svelte`, `src/lib/builder/model.ts`): 4 event blocks (long/short entry/exit), nestable ALL/ANY condition groups, 19 catalog indicators + price/value operands, comparators (cross, above/below, between, equals, rising/falling), SL/TP %. Generates Pine with spec JSON in a `// @oviate-builder` header; reopened via `parseSpec`. Command bar: `/strat add new builder`, `/strat edit builder`; "Visual builder" button in script editor; `app.editScript`, `app.addStrategy` (adds oscillator companion panes)
-- [x] AI: `/ind ai` dialog (`AiIndicatorDialog.svelte`) and builder condition choice "Describe in words (AI)" via OpenRouter free models (`ai_complete` in lib.rs, `builder/ai.ts`); top bar Strategies button opens `/strat add`. Untested against live Groq (no key in dev session) and not visually checked (browser tool unavailable)
-- [x] Builder conditions = indicator + params + plain-text sentence (AI, `Cond.ai`), generated on Save if missing; 429 retry/fallback in `ai::code_chat`; sanity no longer flags conditional-na plots; fisher.pine nz fix. AI indicator quality pipeline: (plan step dropped to save rate limit), v6 system prompt from `Syspromptvorschlag.md`, few-shot bundled examples, run-time sanity checks (`builder/ai.ts`, tested)
-- [x] Per-indicator scenarios in the builder (`SCENARIOS`/`PRICE_SC`/`GENERIC`, `scenariosFor`, `scenarioCond`; Cond.cmp is a scenario id, rhs/rhs2 = scenario args; old generic ids still resolve). Chart right-click menu "Reset chart" (`app.resetChart`, `/reset chart`, Alt+R; `resetView` also clears `autoSm`)
-- [x] Position size (% account / cash / units) lives in the builder spec and the .pine file. Tester settings (`app.tester`, Settings tab): capital, commission %, slippage ticks; simulation only. Open builder with `/visual builder` (top bar button removed) (not in .pine, drawings use raw prices). Builder UI simplified (x in card corner, sub-group, help text), builder reachable via top bar "Strategies" and legend block button; draft kept when leaving the page
+- [x] Visual builder REMOVED, replaced by AI strategies: `/strat add ai` (`ui/AiDialog.svelte`, shared with `/ind add ai`): description + required position size + optional SL/TP + direction; `ai/pine.ts` `genStrategy` (system prompt, `strategyCheck` backtest on `STRAT_SAMPLE`, `setPositionSize` forced, repair loop, soft "never trades" accepted with a warning). `/ind` and `/strat` open the code editor on the first script; editor has a search bar. Old builder `.pine` files still work as plain Pine.
+- [x] `oviate` CLI (`cli/oviate.ts`, wrapper `cli/oviate`, tests `cli/oviate.test.ts`): list/show/check/add/data/backtest/guide/examples on `<app data>/oviate.db` candles; skill `skills/oviate/SKILL.md` (installed to ~/.claude/skills by `scripts/install-local.sh`, which also symlinks `~/.local/bin/oviate`). App reloads the script library on window focus.
+- [x] AI indicators via OpenRouter free models (`/ind add ai`, `ai_complete` in lib.rs with 429 retry and model fallback, pipeline in `ai/pine.ts`)
+- [x] Position size is part of the strategy (`strategy()` declaration). Tester settings (`app.tester`, Settings tab): capital, commission %, slippage ticks; simulation only. Open builder with `/visual builder` (top bar button removed) (not in .pine, drawings use raw prices). Builder UI simplified (x in card corner, sub-group, help text), builder reachable via top bar "Strategies" and legend block button; draft kept when leaving the page
 - [x] Strategy tester: last 20 trades drawn as entry-exit boxes (`TradeBox`, `drawBoxes` in renderer, `BOX_TRADES` in Chart.svelte), older trades stay arrows; detailed stats (`pine/stats.ts`: Sharpe/Sortino/Calmar, streaks, exposure, long vs short, drawdown curve) in `PaperPanel.svelte`
 - [x] Wheel navigation in `renderer.ts` (eased via rAF target `tgt`): scroll = time, Shift+scroll = stretch/squeeze price axis around its centre (like dragging the price axis), Ctrl+scroll = zoom both axes, stops when either axis hits its limit (`BAR_MIN/BAR_MAX`, `spanLimits()` = 4x data range)
 - [x] Empty area left/right of data viewable (`clampStartV`), time ticks and crosshair extend into it, history prefetch earlier (`checkHistory`)
@@ -87,7 +86,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - 2026-10-18 - Ctrl+wheel zoom blocks at first axis limit; price max span = 4x whole-data range, bar width 1.2..80 px.
 - 2026-10-18 - Dialog animations removed entirely instead of tuned (flash suspected from animated fixed layers in WebKitGTK).
 
-- 2026-10-19 - Builder strategies = generated Pine + header spec (no new storage kind); oscillators shown via bundled indicators as companions, since one script has one overlay setting.
+- 2026-10-21 - Visual builder dropped in favor of AI text strategies (conditions were too rigid); CLI + skill added so Claude can build and backtest scripts outside the app.
 
 ## 8. Resume prompt
 > Read project-resume.md in this project fully. Read every file it lists under "Must read before any change". Then continue from "Current state". Do not change anything before you have understood the project. Keep project-resume.md updated.

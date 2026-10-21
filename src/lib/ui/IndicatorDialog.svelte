@@ -32,7 +32,8 @@
   }
   function edit() {
     if (!ind) return;
-    app.editScript(ind.strategy ? 'strategies' : 'indicators', ind.id);
+    app.editor = { kind: ind.strategy ? 'strategies' : 'indicators', name: ind.id };
+    app.page = 'editor';
     close();
   }
 </script>

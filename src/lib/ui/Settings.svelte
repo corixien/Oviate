@@ -73,7 +73,7 @@
           <button class="primary" disabled={!gqKey.trim()} onclick={() => saveKey('groq', gqKey)}>{t('save', app.lang)}</button>
           {#if ns.groq}<button onclick={() => saveKey('groq', '')}>{t('clear', app.lang)}</button>{/if}
         </div>
-        <label>OpenRouter API key (AI code: indicators and strategy builder) <span class="st" class:ok={ns.openrouter}>{ns.openrouter ? 'saved' : 'not set'}</span>
+        <label>OpenRouter API key (AI code: indicators and strategies) <span class="st" class:ok={ns.openrouter}>{ns.openrouter ? 'saved' : 'not set'}</span>
           <input type="password" bind:value={orKey} autocomplete="off" placeholder={ns.openrouter ? '••••••••' : 'Key from openrouter.ai/keys (free models need no credit)'} /></label>
         <div class="btns">
           <button class="primary" disabled={!orKey.trim()} onclick={() => saveKey('openrouter', orKey)}>{t('save', app.lang)}</button>

@@ -8,7 +8,6 @@
   import { runScript } from '$lib/pine/runner.ts';
   import type { PineResult } from '$lib/pine/types.ts';
   import Icons from '$lib/ui/Icons.svelte';
-  import { parseSpec } from '$lib/builder/model.ts';
   import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
   import * as PE from '$lib/paper/engine.ts';
@@ -438,7 +437,6 @@
         <span class="acts">
           <button title={ind.hidden ? 'Show' : 'Hide'} onclick={() => { ind.hidden = !ind.hidden; app.persist(); }}><Icons name={ind.hidden ? 'eyeoff' : 'eye'} size={14} /></button>
           <button title="Settings" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'settings' })}><Icons name="gear" size={14} /></button>
-          {#if ind.strategy && file && parseSpec(file.code)}<button title="Open in strategy builder" onclick={() => { app.builder = { name: ind.id }; app.page = 'builder'; }}><Icons name="blocks" size={14} /></button>{/if}
           <button title="Source code" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'code' })}><Icons name="braces" size={14} /></button>
           <button title="Remove" onclick={() => { cfg.indicators = cfg.indicators.filter((q) => q.uid !== ind.uid); app.persist(); }}><Icons name="trash" size={14} /></button>
           <span class="mwrap">
@@ -448,7 +446,7 @@
                 <button onclick={() => { ind.showParams = !(ind.showParams ?? app.showParams); menuFor = ''; app.persist(); }}>{ind.showParams ?? app.showParams ? 'Hide parameters' : 'Show parameters'}</button>
                 <button onclick={() => { cfg.indicators = [...cfg.indicators, { ...$state.snapshot(ind), uid: crypto.randomUUID() }]; menuFor = ''; app.persist(); }}>Duplicate</button>
                 <button onclick={() => { ind.params = {}; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
-                <button onclick={() => { app.editScript(ind.strategy ? 'strategies' : 'indicators', ind.id); menuFor = ''; }}>Edit source</button>
+                <button onclick={() => { app.editor = { kind: ind.strategy ? 'strategies' : 'indicators', name: ind.id }; app.page = 'editor'; menuFor = ''; }}>Edit source</button>
                 {#if ind.strategy}
                   <button class="hd2" disabled>Trade on paper account</button>
                   {#each paper.accounts as acc (acc.id)}
@@ -516,7 +514,7 @@
   .dot.live { background: var(--up); box-shadow: 0 0 8px var(--up); }
   .nm { color: var(--fg); font-family: system-ui, sans-serif; font-weight: 600; }
   .acts { display: inline-flex; align-items: center; gap: 1px; max-width: 0; margin-left: 0; opacity: 0; overflow: hidden; transition: max-width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1), margin-left 0.28s, opacity 0.18s; }
-  .pill:hover .acts, .pill:focus-within .acts { max-width: 190px; margin-left: 8px; opacity: 1; overflow: visible; }
+  .pill:hover .acts, .pill:focus-within .acts { max-width: 160px; margin-left: 8px; opacity: 1; overflow: visible; }
   .acts button { display: grid; place-items: center; width: 22px; height: 22px; background: none; border: 0; color: var(--dim); cursor: pointer; }
   .acts button:hover { color: #fff; background: var(--accent); }
   .mwrap { position: relative; }

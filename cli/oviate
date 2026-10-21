@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Launcher: `oviate ...` (symlinked into ~/.local/bin by scripts/install-local.sh)
+exec node --disable-warning=ExperimentalWarning "$(dirname "$(readlink -f "$0")")/oviate.ts" "$@"

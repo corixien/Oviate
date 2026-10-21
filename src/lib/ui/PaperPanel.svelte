@@ -226,7 +226,7 @@
             <div class="tset">
               <p class="dim">Capital, fees and slippage only change the simulation in the Strategy Tester. They are not saved in the strategy and do not change the entry and exit boxes on the chart.</p>
               <label><span>Initial capital</span><input class="in" type="number" min="0" step="any" value={app.tester.initialCapital} oninput={(e) => setT('initialCapital', e)} /></label>
-              <label><span>Position size</span><b class="fixed">{sres.config.qtyType === 'percent_of_equity' ? sres.config.qtyValue + '% of equity' : sres.config.qtyType === 'cash' ? money(sres.config.qtyValue) + ' per entry' : sres.config.qtyValue + ' units'}</b><span class="unit">set in the strategy (builder or Pine script)</span></label>
+              <label><span>Position size</span><b class="fixed">{sres.config.qtyType === 'percent_of_equity' ? sres.config.qtyValue + '% of equity' : sres.config.qtyType === 'cash' ? money(sres.config.qtyValue) + ' per entry' : sres.config.qtyValue + ' units'}</b><span class="unit">set in the strategy (AI form or Pine script)</span></label>
               <label><span>Commission per fill</span><input class="in" type="number" min="0" step="any" value={app.tester.commissionValue} oninput={(e) => setT('commissionValue', e)} /><span class="unit">% of trade value, on buy and sell</span></label>
               <label><span>Slippage</span><input class="in" type="number" min="0" step="1" value={app.tester.slippageTicks} oninput={(e) => setT('slippageTicks', e)} /><span class="unit">ticks per fill, against you</span></label>
               <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, commissionValue: 0, slippageTicks: 0 }; app.persist(); }}>Reset to defaults</button>

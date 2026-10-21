@@ -3,10 +3,14 @@
   import { library, type ScriptKind } from '$lib/library.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick } from 'svelte';
-  import { parseSpec } from '$lib/builder/model.ts';
 
   const kind = $derived<ScriptKind>(app.editor.kind);
-  const files = $derived(library.list(kind));
+  let search = $state('');
+  const allFiles = $derived(library.list(kind));
+  const files = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    return q ? allFiles.filter((f) => (f.name + ' ' + f.title).toLowerCase().includes(q)) : allFiles;
+  });
   const label = $derived(kind === 'indicators' ? 'Indicator' : 'Strategy');
 
   const TEMPLATES: Record<ScriptKind, string> = {
@@ -127,11 +131,12 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   <div class="cols">
     <aside>
       <button class="new" class:on={isNew} onclick={() => open(kind, null)}>+ New {label.toLowerCase()}</button>
+      <input class="search" bind:value={search} placeholder="Search {kind}…" spellcheck="false" autocomplete="off" aria-label="Search {kind}" />
       <div class="list">
         {#each files as f (f.name)}
           <button class:on={app.editor.name === f.name} onclick={() => open(kind, f.name)} title={f.title}>{f.name}</button>
         {:else}
-          <p class="dim">No {kind} yet.</p>
+          <p class="dim">{search.trim() ? 'No match.' : `No ${kind} yet.`}</p>
         {/each}
       </div>
     </aside>
@@ -141,7 +146,6 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
         <input class="name" bind:value={name} placeholder={isNew ? 'File name (default: script title)' : 'File name'} spellcheck="false" disabled={!isNew} />
         <span class="ext">.pine</span>
         <div class="spacer"></div>
-        {#if kind === 'strategies'}<button onclick={() => { app.builder = { name: !isNew && parseSpec(code) ? app.editor.name : null }; app.page = 'builder'; }} title="Build the strategy from indicator blocks">Visual builder</button>{/if}
         <button onclick={check}>Check</button>
         {#if kind === 'indicators' && !isNew}<button onclick={addToChart}>Add to chart</button>{/if}
         {#if !isNew}<button class="danger" onclick={remove}>Delete</button>{/if}
@@ -170,6 +174,8 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   aside { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .new { margin: 10px; padding: 9px; background: none; border: 1px dashed var(--accent); color: var(--accent); font: 700 12px system-ui, sans-serif; cursor: pointer; }
   .new.on, .new:hover { background: var(--accent-soft); }
+  .search { margin: 0 10px 8px; padding: 7px 10px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px system-ui, sans-serif; outline: none; }
+  .search:focus { border-color: var(--accent); }
   .list { overflow-y: auto; flex: 1; }
   .list button { display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid transparent; color: var(--fg); padding: 7px 14px; font: 12.5px ui-monospace, monospace; cursor: pointer; }
   .list button:hover { background: var(--hover); }
