@@ -336,7 +336,7 @@ export class Interp {
     const name = dotted(e);
     if (name === null) {
       const obj = this.expr(e.obj);
-      return (f) => { const o = obj(f); return o && typeof o === 'object' ? o[e.name] : NaN_; };
+      return (f) => { const o = obj(f); if (o && typeof o === 'object' && e.name in o) return o[e.name]; throw new Error(`'.${e.name}' is not a field of a function result: take the values with [a, b] = fn(...)`); };
     }
     const first = name.split('.')[0];
     return (f) => {

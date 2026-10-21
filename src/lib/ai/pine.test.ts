@@ -398,7 +398,7 @@ test('realistic model strategies run and trade on the sample', () => {
 });
 
 // ---------------------------------------------------------------- editing
-import { extractStrategyForm, editIndicator, editStrategy } from './pine.ts';
+import { extractStrategyForm, editIndicator, editStrategy, setStrategyParams, hasLimitInput } from './pine.ts';
 
 test('extractStrategyForm reads size, stop loss, take profit and directions from existing code', () => {
   const a = extractStrategyForm(STRATEGY_EXAMPLE_LONG);
@@ -435,4 +435,12 @@ test('editStrategy: a no-op reply is rejected and repaired; the form size is for
   assert.match(out, /default_qty_type=strategy\.cash, default_qty_value=750/);
   assert.match(m2.seen[0][1], /750 \(account currency\)/); assert.match(m2.seen[0][1], /Stop loss: 3%/);
   await assert.rejects(editStrategy(STRATEGY_EXAMPLE_LONG, 'x', { ...opts, qty: 0 }, m2.fn), /position size/);
+});
+
+test('setStrategyParams changes size and stop loss / take profit defaults without AI', () => {
+  const c = setStrategyParams(STRATEGY_EXAMPLE_LONG, { qtyType: 'cash', qty: 500, sl: 3.5, tp: 0 });
+  const f = extractStrategyForm(c);
+  assert.equal(f.qtyType, 'cash'); assert.equal(f.qty, 500); assert.equal(f.sl, 3.5); assert.equal(f.tp, 0);
+  assert.ok(hasLimitInput(c, 'sl') && hasLimitInput(c, 'tp'));
+  assert.ok(!hasLimitInput('strategy("x")\nif close > open\n    strategy.entry("L", strategy.long)', 'sl'));
 });

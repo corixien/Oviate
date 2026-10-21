@@ -310,6 +310,25 @@ export function setPositionSize(code: string, type: StrategyOpts['qtyType'], qty
   return code.slice(0, span[0] + 1) + args.join(', ') + code.slice(span[1]);
 }
 
+const LIMIT_TITLE = { sl: /stop\s*loss|\bsl\b/i, tp: /take\s*profit|\btp\b/i };
+const LIMIT_INPUT = /(input\.(?:float|int)\(\s*)(-?[\d.]+)(\s*,\s*"([^"]*)")/g;
+
+/** Does the code have a stop loss / take profit input (a float or int input titled so)? */
+export function hasLimitInput(code: string, k: 'sl' | 'tp'): boolean {
+  for (const m of code.matchAll(LIMIT_INPUT)) if (LIMIT_TITLE[k].test(m[4])) return true;
+  return false;
+}
+
+/** Change the form values that need no AI: position size, and the default of the stop loss / take profit inputs the code already has (0 or empty = off). */
+export function setStrategyParams(code: string, o: Pick<StrategyOpts, 'qtyType' | 'qty' | 'sl' | 'tp'>): string {
+  let out = setPositionSize(code, o.qtyType, o.qty);
+  for (const k of ['sl', 'tp'] as const) {
+    const v = o[k] && o[k]! > 0 ? o[k]! : 0;
+    out = out.replace(LIMIT_INPUT, (all, a, _val, b, title) => (LIMIT_TITLE[k].test(title) ? a + String(v) + b : all));
+  }
+  return out;
+}
+
 export interface StrategyCheck { error: string | null; trades: number; result?: PineResult }
 
 /** Run a strategy on the sample candles and check what the user asked for. */

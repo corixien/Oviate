@@ -170,6 +170,7 @@
           <span class="m">Win rate <b>{dstats.winRate.toFixed(1)}%</b></span>
           <span class="m">Profit factor <b>{pf(dstats.profitFactor)}</b></span>
           <span class="m">Max DD <b class="dn">{dstats.maxDrawdownPct.toFixed(1)}%</b></span>
+          {#if dstats.trades === 0 && sres.trades.length > 0}<span class="m">Only one open trade: the strategy never exits (no <b>strategy.close</b> / <b>strategy.exit</b> fires).</span>{/if}
         </div>
         <div class="subs">
           <button class:on={testerSub === 'overview'} onclick={() => (testerSub = 'overview')}>Overview</button>

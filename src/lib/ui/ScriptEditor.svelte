@@ -4,7 +4,7 @@
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick } from 'svelte';
   import { aiComplete } from '$lib/api';
-  import { editIndicator, editStrategy, extractStrategyForm, type StrategyOpts } from '$lib/ai/pine.ts';
+  import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
   import AiStrategyFields from './AiStrategyFields.svelte';
 
   const kind = $derived<ScriptKind>(app.editor.kind);
@@ -63,15 +63,21 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   const qtyOk = $derived(num(qty) > 0 && (qtyType !== 'percent_of_equity' || num(qty) <= 100));
   const canAi = $derived(!aiBusy && (aiText.trim().length > 0 || kind === 'strategies') && (kind === 'indicators' || qtyOk));
 
-  /** Fill the strategy form from the code that is open. */
-  function readForm() {
+  /** The form always mirrors the code that is open (also while typing in the editor). */
+  $effect(() => {
+    if (kind !== 'strategies') return;
     const f = extractStrategyForm(code);
     qtyType = f.qtyType; qty = String(f.qty); sl = f.sl ? String(f.sl) : ''; tp = f.tp ? String(f.tp) : ''; direction = f.direction;
+  });
+  const noSl = $derived(kind === 'strategies' && !hasLimitInput(code, 'sl'));
+  const noTp = $derived(kind === 'strategies' && !hasLimitInput(code, 'tp'));
+  /** Size, stop loss and take profit change the code directly, no AI needed. */
+  function applyParams() {
+    if (!qtyOk) { const f = extractStrategyForm(code); qtyType = f.qtyType; qty = String(f.qty); return; }
+    const next = setStrategyParams(code, { qtyType, qty: num(qty), sl: noSl ? 0 : num(sl) > 0 ? num(sl) : 0, tp: noTp ? 0 : num(tp) > 0 ? num(tp) : 0 });
+    if (next !== code) { code = next; status = null; }
   }
-  function toggleAi() {
-    aiOpen = !aiOpen; aiError = '';
-    if (aiOpen && kind === 'strategies') readForm();
-  }
+  function toggleAi() { aiOpen = !aiOpen; aiError = ''; }
   async function runAi() {
     if (!canAi) return;
     aiBusy = true; aiError = '';
@@ -81,11 +87,10 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
         : await editIndicator(code, aiText, aiComplete);
       undoCode = code; code = out; aiText = '';
       status = { ok: true, text: 'AI edit applied to the editor. Review it, then Save (Ctrl+S).' };
-      if (kind === 'strategies') readForm();
     } catch (e) { aiError = e instanceof Error ? e.message : String(e); }
     finally { aiBusy = false; }
   }
-  function undoAi() { if (undoCode !== null) { code = undoCode; undoCode = null; status = null; if (kind === 'strategies') readForm(); } }
+  function undoAi() { if (undoCode !== null) { code = undoCode; undoCode = null; status = null; } }
 
   function open(k: ScriptKind, n: string | null) {
     app.editor = { kind: k, name: n };
@@ -196,9 +201,12 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
         {#if !isNew && !blank}<button class="danger" onclick={remove}>Delete</button>{/if}
         <button class="primary" onclick={save} disabled={saving || blank}>Save <kbd>Ctrl+S</kbd></button>
       </div>
+      {#if kind === 'strategies' && !blank}
+        <div class="params"><AiStrategyFields part="params" bind:qtyType bind:qty bind:sl bind:tp bind:direction commit={applyParams} {noSl} {noTp} /></div>
+      {/if}
       {#if aiOpen && !blank}
         <div class="ai">
-          {#if kind === 'strategies'}<AiStrategyFields bind:qtyType bind:qty bind:sl bind:tp bind:direction />{/if}
+          {#if kind === 'strategies'}<AiStrategyFields part="direction" bind:qtyType bind:qty bind:sl bind:tp bind:direction />{/if}
           <textarea bind:value={aiText} rows="3" spellcheck="false" placeholder={kind === 'strategies' ? 'What should change? e.g. add an RSI filter above 50 for entries, exit on a close below the EMA 20. Leave empty to only apply the settings above.' : 'What should change? e.g. add a signal line (EMA 9) and colour the histogram green above zero'}
             onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runAi(); } }}></textarea>
           <div class="aibar">
@@ -259,6 +267,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .gutter { width: 48px; flex: none; overflow: hidden; text-align: right; padding: 12px 8px 12px 0; color: var(--dim); font: 13px/1.55 ui-monospace, monospace; border-right: 1px solid var(--line); user-select: none; }
   textarea { flex: 1; min-width: 0; resize: none; background: #000; color: var(--fg); border: 0; outline: 0; padding: 12px 14px; font: 13px/1.55 ui-monospace, monospace; tab-size: 4; white-space: pre; overflow: auto; }
   .bar button.on { border-color: var(--accent); color: var(--accent); } .bar button:disabled { opacity: 0.45; cursor: default; }
+  .params { padding: 10px 14px 0; border-bottom: 1px solid var(--line); background: var(--bar); }
   .ai { padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--bar); }
   .ai textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px/1.5 system-ui, sans-serif; outline: none; }
   .ai textarea:focus { border-color: var(--accent); }
