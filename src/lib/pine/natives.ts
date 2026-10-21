@@ -276,10 +276,10 @@ function setColor(o: { color: string; colors?: (string | undefined)[] }, x: Ctx,
   if (o.colors) o.colors[x.bar] = c;
 }
 
-def('plot', ['series', 'title', 'color', 'linewidth', 'style', 'trackprice', 'histbase', 'offset', 'join', 'editable', 'show_last', 'display', 'force_overlay'], (a, x, st) => {
+def('plot', ['series', 'title', 'color', 'linewidth', 'style', 'trackprice', 'histbase', 'offset', 'join', 'editable', 'show_last', 'display', 'force_overlay', 'pane'], (a, x, st) => {
   const o: PlotOut = PLOT_OUT(x, st, () => ({
     title: a[1] ?? `Plot ${x.plots.length + 1}`, values: new Float64Array(x.n).fill(NaN_), color: '', style: a[4] ?? 'line',
-    linewidth: a[3] ?? 1, offset: a[7] ?? 0, histbase: a[6] ?? 0,
+    linewidth: a[3] ?? 1, offset: a[7] ?? 0, histbase: a[6] ?? 0, pane: typeof a[13] === 'string' && a[13] ? a[13] : undefined,
   }), x.plots);
   const v = a[0];
   o.values[x.bar] = typeof v === 'number' ? v : v === true ? 1 : v === false ? 0 : NaN_;
@@ -317,8 +317,8 @@ def('plotarrow', ['series', 'title', 'colorup', 'colordown', 'offset', 'minheigh
   if (!o.color) o.color = '#2ee6a6';
   return o.id;
 });
-def('hline', ['price', 'title', 'color', 'linestyle', 'linewidth', 'editable', 'display'], (a, x, st) => {
-  if (!st.o) { st.o = { id: x.hlines.length, price: a[0], title: a[1] ?? '', color: colorOf(a[2], '#787B86'), style: a[3] ?? 'dashed', linewidth: a[4] ?? 1 }; x.hlines.push(st.o); }
+def('hline', ['price', 'title', 'color', 'linestyle', 'linewidth', 'editable', 'display', 'pane'], (a, x, st) => {
+  if (!st.o) { st.o = { id: x.hlines.length, price: a[0], title: a[1] ?? '', color: colorOf(a[2], '#787B86'), style: a[3] ?? 'dashed', linewidth: a[4] ?? 1, pane: typeof a[7] === 'string' && a[7] ? a[7] : undefined }; x.hlines.push(st.o); }
   return st.o.id;
 });
 def('fill', ['hline1', 'hline2', 'color', 'title', 'editable', 'fillgaps', 'display'], (a, x, st) => {

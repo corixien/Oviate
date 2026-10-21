@@ -6,7 +6,7 @@ import type { PineCandles, PineResult } from '../pine/types.ts';
 export type Msg = { role: 'system' | 'user' | 'assistant'; content: string };
 export type Complete = (messages: Msg[]) => Promise<string>;
 
-export const ENGINE = `The code runs in a small Pine Script v5 interpreter. Supported: ta.sma ema wma hma vwma rma rsi macd bb atr dmi supertrend sar stoch cci mfi wpr cmo roc mom tsi kc linreg stdev highest lowest highestbars lowestbars change crossover crossunder cross rising falling barssince valuewhen pivothigh pivotlow cum tr obv vwap median percentrank; math.* (abs max min sqrt log pow round sum avg); nz, na, fixnan; if/else, for, ternary, var, user functions, arrays; series history with [n]; built-in series open high low close volume hl2 hlc3 ohlc4 bar_index time; input.int/float/bool/source/string/color; plot, hline, fill, bgcolor, barcolor, plotshape, color.*. Not supported: request.security (passthrough only), drawing objects (label/line/box are not rendered), libraries, imports. Call ta.* functions on every bar at the top level of a block, never inside if or ternary branches.`;
+export const ENGINE = `The code runs in a small Pine Script v5 interpreter. Supported: ta.sma ema wma hma vwma rma rsi macd bb atr dmi supertrend sar stoch cci mfi wpr cmo roc mom tsi kc linreg stdev highest lowest highestbars lowestbars change crossover crossunder cross rising falling barssince valuewhen pivothigh pivotlow cum tr obv vwap median percentrank; math.* (abs max min sqrt log pow round sum avg); nz, na, fixnan; if/else, for, ternary, var, user functions, arrays; series history with [n]; built-in series open high low close volume hl2 hlc3 ohlc4 bar_index time; input.int/float/bool/source/string/color; plot, hline, fill, bgcolor, barcolor, plotshape, color.*; Oviate extension: plot(..., pane="Name") and hline(..., pane="Name") draw in their own chart pane (one pane per distinct name, any number of panes). Not supported: request.security (passthrough only), drawing objects (label/line/box are not rendered), libraries, imports. Call ta.* functions on every bar at the top level of a block, never inside if or ternary branches.`;
 
 /** Strip chat noise: markdown fences and any text around the code. */
 export function extractCode(text: string): string {
@@ -54,10 +54,20 @@ export function pickExamples(request: string, all: Example[], n = 2): Example[] 
 }
 
 /** Plot checks on a finished run (price scale of the sample data is about 100): empty, flat and badly scaled output that still compiles. */
-function plotChecks(r: PineResult): string | null {
+function plotChecks(r: PineResult, close: Float64Array): string | null {
   const marks = r.shapes.some((x) => x.flags.some(Boolean)) || r.bgcolors.some(Boolean) || r.barcolors.some(Boolean);
-  if (!r.plots.length) return null;
-  const stats = r.plots.map((p) => {
+  // plots of a named pane (pane="RSI") are judged as their own oscillator pane, the others by the script's overlay setting
+  const groups = new Map<string, PineResult['plots']>();
+  for (const p of r.plots) groups.set(p.pane ?? '', [...(groups.get(p.pane ?? '') ?? []), p]);
+  for (const [pane, plots] of groups) {
+    const err = groupChecks(plots, pane ? false : r.meta.overlay, marks, close);
+    if (err) return pane ? `Pane "${pane}": ${err}` : err;
+  }
+  return null;
+}
+
+function groupChecks(plots: PineResult['plots'], overlay: boolean, marks: boolean, close: Float64Array): string | null {
+  const stats = plots.map((p) => {
     const v = Array.from(p.values.slice(-120)).filter(Number.isFinite);
     const abs = v.map(Math.abs).sort((a, b) => a - b);
     return { title: p.title, n: v.length, flat: v.length > 0 && Math.max(...v) === Math.min(...v), med: abs.length ? abs[abs.length >> 1] : 0 };
@@ -66,10 +76,13 @@ function plotChecks(r: PineResult): string | null {
   const live0 = stats.filter((x) => x.n > 0);
   if (!live0.length) return marks ? null : 'Every plot is na on the last 120 bars. Check warm-up, na handling and the formula.';
   if (live0.every((x) => x.flat)) return 'Every plot is a flat line. The formula produces no variation.';
-  const price = 100;
-  if (r.meta.overlay) {
-    const off = live0.find((x) => !x.flat && (x.med < price * 0.2 || x.med > price * 5));
-    if (off) return `overlay=true but plot "${off.title}" is not on the price scale. Use overlay=false for oscillators, or fix the formula.`;
+  const price = 100; // the sample candles trade around 100
+  if (overlay) {
+    // an overlay plot must sit at the price level of the last 120 bars (an RSI or MACD drawn on the price chart does not)
+    const w = Array.from(close.slice(-120));
+    const pLo = Math.min(...w), pHi = Math.max(...w);
+    const off = live0.find((x) => !x.flat && (x.med < pLo * 0.7 || x.med > pHi * 1.3));
+    if (off) return `overlay=true but plot "${off.title}" is not on the price scale. Give it its own pane with plot(..., pane="Name") (or overlay=false when the whole script is an oscillator), or fix the formula.`;
   } else {
     const live = live0.filter((x) => !x.flat && x.med > 1e-9);
     if (live.length > 1) {
@@ -90,7 +103,7 @@ export function sanity(code: string): string | null {
   if (r.error) return errText(r);
   if (r.meta.kind !== 'indicator') return 'It must declare indicator(), not strategy().';
   if (!r.plots.length && !r.shapes.length && !r.bgcolors.some(Boolean) && !r.barcolors.some(Boolean)) return 'It draws nothing. Use plot(), plotshape() or bgcolor().';
-  return plotChecks(r);
+  return plotChecks(r, SAMPLE.c);
 }
 
 /** Run `ask` until the code passes `validate` (returns an error text or null); at most `tries` attempts. */
@@ -188,7 +201,7 @@ plot(slow, "Slow EMA", color=color.orange)
 `;
 
 export const STRATEGY_EXAMPLE_BOTH = `//@version=6
-strategy("RSI Reversal Long/Short", overlay=false, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=50, pyramiding=0)
+strategy("RSI Reversal Long/Short", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=50, pyramiding=0)
 
 len = input.int(14, "RSI Length", minval=1)
 oversold = input.int(30, "Oversold", minval=1)
@@ -215,9 +228,10 @@ if strategy.position_size > 0
 if strategy.position_size < 0
     strategy.exit("Short SL", "Short", stop=slPct > 0 ? strategy.position_avg_price * (1 + slPct / 100) : na)
 
-hline(overbought, "Overbought", color=color.red)
-hline(oversold, "Oversold", color=color.green)
-plot(rsi, "RSI", color=color.purple)
+hline(overbought, "Overbought", color=color.red, pane="RSI")
+hline(oversold, "Oversold", color=color.green, pane="RSI")
+plot(rsi, "RSI", color=color.purple, pane="RSI")
+plot(ta.ema(close, 50), "EMA 50", color=color.orange)
 `;
 
 const STRATEGY_SYSTEM = `You are an expert Pine Script developer writing trading STRATEGIES in Pine Script **Version 6** for the Oviate charting app. The user describes a strategy in words; you deliver a complete, compiler-safe, backtestable strategy that does exactly what was described. ${ENGINE}
@@ -238,8 +252,9 @@ const STRATEGY_SYSTEM = `You are an expert Pine Script developer writing trading
 - A position needs a way out: an exit condition, or a stop / take profit, or reversal by the opposite entry.
 
 ### 3. Chart rules
-- overlay=true when you plot price-scaled lines (moving averages, bands, stops, channels). Plot the main indicators of the strategy so the user sees why it trades.
-- overlay=false only when the strategy is driven by an oscillator (RSI, MACD, Stochastic ...); then plot that oscillator and its levels with hline(), and never price-scaled lines in the same pane. Compute everything else silently.
+- Use strategy(overlay=true). Plot the strategy's price-scaled indicators plainly (moving averages, bands, stops, channels) so they appear on the price chart.
+- Every OSCILLATOR-scale indicator the strategy uses (RSI, MACD, Stochastic, ADX, CCI, volume ...) goes in its OWN pane: add pane="Name" to its plot() and hline() calls, e.g. plot(rsi, "RSI", color=color.purple, pane="RSI"), hline(70, "Overbought", pane="RSI"). Any number of panes is fine (RSI and MACD each get one), plots with the same pane name share a pane. Never mix price-scaled and oscillator-scale values in one pane.
+- Plot every indicator that drives an entry or exit, so the user sees why it trades. Markers for signals: plotshape on the price chart.
 - Colors: color.lime / color.green bullish, color.red / color.maroon bearish, color.aqua / color.orange / color.fuchsia for lines. Give every plot a title.
 - Handle na and history references (x[1]) with nz() where needed.
 
@@ -247,7 +262,7 @@ const STRATEGY_SYSTEM = `You are an expert Pine Script developer writing trading
 Long only, overlay, with stop loss and take profit:
 \`\`\`pine
 ${STRATEGY_EXAMPLE_LONG}\`\`\`
-Long and short, oscillator pane, reversal entries, stop loss only:
+Long and short, oscillator in its own pane (pane=...), reversal entries, stop loss only:
 \`\`\`pine
 ${STRATEGY_EXAMPLE_BOTH}\`\`\`
 
@@ -313,7 +328,7 @@ export function strategyCheck(code: string, opts: StrategyOpts, data: PineCandle
   if (opts.direction === 'long' && shorts) return fail('The request is LONG ONLY but the strategy opens short trades. Remove all short entries and reversals into short.');
   if (opts.direction === 'short' && longs) return fail('The request is SHORT ONLY but the strategy opens long trades. Remove all long entries and reversals into long.');
   if (opts.direction === 'both' && (!longs || !shorts)) return fail(`The request needs BOTH long and short trades, but only ${longs ? 'long' : 'short'} trades happened on the sample. Add or fix the ${longs ? 'short' : 'long'} entry.`);
-  const pc = plotChecks(r);
+  const pc = plotChecks(r, data.c);
   if (pc) return fail(pc);
   return { error: null, trades: trades.length, result: r };
 }

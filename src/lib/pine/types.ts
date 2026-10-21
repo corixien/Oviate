@@ -34,6 +34,8 @@ export interface PlotOut {
   linewidth: number;
   offset: number;
   histbase: number;
+  /** own pane named by plot(..., pane="Name"); unset = the script's main pane */
+  pane?: string;
 }
 
 export interface ShapeOut {
@@ -51,7 +53,7 @@ export interface ShapeOut {
   offset: number;
 }
 
-export interface HLineOut { id: number; price: number; title: string; color: string; style: string; linewidth: number }
+export interface HLineOut { id: number; price: number; title: string; color: string; style: string; linewidth: number; pane?: string }
 
 export interface FillRef { kind: 'plot' | 'hline'; id: number }
 export interface FillOut { a: FillRef; b: FillRef; color: string; colors?: (string | undefined)[] }
@@ -110,7 +112,7 @@ export interface TradeRec {
 }
 
 /** Strategy Tester settings: override what a strategy declares, for the simulation only. */
-export interface TesterSettings { initialCapital: number; commissionValue: number; slippageTicks: number }
+export interface TesterSettings { initialCapital: number; commissionValue: number; /** percent of the fill price, against the trade */ slippagePct: number }
 
 export interface PendingOrder {
   id: string;

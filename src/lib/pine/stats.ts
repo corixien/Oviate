@@ -14,7 +14,10 @@ export interface DetailedStats {
   maxDrawdown: number; maxDrawdownPct: number; maxRunup: number; recovery: number; calmar: number; ulcer: number;
   sharpe: number; sortino: number;
   avgMfe: number; avgMae: number;
+  /** underlying price change over the whole tested period, percent */
   buyHold: number;
+  /** compounded underlying price change over only the time the strategy was invested (entry to exit of every trade), percent */
+  buyHoldInvested: number;
   long: SideStats; short: SideStats;
   /** drawdown from the running peak per bar, in percent (<= 0) */
   drawdown: number[];
@@ -33,6 +36,19 @@ function side(ts: TradeRec[]): SideStats {
     profitFactor: gl > 0 ? gp / gl : gp > 0 ? Infinity : 0, avg: ts.length ? (gp - gl) / ts.length : 0,
     best: ts.length ? Math.max(...ts.map((t) => t.pnl)) : 0, worst: ts.length ? Math.min(...ts.map((t) => t.pnl)) : 0,
   };
+}
+
+/** Price change of the underlying while the strategy held a position: every trade's raw entry to exit move (no slippage), compounded; overlapping trades count once. */
+function investedMove(trades: TradeRec[]): number {
+  const spans = trades.map((t) => ({ a: t.entryBar, b: t.open ? Infinity : t.exitBar, p0: t.entryRaw ?? t.entryPrice, p1: t.open ? t.exitPrice : t.exitRaw ?? t.exitPrice }))
+    .filter((s) => s.p0 > 0).sort((x, y) => x.a - y.a);
+  let growth = 1, lastEnd = -1;
+  for (const s of spans) {
+    if (s.a <= lastEnd) continue; // pyramided or overlapping lot: the market was already counted
+    growth *= s.p1 / s.p0;
+    lastEnd = s.b;
+  }
+  return (growth - 1) * 100;
 }
 
 export function detailedStats(res: StrategyResult, o: StatsOpts): DetailedStats {
@@ -98,6 +114,7 @@ export function detailedStats(res: StrategyResult, o: StatsOpts): DetailedStats 
     sharpe: sd > 0 ? (m / sd) * Math.sqrt(perYear) : 0, sortino: dsd > 0 ? (m / dsd) * Math.sqrt(perYear) : 0,
     avgMfe: mean(closed.map((t) => t.mfe)), avgMae: mean(closed.map((t) => t.mae)),
     buyHold: o.firstClose > 0 ? ((o.lastClose - o.firstClose) / o.firstClose) * 100 : 0,
+    buyHoldInvested: investedMove(res.trades),
     long: side(closed.filter((t) => t.dir === 'long')), short: side(closed.filter((t) => t.dir === 'short')),
     drawdown,
   };

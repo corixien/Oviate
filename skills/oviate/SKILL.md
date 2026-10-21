@@ -20,7 +20,7 @@ description: Build, check, install and backtest Pine Script indicators and strat
 | `oviate add <indicator\|strategy> <file\|-> [--name N] [--force]` | Validate, then install into the app. Never overwrites without `--force`. |
 | `oviate backtest <name\|file\|-> --symbol S --tf TF [...]` | Backtest on cached candles. |
 
-`backtest` options: `--from/--to 2023-01-01`, `--capital 10000`, `--commission 0.05` (percent per fill), `--slippage 0` (ticks), `--param "Input title=value"` (repeatable, title is the `input.*` title), `--trades 10`, `--json`. The position size comes from the strategy's `strategy()` declaration (`default_qty_type/value`), not from flags. Add `--json` when you want to process the numbers.
+`backtest` options: `--from/--to 2023-01-01`, `--capital 10000`, `--commission 0.05` (percent per fill), `--slippage 0.1` (percent of price per fill, default 0.1), `--param "Input title=value"` (repeatable, title is the `input.*` title), `--trades 10`, `--json`. The position size comes from the strategy's `strategy()` declaration (`default_qty_type/value`), not from flags. Add `--json` when you want to process the numbers.
 
 ## Workflow
 

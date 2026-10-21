@@ -26,6 +26,8 @@ test('aggregates, streaks, sides and drawdown', () => {
   assert.equal(s.maxDrawdown, 30);
   assert.ok(Math.abs(s.maxDrawdownPct - (30 / 1050) * 100) < 1e-9);
   assert.equal(s.buyHold, 10);
+  // trades: 100->150, 100->80, 100->90, 100->130 (raw prices default to the fill prices), open one 100->105: compounded 1.5*.8*.9*1.3*1.05
+  assert.ok(Math.abs(s.buyHoldInvested - (1.5 * 0.8 * 0.9 * 1.3 * 1.05 - 1) * 100) < 1e-6, String(s.buyHoldInvested));
   assert.equal(s.openPnl, 5);
   assert.equal(s.drawdown.length, eq.length);
   assert.ok(s.exposurePct > 0 && s.exposurePct <= 100);

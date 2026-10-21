@@ -78,14 +78,15 @@ test('equity curve matches realized + unrealized every bar', () => {
   assert.deepEqual(Array.from(s.equity), [10000, 10000, 10100, 10200]);
 });
 
-test('tester settings override capital, commission and slippage; slippage hits pnl but raw prices stay unslipped', () => {
+test('tester settings override capital, commission and slippage (percent of price); slippage hits pnl but raw prices stay unslipped', () => {
   const d = bars([[100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100], [100, 101, 99, 100]]);
   const code = strat('default_qty_type=strategy.fixed, default_qty_value=1', `if bar_index == 1\n    strategy.entry("L", strategy.long)\nif bar_index == 3\n    strategy.close("L")`);
-  const s = ok(runPine(code, d, { mintick: 0.5, broker: { initialCapital: 500, commissionValue: 0, slippageTicks: 2 } }));
+  const s = ok(runPine(code, d, { mintick: 0.5, broker: { initialCapital: 500, commissionValue: 0, slippagePct: 1 } }));
   const t = s.trades[0];
   assert.equal(s.initialCapital, 500);
   assert.equal(t.qty, 1);
   assert.equal(t.entryPrice, 101); assert.equal(t.exitPrice, 99);
+  // percent slippage: 1% of 100 = 1 against the trade on each fill
   assert.equal(t.entryRaw, 100); assert.equal(t.exitRaw, 100);
   assert.equal(t.pnl, -2);
 });

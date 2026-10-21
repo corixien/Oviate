@@ -231,7 +231,7 @@ test('strategy system prompt carries the engine rules the model must know', asyn
   const m = seq('```pine\n' + STRATEGY_EXAMPLE_LONG + '\n```');
   await genStrategy('x', OPTS, m.fn);
   const sys = m.seen[0][0];
-  for (const must of ['NEXT BAR', 'strategy.exit', 'position_avg_price', 'version=6', 'ONCE', 'overlay=false', 'Two complete reference strategies']) assert.ok(sys.includes(must), must);
+  for (const must of ['NEXT BAR', 'strategy.exit', 'position_avg_price', 'version=6', 'ONCE', 'pane=', 'Two complete reference strategies']) assert.ok(sys.includes(must), must);
 });
 
 // typical v6 strategies of a code model (flips, filters, ATR stops, trailing, time stops, typed vars, volume): all must run and trade
@@ -381,6 +381,14 @@ if close < ta.ema(close, len)
     strategy.close("Long")
 plot(hh, "Highest", color=color.aqua)`, {direction:'long'}],
 };
+
+test('strategies: oscillators need their own pane; several panes are fine', () => {
+  const base = '//@version=6\nstrategy("p", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)\nr = ta.rsi(close, 14)\n[m, s, h] = ta.macd(close, 12, 26, 9)\nif ta.crossover(r, 40)\n    strategy.entry("L", strategy.long)\nif ta.crossunder(r, 60)\n    strategy.close("L")\nplot(ta.ema(close, 20), "EMA")\n';
+  const o = { qtyType: 'percent_of_equity' as const, qty: 100, sl: 0, tp: 0, direction: 'auto' as const };
+  assert.match(strategyCheck(base + 'plot(r, "RSI")', o).error!, /not on the price scale/);
+  assert.equal(strategyCheck(base + 'plot(r, "RSI", pane="RSI")\nplot(m, "MACD", pane="MACD")\nplot(s, "Signal", pane="MACD")', o).error, null);
+  assert.match(strategyCheck(base + 'plot(r, "RSI", pane="Mix")\nplot(close, "Price", pane="Mix")', o).error!, /Pane "Mix": Scale mismatch/);
+});
 
 test('realistic model strategies run and trade on the sample', () => {
   for (const [k, [code, o]] of Object.entries(STRATEGY_CASES)) {

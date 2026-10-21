@@ -7,6 +7,7 @@
   import { library } from '$lib/library.svelte';
   import { runScript } from '$lib/pine/runner.ts';
   import type { PineResult } from '$lib/pine/types.ts';
+  import { splitPanes } from '$lib/pine/panes.ts';
   import Icons from '$lib/ui/Icons.svelte';
   import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
@@ -245,7 +246,9 @@
     if (!r || i.hidden) return [];
     const file = library.get(i.strategy ? 'strategies' : 'indicators', i.id);
     const result = i.colors?.some(Boolean) ? { ...r, plots: r.plots.map((p, k) => (i.colors?.[k] ? { ...p, color: i.colors[k]!, colors: undefined } : p)) } : r;
-    return [{ id: i.uid, title: file?.shortTitle ?? i.id, overlay: r.error ? true : r.meta.overlay, result }];
+    if (r.error) return [{ id: i.uid, title: file?.shortTitle ?? i.id, overlay: true, result }];
+    // plot(..., pane="Name") puts plots in their own panes: one chart pane per name
+    return splitPanes(result).map((p) => ({ id: p.name ? `${i.uid}:${p.name}` : i.uid, title: p.name ? `${file?.shortTitle ?? i.id} · ${p.name}` : file?.shortTitle ?? i.id, overlay: p.overlay, result: p.result }));
   }));
 
   async function load(reset: boolean) {

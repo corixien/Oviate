@@ -173,7 +173,7 @@ function cmdBacktest(a: Args) {
   const data = loadCandles(symbol, tf, flag(a, 'from'), flag(a, 'to'));
   const params: Record<string, number | boolean | string> = {};
   for (const p of a.flags.get('param') ?? []) { const i = p.indexOf('='); if (i < 1) fail(`--param needs "Input title=value", got "${p}"`); params[p.slice(0, i).trim()] = coerce(p.slice(i + 1)); }
-  const broker = { initialCapital: numFlag(a, 'capital', 10000), commissionValue: numFlag(a, 'commission', 0), slippageTicks: numFlag(a, 'slippage', 0) };
+  const broker = { initialCapital: numFlag(a, 'capital', 10000), commissionValue: numFlag(a, 'commission', 0), slippagePct: numFlag(a, 'slippage', 0.1) };
   const r = runPine(code, data, { params, step: TF_SEC[tf], symbol, broker });
   if (r.error) fail(`script error${r.error.line ? ' (line ' + r.error.line + ')' : ''}: ${r.error.message}`);
   if (!r.strategy) fail('this script is an indicator, not a strategy');
@@ -192,7 +192,7 @@ function cmdBacktest(a: Args) {
   };
   if (has(a, 'json')) return printJson(result);
   out(`${result.strategy}   ${symbol} ${tf}   ${result.from} .. ${result.to}   ${data.n} bars`);
-  out(`capital ${money(broker.initialCapital)}  size ${result.settings.positionSize}  commission ${broker.commissionValue}%  slippage ${broker.slippageTicks} ticks`);
+  out(`capital ${money(broker.initialCapital)}  size ${result.settings.positionSize}  commission ${broker.commissionValue}%  slippage ${broker.slippagePct}%`);
   if (unknown.length) out(`warning: unknown --param ${unknown.join(', ')} (inputs: ${r.inputs.map((i) => i.title).join(', ') || 'none'})`);
   out('');
   out(`Net profit   ${money(st.netProfit)} (${pct(st.returnPct)})   buy & hold ${pct(st.buyHold)}   final equity ${money(st.equity)}`);
@@ -221,7 +221,7 @@ const HELP = `oviate: add and backtest Pine indicators and strategies for the Ov
                                                       validate and install into the app (never overwrites without --force)
   oviate data [--json]                                cached candle series (symbol, timeframe, range) usable for backtests
   oviate backtest <strategy name|file.pine|-> --symbol AAPL --tf 1d
-        [--from 2023-01-01] [--to 2024-12-31] [--capital 10000] [--commission 0.05] [--slippage 0]
+        [--from 2023-01-01] [--to 2024-12-31] [--capital 10000] [--commission 0.05] [--slippage 0.1]
         [--param "Fast EMA=12"]... [--trades 10] [--json]
   oviate guide                                        the Pine dialect + backtester rules the in-app AI uses (read before writing code)
   oviate examples                                     two complete reference strategies

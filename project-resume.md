@@ -51,6 +51,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none (AI strategies, oviate CLI and skill finished and pushed).
 
 ### Done
+- [x] Multi-pane scripts via `pane=` (engine, `pine/panes.ts`, Chart); AI strategy prompt/checks use it. Tester slippage now percent of price (default 0.1). Equity chart red below start capital (drawdown chart removed); Performance: buy & hold whole period + invested time only, gross profit/loss/open P&L removed
 - [x] Visual builder REMOVED, replaced by AI strategies: `/strat add ai` (`ui/AiDialog.svelte`, shared with `/ind add ai`): description + required position size + optional SL/TP + direction; `ai/pine.ts` `genStrategy` (system prompt, `strategyCheck` backtest on `STRAT_SAMPLE`, `setPositionSize` forced, repair loop, soft "never trades" accepted with a warning). `/ind` and `/strat` open the code editor on the first script; editor has a search bar. Old builder `.pine` files still work as plain Pine.
 - [x] `oviate` CLI (`cli/oviate.ts`, wrapper `cli/oviate`, tests `cli/oviate.test.ts`): list/show/check/add/data/backtest/guide/examples on `<app data>/oviate.db` candles; skill `skills/oviate/SKILL.md` (installed to ~/.claude/skills by `scripts/install-local.sh`, which also symlinks `~/.local/bin/oviate`). App reloads the script library on window focus.
 - [x] AI indicators via OpenRouter free models (`/ind add ai`, `ai_complete` in lib.rs with 429 retry and model fallback, pipeline in `ai/pine.ts`)

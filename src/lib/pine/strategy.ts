@@ -23,6 +23,8 @@ export interface BrokerConfig {
   commissionType: 'percent' | 'cash_per_order' | 'cash_per_contract';
   commissionValue: number;
   slippageTicks: number;
+  /** percent of the fill price (Strategy Tester setting) */
+  slippagePct: number;
 }
 
 const EPS = 1e-9;
@@ -74,7 +76,7 @@ export class Broker {
   // ---------- helpers ----------
   private tick(): number { return this.x.mintick; }
   private slip(dir: Dir, price: number, opening: boolean): number {
-    const s = this.cfg.slippageTicks * this.tick();
+    const s = this.cfg.slippageTicks * this.tick() + (price * this.cfg.slippagePct) / 100;
     // buying (long open / short close) pays up, selling receives less
     const buying = (dir === 'long') === opening;
     return buying ? price + s : price - s;
@@ -312,9 +314,10 @@ NATIVES['strategy'] = {
       commissionType: (['percent', 'cash_per_order', 'cash_per_contract'].includes(a[16]) ? a[16] : 'percent') as BrokerConfig['commissionType'],
       commissionValue: num(a[17]) ?? 0,
       slippageTicks: num(a[15]) ?? 0,
+      slippagePct: 0,
     };
     const ov = x.brokerCfg;
-    if (ov) { cfg.initialCapital = ov.initialCapital; cfg.commissionType = 'percent'; cfg.commissionValue = ov.commissionValue; cfg.slippageTicks = ov.slippageTicks; }
+    if (ov) { cfg.initialCapital = ov.initialCapital; cfg.commissionType = 'percent'; cfg.commissionValue = ov.commissionValue; cfg.slippageTicks = 0; cfg.slippagePct = ov.slippagePct; }
     x.meta.initialCapital = cfg.initialCapital; x.meta.pyramiding = cfg.pyramiding;
     if (!x.broker) x.broker = new Broker(x, cfg); // the declaration runs on every bar; create the broker once
     return NaN;

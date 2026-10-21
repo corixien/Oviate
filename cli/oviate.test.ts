@@ -71,10 +71,11 @@ test('add validates kind and compile, installs, and never overwrites without --f
 });
 
 test('backtest by name on cached candles: stats, params and settings', () => {
-  const r = run(['backtest', 'EMA Trend Pullback', '--symbol', 'test/usd', '--tf', '1d', '--json', '--commission', '0.1', '--capital', '5000', '--param', 'Fast EMA=10', '--param', 'Slow EMA=30']);
+  const r = run(['backtest', 'EMA Trend Pullback', '--symbol', 'test/usd', '--tf', '1d', '--json', '--commission', '0.1', '--slippage', '0.2', '--capital', '5000', '--param', 'Fast EMA=10', '--param', 'Slow EMA=30']);
   assert.equal(r.code, 0, r.err);
   const j = JSON.parse(r.out);
-  assert.equal(j.bars, 900); assert.equal(j.settings.initialCapital, 5000); assert.equal(j.settings.commissionValue, 0.1);
+  assert.equal(j.bars, 900); assert.equal(j.settings.initialCapital, 5000); assert.equal(j.settings.commissionValue, 0.1); assert.equal(j.settings.slippagePct, 0.2);
+  assert.equal(JSON.parse(run(['backtest', 'EMA Trend Pullback', '--symbol', 'TEST/USD', '--json']).out).settings.slippagePct, 0.1, 'default slippage is 0.1%');
   assert.deepEqual(j.settings.unknownParams, []);
   assert.ok(j.stats.trades > 2, `trades ${j.stats.trades}`);
   for (const k of ['netProfit', 'winRate', 'profitFactor', 'maxDrawdownPct', 'sharpe', 'long', 'short']) assert.ok(k in j.stats, k);

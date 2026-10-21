@@ -37,26 +37,20 @@
   }
 
   // ----- equity svg -----
-  function curve(pts: number[], w = 800, h = 150) {
+  /** Equity line; y0 is the baseline (`base`, default the first value) so the part below it can be drawn red. */
+  function curve(pts: number[], w = 800, h = 150, base = pts[0]) {
     if (pts.length < 2) return { path: '', lo: 0, hi: 0, y0: h / 2 };
-    const lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1;
+    const lo = Math.min(...pts, base), hi = Math.max(...pts, base), span = hi - lo || 1;
     const path = pts.map((v, i) => `${i ? 'L' : 'M'}${((i / (pts.length - 1)) * w).toFixed(1)},${(h - 6 - ((v - lo) / span) * (h - 12)).toFixed(1)}`).join('');
-    return { path, lo, hi, y0: h - 6 - (((pts[0]) - lo) / span) * (h - 12) };
+    return { path, lo, hi, y0: h - 6 - ((base - lo) / span) * (h - 12) };
   }
   const paperCurve = $derived(curve((acc?.equityCurve ?? []).map((p) => p.eq)));
 
   // ----- strategy tester -----
   const sres = $derived(tester?.result.strategy);
   const dstats = $derived(sres && tester ? detailedStats(sres, { stepSec: tester.stepSec, firstClose: tester.firstClose, lastClose: tester.lastClose }) : null);
-  const sCurve = $derived(curve(sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : []));
-  const ddCurve = $derived.by(() => {
-    const d = dstats?.drawdown ?? [];
-    if (d.length < 2) return { path: '', area: '', lo: 0 };
-    const lo = Math.min(...d, -0.01);
-    const pts = d.map((v, i) => `${((i / (d.length - 1)) * 800).toFixed(1)},${(6 + (v / lo) * 138).toFixed(1)}`);
-    return { path: 'M' + pts.join('L'), area: `M0,6L${pts.join('L')}L800,6Z`, lo };
-  });
-  function setT(k: 'initialCapital' | 'commissionValue' | 'slippageTicks', e: Event) {
+  const sCurve = $derived(curve(sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : [], 800, 150, sres?.initialCapital));
+  function setT(k: 'initialCapital' | 'commissionValue' | 'slippagePct', e: Event) {
     let v = parseFloat((e.currentTarget as HTMLInputElement).value);
     if (!Number.isFinite(v) || v < 0) return;
     if (k === 'initialCapital' && v <= 0) return;
@@ -180,26 +174,19 @@
         </div>
         <div class="body">
           {#if testerSub === 'overview'}
-            <div class="two">
-              <div>
-                <h5>Equity</h5>
-                <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq small">
-                  <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
-                  <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" />
-                </svg>
-              </div>
-              <div>
-                <h5>Drawdown <span class="dim">max {dstats.maxDrawdownPct.toFixed(2)}%</span></h5>
-                <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq small">
-                  <path d={ddCurve.area} fill="var(--down)" opacity="0.22" />
-                  <path d={ddCurve.path} fill="none" stroke="var(--down)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-                </svg>
-              </div>
-            </div>
+            <h5>Equity <span class="dim">red = below the starting capital</span></h5>
+            <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq">
+              <defs>
+                <clipPath id="eq-above"><rect x="0" y="0" width="800" height={Math.max(0, sCurve.y0)} /></clipPath>
+                <clipPath id="eq-below"><rect x="0" y={sCurve.y0} width="800" height={Math.max(0, 150 - sCurve.y0)} /></clipPath>
+              </defs>
+              <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
+              <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-above)" />
+              <path d={sCurve.path} fill="none" stroke="var(--down)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-below)" />
+            </svg>
             {#each [
-              ['Performance', [['Net profit', signed(dstats.netProfit), cls(dstats.netProfit)], ['Return', signed(dstats.returnPct) + '%', cls(dstats.returnPct)], ['Buy & hold', signed(dstats.buyHold) + '%', cls(dstats.buyHold)], ['Initial capital', money(dstats.initial), ''],
-                ['Final equity', money(dstats.equity), cls(dstats.equity - dstats.initial)], ['Open P&L', signed(dstats.openPnl), cls(dstats.openPnl)], ['Gross profit', money(dstats.grossProfit), 'up'], ['Gross loss', money(dstats.grossLoss), 'dn'],
-                ['Profit factor', pf(dstats.profitFactor), ''], ['Fees paid', money(dstats.commission), '']]],
+              ['Performance', [['Net profit', signed(dstats.netProfit), cls(dstats.netProfit)], ['Return', signed(dstats.returnPct) + '%', cls(dstats.returnPct)], ['Buy & hold, whole period', signed(dstats.buyHold) + '%', cls(dstats.buyHold)], ['Buy & hold, invested time only', signed(dstats.buyHoldInvested) + '%', cls(dstats.buyHoldInvested)],
+                ['Initial capital', money(dstats.initial), ''], ['Final equity', money(dstats.equity), cls(dstats.equity - dstats.initial)], ['Profit factor', pf(dstats.profitFactor), ''], ['Fees paid', money(dstats.commission), '']]],
               ['Trades', [['Closed trades', String(dstats.trades), ''], ['Win rate', dstats.winRate.toFixed(1) + '%', ''], ['Wins / losses', dstats.wins + ' / ' + dstats.losses + (dstats.even ? ' / ' + dstats.even : ''), ''], ['Avg trade', signed(dstats.avgTrade) + '  (' + signed(dstats.avgTradePct) + '%)', cls(dstats.avgTrade)],
                 ['Avg win', signed(dstats.avgWin), 'up'], ['Avg loss', signed(dstats.avgLoss), 'dn'], ['Payoff ratio', dstats.payoff ? dstats.payoff.toFixed(2) : '—', ''], ['Expectancy', signed(dstats.expectancy), cls(dstats.expectancy)],
                 ['Best trade', signed(dstats.best) + '  (' + signed(dstats.bestPct) + '%)', 'up'], ['Worst trade', signed(dstats.worst) + '  (' + signed(dstats.worstPct) + '%)', 'dn'], ['Max win streak', String(dstats.maxWinStreak), ''], ['Max loss streak', String(dstats.maxLossStreak), ''],
@@ -228,8 +215,8 @@
               <label><span>Initial capital</span><input class="in" type="number" min="0" step="any" value={app.tester.initialCapital} oninput={(e) => setT('initialCapital', e)} /></label>
               <label><span>Position size</span><b class="fixed">{sres.config.qtyType === 'percent_of_equity' ? sres.config.qtyValue + '% of equity' : sres.config.qtyType === 'cash' ? money(sres.config.qtyValue) + ' per entry' : sres.config.qtyValue + ' units'}</b><span class="unit">set in the strategy (AI form or Pine script)</span></label>
               <label><span>Commission per fill</span><input class="in" type="number" min="0" step="any" value={app.tester.commissionValue} oninput={(e) => setT('commissionValue', e)} /><span class="unit">% of trade value, on buy and sell</span></label>
-              <label><span>Slippage</span><input class="in" type="number" min="0" step="1" value={app.tester.slippageTicks} oninput={(e) => setT('slippageTicks', e)} /><span class="unit">ticks per fill, against you</span></label>
-              <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, commissionValue: 0, slippageTicks: 0 }; app.persist(); }}>Reset to defaults</button>
+              <label><span>Slippage</span><input class="in" type="number" min="0" step="0.05" value={app.tester.slippagePct} oninput={(e) => setT('slippagePct', e)} /><span class="unit">% of the price per fill, against you (default 0.1)</span></label>
+              <button class="mini" onclick={() => { app.tester = { initialCapital: 10000, commissionValue: 0, slippagePct: 0.1 }; app.persist(); }}>Reset to defaults</button>
             </div>
           {:else}
             <table>
@@ -280,7 +267,6 @@
   .cell { border: 1px solid var(--line); margin: 0 -1px -1px 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; } .cell span { color: var(--dim); font-size: 11px; } .cell b { font: 600 14px ui-monospace, monospace; }
   .eq { width: calc(100% - 24px); height: 150px; margin: 12px; background: #000; border: 1px solid var(--line); } .eq.small { height: 110px; }
   .base { stroke: var(--line); stroke-dasharray: 4 4; } .eqinfo { display: flex; gap: 18px; padding: 0 14px 12px; color: var(--dim); font: 11.5px ui-monospace, monospace; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 4px; } .two .eq { width: calc(100% - 24px); }
   h5 { margin: 12px 14px 0; font: 700 10.5px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); } h5 .dim { color: var(--dim); text-transform: none; letter-spacing: 0; margin-left: 6px; }
   h5.sec { margin-top: 14px; } .ls { margin: 8px 12px 14px; width: calc(100% - 24px); }
   .tset { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; } .tset p { margin: 0 0 2px; max-width: 640px; }
