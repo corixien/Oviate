@@ -66,16 +66,27 @@ pub async fn pick_model(http: &reqwest::Client, key: &str) -> Result<String> {
         .ok_or_else(|| Error::Other("groq: no usable model".into()))
 }
 
-/// Pine code generation on OpenRouter free models, falling back down `CODE_MODELS`.
+/// Pine code generation on OpenRouter free models. Free models are rate limited (429) and come and go:
+/// a 429 is retried after a pause, then the next model in `CODE_MODELS` is tried.
 pub async fn code_chat(http: &reqwest::Client, key: &str, messages: Value) -> Result<String> {
     let mut last = Error::Other("no model".into());
     for model in CODE_MODELS {
-        // reasoning models spend tokens thinking first: leave room for the code
-        match chat(http, OPENROUTER, key, model, messages.clone(), 0.2, 8000, false).await {
-            Ok(c) if !c.trim().is_empty() => return Ok(c),
-            Ok(_) => last = Error::Other(format!("{model}: empty reply")),
-            Err(e) => last = e,
+        for attempt in 0..3u64 {
+            // reasoning models spend tokens thinking first: leave room for the code
+            match chat(http, OPENROUTER, key, model, messages.clone(), 0.2, 8000, false).await {
+                Ok(c) if !c.trim().is_empty() => return Ok(c),
+                Ok(_) => { last = Error::Other(format!("{model}: empty reply")); break; }
+                Err(e) => {
+                    let limited = e.to_string().contains(" 429");
+                    last = e;
+                    if !limited || attempt == 2 { break; }
+                    tokio::time::sleep(std::time::Duration::from_secs(4 + attempt * 6)).await;
+                }
+            }
         }
+    }
+    if last.to_string().contains(" 429") {
+        return Err(Error::Other("OpenRouter free models are rate limited right now (429). Wait a minute and try again, or add a few dollars of credit to your OpenRouter account for much higher limits.".into()));
     }
     Err(last)
 }

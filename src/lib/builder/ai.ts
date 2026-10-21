@@ -34,15 +34,7 @@ const INDICATOR_SYSTEM = `You are an expert Pine Script developer for the Oviate
 - Handle history references (x[1]) and na with nz() or na checks so nothing breaks in the first bars.
 
 ### Output
-Reply with ONLY the code. No explanation, no markdown outside one code block.`;
-
-const PLAN_SYSTEM = `You are a quantitative analyst preparing a spec for a Pine Script developer. Answer in at most 180 words as short bullet points:
-1. Definition: the exact formulas (if it is a known indicator, its TRUE textbook definition and standard parameters, step by step).
-2. Inputs with default values.
-3. Outputs: every line / histogram / marker to plot and how it should look.
-4. Pane: overlay on the price chart or its own pane, and why (value scale).
-5. Pitfalls: warm-up bars, na handling, division by zero.
-No code.`;
+Before writing, silently work out the exact formula and the value scale of every plot. Reply with ONLY the code. No explanation, no markdown outside one code block.`;
 
 /** Words of the request, lowercased, for matching against example scripts. */
 const words = (t: string) => [...new Set(t.toLowerCase().match(/[a-z0-9%]{3,}/g) ?? [])];
@@ -67,22 +59,27 @@ export function sanity(code: string): string | null {
   const r = runPine(code, SAMPLE);
   if (r.error) return `${r.error.line ? 'line ' + r.error.line + ': ' : ''}${r.error.message}`;
   if (r.meta.kind !== 'indicator') return 'It must declare indicator(), not strategy().';
-  if (!r.plots.length) return 'It plots nothing. Use plot().';
+  if (!r.plots.length && !r.shapes.length && !r.bgcolors.some(Boolean) && !r.barcolors.some(Boolean)) return 'It draws nothing. Use plot(), plotshape() or bgcolor().';
+  const marks = r.shapes.some((x) => x.flags.some(Boolean)) || r.bgcolors.some(Boolean) || r.barcolors.some(Boolean);
+  if (!r.plots.length) return null;
   const stats = r.plots.map((p) => {
     const v = Array.from(p.values.slice(-120)).filter(Number.isFinite);
     const abs = v.map(Math.abs).sort((a, b) => a - b);
     return { title: p.title, n: v.length, flat: v.length > 0 && Math.max(...v) === Math.min(...v), med: abs.length ? abs[abs.length >> 1] : 0 };
   });
-  const dead = stats.find((x) => x.n === 0);
-  if (dead) return `Plot "${dead.title}" is always na on the last 120 bars. Check warm-up, na handling and the formula.`;
-  if (stats.every((x) => x.flat && x.med === 0) || stats.every((x) => x.flat)) return 'Every plot is a flat line. The formula produces no variation.';
+  // markers and signal plots may legitimately be na most of the time (plot(sqz ? 0 : na)): only judge plots that have data
+  const live0 = stats.filter((x) => x.n > 0);
+  if (!live0.length) return marks ? null : 'Every plot is na on the last 120 bars. Check warm-up, na handling and the formula.';
+  if (live0.every((x) => x.flat)) return 'Every plot is a flat line. The formula produces no variation.';
   const price = 100;
   if (r.meta.overlay) {
-    const off = stats.find((x) => !x.flat && (x.med < price * 0.2 || x.med > price * 5));
+    const off = live0.find((x) => !x.flat && (x.med < price * 0.2 || x.med > price * 5));
     if (off) return `overlay=true but plot "${off.title}" is not on the price scale. Use overlay=false for oscillators, or fix the formula.`;
   } else {
-    const live = stats.filter((x) => !x.flat && x.med > 1e-9);
+    const live = live0.filter((x) => !x.flat && x.med > 1e-9);
     if (live.length > 1) {
+      const priceLike = live.find((x) => x.med >= price * 0.75 && x.med <= price * 1.25), small = live.find((x) => x.med < price * 0.55);
+      if (priceLike && small) return `Scale mismatch: "${priceLike.title}" looks like an absolute price while "${small.title}" is an oscillator in the same pane. Compute price-scaled lines (bands, channels, averages) silently and plot only oscillator-scale values, or use overlay=true.`;
       const lo = Math.min(...live.map((x) => x.med)), hi = Math.max(...live.map((x) => x.med));
       if (hi / lo > 10) return `Scale mismatch: plots in the same pane differ by a factor of ${Math.round(hi / lo)} (e.g. "${live.find((x) => x.med === hi)!.title}" vs "${live.find((x) => x.med === lo)!.title}"). Do not plot price-scaled lines with an oscillator in one pane; compute them silently or use overlay=true.`;
     }
@@ -109,15 +106,13 @@ async function loop(system: string, request: string, complete: Complete, validat
   throw new Error(`The AI could not produce working Pine code (${last}). Try describing it differently.`);
 }
 
-/** Indicator from text: plan (exact math) first, then code with similar working scripts as references, then run-time checks and repair. */
+/** Indicator from text: v6 system prompt plus similar working scripts as references, run-time checks and repair rounds. One model call per round (free models are rate limited). */
 export async function genIndicator(request: string, complete: Complete, examples: Example[] = []): Promise<string> {
   const text = request.trim();
   if (!text) throw new Error('Describe the indicator first.');
-  let plan = '';
-  try { plan = (await complete([{ role: 'system', content: PLAN_SYSTEM }, { role: 'user', content: `Indicator wanted: ${text}` }])).trim(); } catch { /* the plan only helps: go on without it */ }
   const refs = pickExamples(text, examples).map((e) => `--- ${e.title} ---\n${e.code.slice(0, 1800)}`).join('\n\n');
-  const request2 = [`Indicator wanted: ${text}`, plan && `Spec from the analyst (follow it):\n${plan}`, refs && `Working scripts of this exact interpreter, copy their style and function usage (they may declare //@version=5; you still write //@version=6):\n${refs}`].filter(Boolean).join('\n\n');
-  return loop(INDICATOR_SYSTEM, request2, complete, sanity, 4);
+  const req = [`Indicator wanted: ${text}`, refs && `Working scripts of this exact interpreter, copy their style and function usage (they may declare //@version=5; you still write //@version=6):\n${refs}`].filter(Boolean).join('\n\n');
+  return loop(INDICATOR_SYSTEM, req, complete, sanity, 4);
 }
 
 /** Condition code for `subject`; checked by building a one-condition strategy and running it. */

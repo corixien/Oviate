@@ -89,7 +89,7 @@
   function setParam(o: Operand, i: number, e: Event) { const v = val(e); if (o.k === 'ind' && Number.isFinite(v)) o.p[i] = v; }
 
   // ---------- groups ----------
-  function newCond(): Cond { return scenarioCond(indOperand('rsi')); }
+  function newCond(): Cond { return scenarioCond(indOperand('rsi'), AI_ID); }
   function setQty(e: Event) { let v = val(e); if (!Number.isFinite(v) || v < 0) return; if (spec.qtyType === 'percent_of_equity') v = Math.min(100, v); spec.qty = v; }
   function setSideNum(s: Side, k: 'sl' | 'tp', e: Event) { const v = val(e); s[k] = Number.isFinite(v) && v >= 0 ? v : 0; }
 
@@ -99,8 +99,23 @@
     if (info.error) { status = { ok: false, text: info.error.message }; return false; }
     return true;
   }
+  /** AI conditions that have text but no code yet: write them now (one at a time, free models are rate limited). */
+  async function generatePending(): Promise<boolean> {
+    const todo: Cond[] = [];
+    const walk = (g: Group) => { for (const it of g.items) { if (it.t === 'group') walk(it); else if (it.cmp === AI_ID && it.ai?.text.trim() && !it.ai.code) todo.push(it); } };
+    for (const sd of [spec.long, spec.short]) if (sd.on) { walk(sd.entry); walk(sd.exit); }
+    for (const c of todo) {
+      await generateAi(c);
+      if (!c.ai?.code) { status = { ok: false, text: 'Could not write a condition: ' + (aiErr[c.ai!.uid] || 'unknown error') }; return false; }
+    }
+    return true;
+  }
   async function save(): Promise<string | null> {
     if (saving) return null;
+    saving = true;
+    const ready = await generatePending();
+    saving = false;
+    if (!ready) return null;
     const name = (app.builder.name ?? spec.name).trim();
     if (!spec.name.trim() || !name) { status = { ok: false, text: 'Give the strategy a name' }; return null; }
     if (!check()) return null;
@@ -188,20 +203,23 @@
                 <Select value={String(lo.out)} options={(indDef(lo.ind)?.outputs ?? []).map((n, i) => ({ value: String(i), label: n }))} onchange={(v) => { lo.out = Number(v); }} width="130px" />
               {/if}
             </div>
-            <Select value={it.cmp} options={scenarioOpts(it)} onchange={(v) => pickScenario(it, v)} width="300px" />
-            {#each sc.args ?? [] as d, k}
-              {@render arg(it, k === 0 ? 'rhs' : 'rhs2', d)}
-            {/each}
+            {#if it.cmp !== AI_ID}
+              <Select value={it.cmp} options={scenarioOpts(it)} onchange={(v) => pickScenario(it, v)} width="300px" />
+              {#each sc.args ?? [] as d, k}
+                {@render arg(it, k === 0 ? 'rhs' : 'rhs2', d)}
+              {/each}
+              <button class="mini" title="Replace the fixed rule by a description in your own words" onclick={() => pickScenario(it, AI_ID)}>Use words</button>
+            {/if}
             {#if it.cmp === AI_ID && it.ai}
               {@const ai = it.ai}
               <div class="aibox">
-                <textarea rows="2" spellcheck="false" bind:value={ai.text} placeholder="Say what should happen, e.g. crosses above its signal line while price is above the EMA 50 and volume is rising"
+                <textarea rows="2" spellcheck="false" bind:value={ai.text} placeholder="Say in words when this indicator should signal, e.g. crosses above its signal line while price is above the EMA 50 and volume is rising"
                   onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); generateAi(it); } }}></textarea>
                 <div class="aibar">
                   <button class="mini" onclick={() => generateAi(it)} disabled={aiBusy[ai.uid] || !ai.text.trim()}>{aiBusy[ai.uid] ? 'Generating…' : ai.code ? 'Regenerate' : 'Generate'}</button>
                   {#if aiErr[ai.uid]}<span class="aierr">{aiErr[ai.uid]}</span>
                   {:else if ai.code}<span class="aiok">Ready</span>
-                  {:else}<span class="dim">Not generated yet: this condition never fires until you generate it.</span>{/if}
+                  {:else}<span class="dim">Not generated yet: this condition never fires until you press Generate (Ctrl+Enter).</span>{/if}
                 </div>
                 {#if ai.code}<details><summary>Pine code</summary><pre class="aicode">{ai.code}</pre></details>{/if}
               </div>
@@ -262,7 +280,7 @@
             <input class="num" type="number" min="0" max={spec.qtyType === 'percent_of_equity' ? 100 : undefined} step="any" value={spec.qty} oninput={setQty} />
             <span class="dim">{spec.qtyType === 'percent_of_equity' ? '% of equity per entry' : spec.qtyType === 'cash' ? 'invested per entry' : 'units per entry'}</span></label>
         </div>
-        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, fees and slippage are set in the Strategy Tester (Settings tab). Choose <b>Describe in words (AI)</b> in any condition to write the rule in plain text; the AI turns it into Pine.</p>
+        <p class="flow">While flat (or in the opposite direction) the strategy checks the <b>entry</b> block, while in a trade it checks the <b>exit</b> block. Orders fill at the next bar open. Capital, fees and slippage are set in the Strategy Tester (Settings tab). Pick an indicator and its parameters, then write in plain words what it should signal: <b>the AI turns your sentence into Pine code</b>, so there is no fixed list of rules. You may mention other indicators or the price in the sentence.</p>
         <p class="flow help"><b>Conditions</b> are single rules like "RSI crosses above 30". Several conditions are joined with <b>ALL</b> (every one must be true) or <b>ANY</b> (one is enough). A <b>sub-group</b> lets you mix both, like (A and B) or (C and D).</p>
 
         <div class="sides">

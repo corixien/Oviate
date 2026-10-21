@@ -302,13 +302,18 @@ export const priceOperand = (src: PriceSrc = 'close'): Operand => ({ k: 'price',
 export const numOperand = (v = 0): Operand => ({ k: 'num', v });
 export const cond = (lhs: Operand, cmp: Cmp, rhs: Operand, rhs2?: Operand): Cond => ({ t: 'cond', lhs, cmp, rhs, ...(rhs2 ? { rhs2 } : {}) });
 
+/** Text condition with ready-made code (works without the AI). */
+export const textCond = (lhs: Operand, text: string, code: string): Cond => ({ ...scenarioCond(lhs, AI_ID), ai: { text, code, uid: crypto.randomUUID() } });
+
 export function defaultSpec(): Spec {
-  const fast = indOperand('ema', 0, [20]), slow = indOperand('ema', 0, [50]);
+  const fast = indOperand('ema', 0, [20]);
   const grp = (c: Cond): Group => ({ t: 'group', op: 'and', items: [c] });
+  const up = textCond(fast, 'EMA 20 crosses above EMA 50', 'ta.crossover(IND0, ta.ema(close, 50))');
+  const down = textCond(fast, 'EMA 20 crosses below EMA 50', 'ta.crossunder(IND0, ta.ema(close, 50))');
   return {
     v: 1, name: 'My Builder Strategy', qtyType: 'percent_of_equity', qty: 100,
-    long: { on: true, entry: grp(cond(fast, 'cross_above', slow)), exit: grp(cond(fast, 'cross_below', slow)), sl: 0, tp: 0 },
-    short: { on: false, entry: grp(cond(fast, 'cross_below', slow)), exit: grp(cond(fast, 'cross_above', slow)), sl: 0, tp: 0 },
+    long: { on: true, entry: grp(up), exit: grp(down), sl: 0, tp: 0 },
+    short: { on: false, entry: grp(structuredClone(down)), exit: grp(structuredClone(up)), sl: 0, tp: 0 },
   };
 }
 

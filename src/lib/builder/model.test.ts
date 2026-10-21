@@ -20,7 +20,7 @@ test('default spec generates a valid strategy that trades', () => {
   assert.equal(r.meta.kind, 'strategy');
   assert.ok(r.strategy!.trades.length > 2, `trades ${r.strategy!.trades.length}`);
   assert.ok(r.strategy!.trades.every((t) => t.dir === 'long'));
-  assert.ok(r.plots.length >= 2, 'overlay MAs are plotted');
+  assert.ok(r.plots.length >= 1, 'overlay MA is plotted');
 });
 
 test('every catalog indicator compiles with each output used on both sides of a condition', () => {
