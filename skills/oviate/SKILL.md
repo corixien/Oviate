@@ -42,6 +42,10 @@ description: Build, check, install and backtest Pine Script indicators and strat
 - Output: 10 ranked variants: 3 best of one category (win rate, profit, lowest drawdown) and 7 mixes (Balanced, Win-rate focus, Profit focus, Safety first, Recent market, Consistent, Robust plateau), each with win rate, return, max drawdown, trades, last-fifth return, score and the `--param` flags to reproduce it. The three category variants are the best value of their column among points with enough trades (a point that wins several categories carries all tags, e.g. "Best win rate + Best profit"); the 7 mixes are scored with the recency weighting. The app has the same optimizer in the Strategy Tester's "Optimizer" tab (Apply puts a variant on the chart).
 - Judge honestly: the result is fitted to past data. Prefer variants that sit on a plateau, have enough trades, and also hold in a period the optimizer did not see (`--from/--to`). Report win rate AND return AND drawdown, not just the best number, and name the overfitting risk. Not investment advice.
 
+## Builder strategies
+
+Strategies made with the app's visual builder (`/visual`) read library indicators through the Oviate extension `oviate.ind("indicator file name", "Plot title", "Input title=value;Other=value")`, which returns that plot's value on the current bar (not valid TradingView Pine). You can write it too: `r = oviate.ind("rsi", "RSI", "Length=" + str.tostring(len))`. Names come from `oviate list indicators`; plot titles from `oviate check <indicator file>`. `ta.crossover(r, 30)` etc. work on the result. The builder's model sits in an `// @oviate-builder {...}` comment; editing such a file by hand is fine, saving it again from the builder regenerates the code.
+
 ## Rules
 
 - Backtests are not predictions. Report numbers honestly, including bad ones, and name the weaknesses (few trades, one regime, huge drawdown). No investment advice.

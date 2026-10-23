@@ -22,6 +22,10 @@ export interface Ctx extends PineCandles {
   broker?: any;
   /** Strategy Tester overrides for strategy() */
   brokerCfg?: import('./types.ts').TesterSettings;
+  /** sources of the library indicators this run may read through oviate.ind (else the thread's registry is used) */
+  lib?: Record<string, string>;
+  /** results of oviate.ind runs, per indicator and input set */
+  indCache?: Map<string, import('./types.ts').PineResult>;
   seriesByName(name: string): Float64Array | undefined;
 }
 

@@ -65,9 +65,12 @@ class App {
   tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippagePct: 0.1, fillOnClose: true });
   /** Request to reset the view of a chart (right-click menu, command bar). */
   resetReq = $state({ id: '', n: 0 });
+  replayReq = $state({ id: '', n: 0 });
   /** AI indicator dialog (indicator from plain text). */
   aiDialog = $state<'indicators' | 'strategies' | null>(null);
-  page = $state<'chart' | 'news' | 'editor'>('chart');
+  page = $state<'chart' | 'news' | 'editor' | 'builder'>('chart');
+  /** strategy opened in the visual builder (null = new) */
+  builder = $state<{ name: string | null }>({ name: null });
   /** Script editor target: an existing script or a new one (name null). */
   /** name null = a new script; blank = nothing selected yet (opened with /ind or /strat) */
   editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean }>({ kind: 'indicators', name: null });
@@ -102,7 +105,11 @@ class App {
   }
   get count() { return LAYOUT_COUNT[this.layout]; }
 
+  replayChart() { this.replayReq = { id: this.chart.id, n: this.replayReq.n + 1 }; }
   resetChart() { this.resetReq = { id: this.chart.id, n: this.resetReq.n + 1 }; }
+
+  /** Open the visual strategy builder on a strategy it generated (name) or on a new one. */
+  openBuilder(name: string | null = null) { this.builder = { name }; this.page = 'builder'; }
 
   /** Open the code editor with nothing selected (what `/ind` and `/strat` do). */
   openEditor(kind: 'indicators' | 'strategies') {

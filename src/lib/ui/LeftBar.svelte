@@ -3,7 +3,7 @@
   import { DRAW_GROUPS } from '$lib/chart/renderer';
   import Icons from './Icons.svelte';
   const names: Record<string, string> = {
-    cursor: 'Cursor', trend: 'Trend line', ray: 'Ray', extline: 'Extended line', hray: 'Horizontal ray', arrow: 'Arrow', hline: 'Horizontal line', vline: 'Vertical line', crossline: 'Cross line',
+    cursor: 'Cursor', trend: 'Trend line', ray: 'Ray', extline: 'Extended line', hray: 'Horizontal ray', arrow: 'Arrow', arrowpath: 'Arrow path (click to extend, Enter / double click to finish)', hline: 'Horizontal line', vline: 'Vertical line', crossline: 'Cross line',
     channel: 'Parallel channel', pitchfork: 'Pitchfork', rect: 'Rectangle', ellipse: 'Ellipse', circle: 'Circle', triangle: 'Triangle',
     fib: 'Fib retracement', fibext: 'Trend-based fib extension', longpos: 'Long position', shortpos: 'Short position', measure: 'Measure', pricerange: 'Price range', daterange: 'Date range',
     brush: 'Brush', arrowup: 'Arrow up marker', arrowdown: 'Arrow down marker', text: 'Text', callout: 'Callout'

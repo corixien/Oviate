@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-21 (optimizer fixes, AI edit in the code editor)
+Last updated: 2026-10-23 (visual builder v2, replay mode, arrow path, far zoom-out)
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
@@ -56,6 +56,9 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Visual strategy builder v2 (`/visual`, Builder button in the strategy editor, "Edit in builder" in a chart strategy menu): any library indicator + plot + inputs, price, fixed value or None on each side, per-indicator "Ideas", within-N-bars, ALL/ANY groups, long/short, SL/TP, "Fill with AI" (`builder/ai.ts`). Generates normal Pine using the new extension `oviate.ind(name, plot, "Input=value;...")` (`pine/indlib.ts`, native in `interp.ts`, `RunOptions.lib` for workers/optimizer, CLI reads indicator files). Tests in `src/lib/builder/model.test.ts` (added to `npm test`).
+- [x] Replay mode (Replay button / `/replay`, scissors pick, step / play / speed, Shift+Left/Right, Space), arrow path drawing tool, Ctrl+scroll zoom out to 0.03 px per bar (time and price clamp independently).
+- [x] `scriptMeta` fixed: titles containing parentheses (e.g. "Relative Strength Index (RSI)") showed as "Untitled" in lists.
 - [x] Strategy editor: size / stop loss / take profit bar always above the code (`setStrategyParams` in `ai/pine.ts`, no AI; mirrors the code, SL/TP disabled when the code has no such input); AI strip keeps Direction only. Pine engine: `.field` on a function result (e.g. `ta.supertrend(..).direction`) is now an error instead of silent na (it made exit conditions never fire -> a strategy with a single open trade). Tester shows a hint when a strategy never exits. Old builder-generated strategies in the user's data (`Supertrend.pine` ai3, `Golden Cross Strategy.pine` without exit) are NOT edited by Claude.
 - [x] Buy & hold "invested time only" now = (1 + whole-period change)^(invested bars / total bars) - 1 (average per-bar growth applied over invested bars, `stats.ts`). Optimizer parameter table wrapper fits its content so the right border shows.
 - [x] Optimizer: category winners ("Best win rate / profit / Lowest drawdown") are the absolute best visible value of their column (raw whole-history figures, with trade-count and profit guards); a point winning several categories carries all tags; scoring of the mixes stays recency weighted. Layout fixed (vertical stack, tables in scroll wrappers).

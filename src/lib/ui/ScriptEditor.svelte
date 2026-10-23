@@ -196,6 +196,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
         <span class="ext">.pine</span>
         <div class="spacer"></div>
         <button class:on={aiOpen} onclick={toggleAi} disabled={blank} title="Change this {label.toLowerCase()} with AI">AI</button>
+        {#if kind === 'strategies'}<button onclick={() => app.openBuilder(!isNew && !blank && code.includes('@oviate-builder') ? app.editor.name : null)} title="Build a strategy from indicator conditions, no code">Builder</button>{/if}
         <button onclick={check} disabled={blank}>Check</button>
         {#if kind === 'indicators' && !isNew && !blank}<button onclick={addToChart}>Add to chart</button>{/if}
         {#if !isNew && !blank}<button class="danger" onclick={remove}>Delete</button>{/if}

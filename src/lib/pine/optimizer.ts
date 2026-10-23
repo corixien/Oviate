@@ -135,7 +135,7 @@ const PROFILES: { kind: string; tag: string; score: (m: Metrics, t: number) => n
 export interface Variant { rank: number; tag: string; kind: string; /** every category this point is the absolute best of, plus its own kind */ kinds: string[]; params: Record<string, number>; metrics: Metrics; score: number; robust: number }
 export interface OptimizeProgress { evals: number; budget: number; best: number; phase: string }
 export interface OptimizeOpts {
-  code: string; data: PineCandles; stepSec: number; space: ParamDef[]; settings: TesterSettings;
+  code: string; /** library indicators the strategy reads (oviate.ind) */ lib?: Record<string, string>; data: PineCandles; stepSec: number; space: ParamDef[]; settings: TesterSettings;
   /** inputs that are not tuned keep these values */
   base?: Record<string, number | boolean | string>;
   budget?: number;
@@ -167,7 +167,7 @@ export function optimize(o: OptimizeOpts): OptimizeResult {
     if (pairs.some(([a, b]) => Number(params[space[a].id]) >= Number(params[space[b].id]))) { cache.set(k, null); return null; } // keep Fast < Slow
     let res: StrategyResult | null;
     if (o.run) res = o.run(params);
-    else { const r = runPine(o.code, data, { params, step: o.stepSec, broker: o.settings }); res = r.error ? null : r.strategy ?? null; }
+    else { const r = runPine(o.code, data, { params, step: o.stepSec, broker: o.settings, lib: o.lib }); res = r.error ? null : r.strategy ?? null; }
     const pt = res ? { idx, m: metricsOf(res, data.n) } : null;
     cache.set(k, pt);
     evals++;

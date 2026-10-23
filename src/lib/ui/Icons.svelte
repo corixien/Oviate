@@ -6,6 +6,7 @@
     trend: 'M4 19L20 5M4 19h0M20 5h0',
     ray: 'M4 19L22 4',
     arrow: 'M4 20L19 5M19 5h-7M19 5v7',
+    arrowpath: 'M4 19l6-9 4 5 6-9M20 6h-5M20 6v5',
     hline: 'M3 12h18M12 12h0',
     vline: 'M12 3v18',
     rect: 'M5 6h14v12H5z',

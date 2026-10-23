@@ -153,7 +153,32 @@
   });
 
   const symDrawings = $derived(cfg.drawings.filter((d) => d.sym === cfg.symbol));
-  const display = $derived(transform(raw, cfg.type));
+  // ----- replay: the candles right of the picked bar are hidden; indicators and strategies only see what is visible -----
+  let replay = $state<{ t: number | null; playing: boolean; speed: number } | null>(null);
+  const REPLAY_SPEEDS = [1, 2, 5, 10, 30];
+  const barsUpTo = (t: number) => { let lo = 0, hi = raw.n; while (lo < hi) { const m = (lo + hi) >> 1; if (raw.t[m] <= t) lo = m + 1; else hi = m; } return lo; };
+  const view = $derived.by<Candles>(() => {
+    if (!replay || replay.t === null) return raw;
+    const k = Math.max(1, barsUpTo(replay.t));
+    return { n: k, t: raw.t.subarray(0, k), o: raw.o.subarray(0, k), h: raw.h.subarray(0, k), l: raw.l.subarray(0, k), c: raw.c.subarray(0, k), v: raw.v.subarray(0, k) };
+  });
+  const display = $derived(transform(view, cfg.type));
+  function startReplay() { replay = { t: null, playing: false, speed: 1 }; r!.replayPick = true; r!.setState({}); }
+  function exitReplay() { replay = null; if (r) { r.replayPick = false; r.setState({}); r.scrollToEnd(); } }
+  function pickReplay(t: number) { if (!replay) return; replay = { ...replay, t }; r!.replayPick = false; tick().then(() => r?.scrollToEnd()); }
+  function replayStep(d: number) {
+    if (!replay || replay.t === null) return;
+    const k = Math.min(raw.n - 1, Math.max(0, barsUpTo(replay.t) - 1 + d));
+    replay.t = raw.t[k];
+    if (d > 0 && k >= raw.n - 1) replay.playing = false;
+    tick().then(() => r?.scrollToEnd());
+  }
+  $effect(() => {
+    if (!replay?.playing) return;
+    const iv = setInterval(() => replayStep(1), 1000 / replay!.speed);
+    return () => clearInterval(iv);
+  });
+  $effect(() => { const q = app.replayReq; if (!r || !q.n || q.id !== cfg.id) return; untrack(() => { if (replay) exitReplay(); else startReplay(); }); });
   // ----- Pine indicators: computed in a worker, coalesced so ticks cannot pile up -----
   let pineResults = $state<Record<string, PineResult>>({});
   let pineRunning = false, pineDirty = false, lastPineRun = 0;
@@ -224,7 +249,7 @@
   const liveBars = new Map<string, number>();
   async function liveSignals(list: typeof cfg.indicators) {
     for (const i of list) {
-      if (!i.strategy || !i.account || raw.n < 3) continue;
+      if (!i.strategy || !i.account || raw.n < 3 || replay) continue;
       const file = library.get('strategies', i.id);
       const acc = paper.accounts.find((a) => a.id === i.account);
       if (!file || !acc) continue;
@@ -284,7 +309,7 @@
   }
 
   async function poll() {
-    if (status !== 'ok' || document.hidden || r?.dragging) return;
+    if (status !== 'ok' || document.hidden || r?.dragging || replay) return;
     try {
       const to = Math.floor(Date.now() / 1000) + step;
       const c = await getCandles(cfg.symbol, cfg.tf, to - step * 6, to);
@@ -301,9 +326,10 @@
       onToolDone: () => { app.tool = 'cursor'; },
       onSelect: (id) => { selectedId = id; },
       onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0]),
-      onEditText: (id, x, y, text) => openEditor(id, x, y, text)
+      onEditText: (id, x, y, text) => openEditor(id, x, y, text),
+      onReplayPick: (t) => pickReplay(t)
     }, {
-      data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
+      data: display, raw: view, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
     });
     const ro = new ResizeObserver(([e]) => r!.resize(e.contentRect.width, e.contentRect.height));
@@ -318,7 +344,7 @@
     const key = cfg.symbol + '|' + cfg.tf;
     if (key === lastKey) return;
     lastKey = key;
-    untrack(() => { load(true); news = []; loadNews(); });
+    untrack(() => { if (replay) exitReplay(); load(true); news = []; loadNews(); });
   });
   $effect(() => { const iv = setInterval(loadNews, 10 * 60 * 1000); return () => clearInterval(iv); });
 
@@ -332,7 +358,7 @@
   });
 
   function applyTick(p: number, size: number, t: number) {
-    if (!raw.n) return;
+    if (!raw.n || replay) return;
     const last = raw.n - 1;
     if (t < raw.t[last]) return;
     if (step < 86400 && t >= raw.t[last] + step) {
@@ -350,7 +376,7 @@
 
   $effect(() => {
     r?.setState({
-      data: display, raw, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
+      data: display, raw: view, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet,
       tool: app.active === index ? app.tool : 'cursor', news: newsMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
     });
@@ -383,8 +409,14 @@
       const el = e.target as HTMLElement;
       if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.isContentEditable) return;
       if (e.ctrlKey || e.metaKey) return;
+      if (replay && (e.key === ' ' || (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')))) {
+        e.preventDefault();
+        if (e.key === ' ') { if (replay.t !== null) replay.playing = !replay.playing; } else replayStep(e.key === 'ArrowRight' ? 1 : -1);
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') { if (r!.deleteSelected()) e.preventDefault(); }
-      else if (e.key === 'Escape') { r!.cancelDraft(); app.tool = 'cursor'; }
+      else if (e.key === 'Escape') { if (replay && replay.t === null) exitReplay(); r!.cancelDraft(); app.tool = 'cursor'; }
+      else if (e.key === 'Enter') { if (r!.finishPath()) e.preventDefault(); } // keeps the command bar from opening
       else if (e.key === 'ArrowLeft') r!.panBars(e.shiftKey ? -20 : -3);
       else if (e.key === 'ArrowRight') r!.panBars(e.shiftKey ? 20 : 3);
       else if (e.key === '+' || e.key === '=') r!.zoomBars(1.2, (box.clientWidth - 66) / 2);
@@ -392,8 +424,8 @@
       else if (e.altKey && e.key.toLowerCase() === 'r') r!.resetView();
       else if (e.key === 'End') r!.scrollToEnd();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   });
 
   const bar = $derived(raw.n ? (hover !== null && hover < display.n ? hover : display.n - 1) : -1);
@@ -418,6 +450,7 @@
       </span>
     </div>
     <div class="trade">
+      <button class="rp" class:on={!!replay} title="Replay mode" onclick={() => { app.active = index; replay ? exitReplay() : startReplay(); }}>&#9986; Replay</button>
       <button class="b" title="Buy {cfg.symbol} (paper)" onclick={() => { app.active = index; paper.orderDialog = { open: true, side: 'buy', symbol: cfg.symbol }; }}>Buy</button>
       <button class="s" title="Sell {cfg.symbol} (paper)" onclick={() => { app.active = index; paper.orderDialog = { open: true, side: 'sell', symbol: cfg.symbol }; }}>Sell</button>
     </div>
@@ -452,6 +485,7 @@
                 <button onclick={() => { cfg.indicators = [...cfg.indicators, { ...$state.snapshot(ind), uid: crypto.randomUUID() }]; menuFor = ''; app.persist(); }}>Duplicate</button>
                 <button onclick={() => { ind.params = {}; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
                 <button onclick={() => { app.editor = { kind: ind.strategy ? 'strategies' : 'indicators', name: ind.id }; app.page = 'editor'; menuFor = ''; }}>Edit source</button>
+                {#if ind.strategy && file?.code.includes('@oviate-builder')}<button onclick={() => { app.openBuilder(ind.id); menuFor = ''; }}>Edit in builder</button>{/if}
                 {#if ind.strategy}
                   <button class="hd2" disabled>Trade on paper account</button>
                   {#each paper.accounts as acc (acc.id)}
@@ -477,6 +511,22 @@
   {#if edit}
     <div class="tedit" contenteditable="true" role="textbox" tabindex="0" bind:this={editEl} style:left="{edit.x}px" style:top="{edit.y}px"
       onkeydown={editKey} onpaste={editPaste} onblur={() => { if (Date.now() >= editArmed) closeEditor(true); }} onpointerdown={(e) => e.stopPropagation()}></div>
+  {/if}
+
+  {#if replay}
+    <div class="rbar" role="toolbar" tabindex="-1" onpointerdown={(e) => e.stopPropagation()}>
+      {#if replay.t === null}
+        <span>Click a bar to start the replay</span>
+        <button onclick={exitReplay}>Cancel</button>
+      {:else}
+        <button title="Back one bar (Shift+Left)" onclick={() => { replay!.playing = false; replayStep(-1); }}>&#9198;</button>
+        <button class="pl" title="Play / pause (Space)" onclick={() => (replay!.playing = !replay!.playing)}>{replay.playing ? '\u23F8' : '\u25B6'}</button>
+        <button title="Forward one bar (Shift+Right)" onclick={() => { replay!.playing = false; replayStep(1); }}>&#9197;</button>
+        <button class="sp" title="Speed: bars per second" onclick={() => { replay!.speed = REPLAY_SPEEDS[(REPLAY_SPEEDS.indexOf(replay!.speed) + 1) % REPLAY_SPEEDS.length]; }}>{replay.speed}x</button>
+        <button title="Choose another start bar" onclick={() => { replay!.playing = false; replay!.t = null; r!.replayPick = true; r!.setState({}); }}>&#9986;</button>
+        <button onclick={exitReplay}>Exit</button>
+      {/if}
+    </div>
   {/if}
 
   {#if selectedId}
@@ -530,6 +580,11 @@
   .cmenu button:hover { background: var(--accent); color: #fff; }
   .cmenu kbd { font: 10px ui-monospace, monospace; opacity: 0.6; }
   .tedit { position: absolute; z-index: 5; min-width: 40px; min-height: 17px; padding: 5px 7px; box-sizing: content-box; white-space: pre; outline: 0; background: var(--glass); border: 1px solid var(--accent); color: var(--fg); font: 13px/17px system-ui, sans-serif; margin: -1px 0 0 -1px; }
+  .rbar { position: absolute; z-index: 20; left: 50%; bottom: 40px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--glass); border: 1px solid var(--accent); font: 12px system-ui, sans-serif; color: var(--dim); }
+  .rbar span { padding: 0 10px; }
+  .rbar button { min-width: 30px; height: 26px; padding: 0 9px; background: none; border: 0; color: var(--fg); font: 600 13px system-ui, sans-serif; cursor: pointer; }
+  .rbar button:hover { background: var(--accent); color: #fff; }
+  .trade .rp { color: var(--fg); border-color: var(--accent); } .trade .rp:hover, .trade .rp.on { background: var(--accent); color: #fff; }
   .seltools { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; background: var(--glass); border: 1px solid var(--accent); font: 12px system-ui, sans-serif; color: var(--dim); animation: st 0.2s ease both; }
   .seltools button { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--fg); padding: 5px 10px; cursor: pointer; font: 600 12px system-ui, sans-serif; }
   .seltools button:hover { background: var(--down); color: #fff; }

@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runPine } from '../src/lib/pine/index.ts';
+import { setIndicatorSource } from '../src/lib/pine/indlib.ts';
 import { detailedStats } from '../src/lib/pine/stats.ts';
 import { paramSpace, optimize, type ParamDef } from '../src/lib/pine/optimizer.ts';
 import { sanity, GUIDE, STRAT_SAMPLE, STRATEGY_EXAMPLE_LONG, STRATEGY_EXAMPLE_BOTH } from '../src/lib/ai/pine.ts';
@@ -42,6 +43,8 @@ const numFlag = (a: Args, k: string, d: number): number => { const v = flag(a, k
 // ---------------------------------------------------------------- files
 function kindOf(s: string): Kind { return /^ind/i.test(s) ? 'indicators' : /^strat/i.test(s) ? 'strategies' : fail(`kind must be "indicators" or "strategies", got "${s}"`); }
 const folder = (k: Kind) => join(dataDir, k);
+// strategies read library indicators through oviate.ind(name, ...)
+setIndicatorSource((n) => { const f = join(dataDir, 'indicators', n + '.pine'); return existsSync(f) ? readFileSync(f, 'utf8') : undefined; });
 function listScripts(k: Kind): { name: string; title: string; file: string }[] {
   const dir = folder(k);
   if (!existsSync(dir)) return [];

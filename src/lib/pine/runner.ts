@@ -1,5 +1,6 @@
 import { runPine } from './interp.ts';
 import type { RunOptions } from './interp.ts';
+import { neededLib } from './indlib.ts';
 import type { PineCandles, PineResult } from './types.ts';
 
 let worker: Worker | null = null;
@@ -30,6 +31,7 @@ function getWorker(): Worker | null {
 /** Run a script in the background worker (main thread fallback). Candle arrays are copied. */
 export function runScript(code: string, candles: PineCandles, opts: RunOptions = {}): Promise<PineResult> {
   const w = getWorker();
+  if (!opts.lib) { const lib = neededLib(code); if (lib) opts = { ...opts, lib }; } // the worker has no script library of its own
   if (!w) return Promise.resolve(runPine(code, candles, opts));
   const id = ++seq;
   const copy: PineCandles = { n: candles.n, t: candles.t.slice(), o: candles.o.slice(), h: candles.h.slice(), l: candles.l.slice(), c: candles.c.slice(), v: candles.v.slice() };

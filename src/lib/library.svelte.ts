@@ -1,4 +1,5 @@
 import { inTauri } from './api';
+import { setIndicatorSource } from './pine/indlib.ts';
 
 export type ScriptKind = 'indicators' | 'strategies';
 export interface ScriptFile { name: string; code: string; title: string; shortTitle: string; overlay: boolean; modified: number }
@@ -12,11 +13,12 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 
 /** Cheap header parse for listings; the real metadata comes from running the script. */
 export function scriptMeta(code: string): { title: string; shortTitle: string; overlay: boolean } {
-  const m = /(?:indicator|strategy|study)\s*\(([^)]*)\)/.exec(code);
+  const m = /(?:indicator|strategy|study)\s*\(([^\n]*)/.exec(code);
   const args = m?.[1] ?? '';
-  const str = (re: RegExp) => re.exec(args)?.[1];
-  const title = str(/^\s*(?:title\s*=\s*)?["']([^"']*)["']/) ?? 'Untitled';
-  const shortTitle = str(/shorttitle\s*=\s*["']([^"']*)["']/) ?? title;
+  // quoted strings may contain parentheses, e.g. "Relative Strength Index (RSI)"
+  const str = (re: RegExp) => re.exec(args)?.[2];
+  const title = str(/^\s*(?:title\s*=\s*)?(["'])(.*?)\1/) ?? 'Untitled';
+  const shortTitle = str(/shorttitle\s*=\s*(["'])(.*?)\1/) ?? title;
   const overlay = /overlay\s*=\s*true/.test(args);
   return { title, shortTitle, overlay };
 }
@@ -79,3 +81,5 @@ class Library {
 }
 
 export const library = new Library();
+// strategies read library indicators through oviate.ind(name, ...)
+setIndicatorSource((n) => library.get('indicators', n)?.code);

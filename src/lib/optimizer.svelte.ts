@@ -4,6 +4,7 @@ import { paper } from './paper/paper.svelte';
 import { candleStore } from './chart/candleStore';
 import { paramSpace, type ParamDef, type OptimizeProgress, type OptimizeResult, type Variant } from './pine/optimizer.ts';
 import { runOptimizer, type OptimizeJob } from './pine/optimizer-runner.ts';
+import { neededLib } from './pine/indlib.ts';
 
 export type Row = ParamDef & { on: boolean };
 
@@ -46,7 +47,7 @@ class Optimizer {
     this.status = 'running'; this.error = ''; this.result = null; this.progress = { evals: 0, budget: this.budget, best: 0, phase: 'start' };
     const base = { ...$state.snapshot(tg.ind.params) } as Record<string, number | boolean | string>;
     this.job = runOptimizer({
-      code: tg.file.code, data: tg.data, stepSec: tg.t.stepSec, space: $state.snapshot(space) as ParamDef[], base, budget: this.budget, settings: $state.snapshot(app.tester),
+      code: tg.file.code, lib: neededLib(tg.file.code), data: tg.data, stepSec: tg.t.stepSec, space: $state.snapshot(space) as ParamDef[], base, budget: this.budget, settings: $state.snapshot(app.tester),
     }, (p) => { this.progress = p; });
     this.job.promise.then((r) => { this.result = r; this.status = 'done'; })
       .catch((e) => { if (String(e.message ?? e) === 'cancelled') { this.status = 'idle'; return; } this.error = String(e.message ?? e); this.status = 'error'; })

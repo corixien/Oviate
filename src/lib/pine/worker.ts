@@ -2,7 +2,7 @@
 import { runPine } from './interp.ts';
 import type { PineCandles, PineResult } from './types.ts';
 
-interface Req { id: number; code: string; candles: PineCandles; opts: { params?: Record<string, any>; step?: number; symbol?: string; mintick?: number; broker?: import('./types.ts').TesterSettings } }
+interface Req { id: number; code: string; candles: PineCandles; opts: { params?: Record<string, any>; step?: number; symbol?: string; mintick?: number; broker?: import('./types.ts').TesterSettings; lib?: Record<string, string> } }
 
 self.onmessage = (e: MessageEvent<Req>) => {
   const { id, code, candles, opts } = e.data;

@@ -21,6 +21,7 @@
 
   const commands = $derived<Item[]>([
     { key: 'ind indicator indicators editor code pine files', title: 'Indicator code editor', sub: 'Open your indicators (search, edit, save)', tag: 'indicator', run: () => { app.openEditor('indicators'); } },
+    { key: 'visual builder strategy conditions indicators no code build', title: 'Visual strategy builder', sub: 'Build a strategy from indicator conditions, no code', tag: 'strategy', run: () => { app.openBuilder(null); } },
     { key: 'strat strategy strategies editor code pine files', title: 'Strategy code editor', sub: 'Open your strategies (search, edit, save)', tag: 'strategy', run: () => { app.openEditor('strategies'); } },
     ...TIMEFRAMES.map((tf) => ({ key: `tf ${tf}`, title: `Timeframe ${tf}`, tag: 'tf', run: () => { app.chart.tf = tf; } })),
     ...CHART_TYPES.map((ct) => ({ key: `type ${ct}`, title: `Chart type: ${ct}`, tag: 'type', run: () => { app.chart.type = ct; } })),
@@ -51,6 +52,7 @@
     { key: 'lang de deutsch', title: 'Sprache: Deutsch', tag: 'ui', run: () => { app.lang = 'de'; } },
     { key: 'settings alpaca keys', title: t('settings', app.lang), sub: 'Alpaca keys, theme, language', tag: 'ui', run: () => { app.settingsOpen = true; } },
     { key: 'chart reset view zoom scale fit', title: 'Reset chart', sub: 'Fit the view like on a fresh timeframe (Alt+R)', tag: 'chart', run: () => { app.resetChart(); } },
+    { key: 'replay bar replay mode scissors', title: 'Replay mode', sub: 'Pick a bar and play the market forward from there', tag: 'chart', run: () => { app.replayChart(); } },
     { key: 'log logarithmic scale', title: 'Toggle log scale', tag: 'chart', run: () => { app.chart.log = !app.chart.log; } },
     { key: 'volume toggle add', title: 'Volume indicator: toggle', tag: 'indicator', run: () => { app.chart.volume = !app.chart.volume; app.chart.volumeVisible = true; } },
     { key: 'grid toggle', title: 'Toggle grid', tag: 'chart', run: () => { app.grid = !app.grid; } },

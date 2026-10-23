@@ -10,6 +10,7 @@
   import Analysis from '$lib/ui/Analysis.svelte';
   import NewsPage from '$lib/ui/NewsPage.svelte';
   import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
+  import StrategyBuilder from '$lib/ui/StrategyBuilder.svelte';
   import { library } from '$lib/library.svelte';
   import PaperPanel from '$lib/ui/PaperPanel.svelte';
   import OrderDialog from '$lib/ui/OrderDialog.svelte';
@@ -79,7 +80,7 @@
     }
     const el = e.target as HTMLElement;
     const typing = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
-    if (typing || app.spotlight.open || app.settingsOpen) return;
+    if (typing || e.defaultPrevented || app.spotlight.open || app.settingsOpen) return;
     if (e.key === 'Enter') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && /[a-z0-9/]/i.test(e.key)) {
@@ -94,6 +95,7 @@
   <TopBar />
   {#if app.page === 'news'}<NewsPage />{/if}
   {#if app.page === 'editor'}<ScriptEditor />{/if}
+  {#if app.page === 'builder'}<StrategyBuilder />{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
     <div class="center">

@@ -3,12 +3,12 @@ import type { ChartType } from './transforms';
 import type { PineResult, PlotOut } from '../pine/types';
 
 export type DrawTool = 'cursor' | 'trend' | 'ray' | 'extline' | 'hray' | 'arrow' | 'hline' | 'vline' | 'crossline' | 'channel' | 'pitchfork'
-  | 'rect' | 'ellipse' | 'circle' | 'triangle' | 'fib' | 'fibext' | 'longpos' | 'shortpos' | 'measure' | 'pricerange' | 'daterange'
+  | 'arrowpath' | 'rect' | 'ellipse' | 'circle' | 'triangle' | 'fib' | 'fibext' | 'longpos' | 'shortpos' | 'measure' | 'pricerange' | 'daterange'
   | 'brush' | 'arrowup' | 'arrowdown' | 'text' | 'callout';
 /** Toolbar groups (separated by a divider). */
 export const DRAW_GROUPS: DrawTool[][] = [
   ['cursor'],
-  ['trend', 'ray', 'extline', 'hray', 'arrow', 'hline', 'vline', 'crossline'],
+  ['trend', 'ray', 'extline', 'hray', 'arrow', 'arrowpath', 'hline', 'vline', 'crossline'],
   ['channel', 'pitchfork'],
   ['rect', 'ellipse', 'circle', 'triangle'],
   ['fib', 'fibext'],
@@ -17,7 +17,7 @@ export const DRAW_GROUPS: DrawTool[][] = [
 ];
 export const DRAW_TOOLS: DrawTool[] = DRAW_GROUPS.flat();
 const POINTS: Record<DrawTool, number> = {
-  cursor: 0, trend: 2, ray: 2, extline: 2, hray: 1, arrow: 2, hline: 1, vline: 1, crossline: 1, channel: 3, pitchfork: 3,
+  cursor: 0, trend: 2, ray: 2, extline: 2, hray: 1, arrow: 2, arrowpath: 0, hline: 1, vline: 1, crossline: 1, channel: 3, pitchfork: 3,
   rect: 2, ellipse: 2, circle: 2, triangle: 3, fib: 2, fibext: 3, longpos: 3, shortpos: 3, measure: 2, pricerange: 2, daterange: 2,
   brush: 0, arrowup: 1, arrowdown: 1, text: 1, callout: 2
 };
@@ -68,12 +68,14 @@ export interface Hooks {
   onNewsClick(mark: NewsMark): void;
   /** Open the inline text editor at a screen position (px, relative to the chart). */
   onEditText(id: string, x: number, y: number, text: string): void;
+  /** Replay start chosen: time of the bar that stays the last visible one. */
+  onReplayPick(t: number): void;
 }
 
 const AXIS_W = 66, TIME_H = 26;
 const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const FIBX = [0, 0.382, 0.618, 1, 1.272, 1.618, 2.618];
-const BAR_MIN = 1.2, BAR_MAX = 80;
+const BAR_MIN = 0.03, BAR_MAX = 80;
 /** Empty bars allowed to the right of the newest candle (hard stop). */
 const RIGHT_PAD = 10;
 
@@ -95,6 +97,8 @@ export class ChartRenderer {
   private hoverNews: NewsMark | null = null;
   /** Drawing whose text is being edited in the HTML overlay (not painted on the canvas meanwhile). */
   editingId: string | null = null;
+  /** Replay start selection: a scissors line follows the cursor, a click picks the bar. */
+  replayPick = false;
   /** Wheel animation target: wheel input moves this, a rAF loop eases the view toward it. */
   private tgt: null | { start: number; barW: number; a: number; span: number; zoomT: boolean; ax: number; aIdx: number; price: boolean; pZoom: boolean; pFrac: number; pAnchor: number } = null;
   private animRaf = 0; private lastAnim = 0;
@@ -875,6 +879,13 @@ export class ChartRenderer {
           if (dr.type === 'arrow') this.arrowHead(x2, y2, Math.atan2(y2 - y1, x2 - x1), 10);
           break;
         }
+        case 'arrowpath': if (P.length > 1) {
+          ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(x1, y1);
+          for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x, P[i].y);
+          ctx.stroke();
+          const a = P[P.length - 2], z = P[P.length - 1];
+          this.arrowHead(z.x, z.y, Math.atan2(z.y - a.y, z.x - a.x), 10);
+        } break;
         case 'hray': line(x1, y1, this.plotW, y1); ctx.beginPath(); ctx.arc(x1, y1, 3, 0, 7); ctx.fill(); break;
         case 'hline': line(0, y1, this.plotW, y1); break;
         case 'vline': line(x1, 0, x1, bottom); break;
@@ -1060,7 +1071,7 @@ export class ChartRenderer {
           const yt = this.py(dr.pts[1].p), ys = P[2] ? P[2].y : y1;
           ok = x >= xl - 4 && x <= xr + 4 && y >= Math.min(y1, yt, ys) - 4 && y <= Math.max(y1, yt, ys) + 4;
         } break;
-        case 'brush': for (let i = 1; i < P.length && !ok; i++) ok = sd(P[i - 1].x, P[i - 1].y, P[i].x, P[i].y) < 6; break;
+        case 'arrowpath': case 'brush': for (let i = 1; i < P.length && !ok; i++) ok = sd(P[i - 1].x, P[i - 1].y, P[i].x, P[i].y) < 6; break;
         case 'arrowup': ok = x >= x1 - 9 && x <= x1 + 9 && y >= y1 - 2 && y <= y1 + 28; break;
         case 'arrowdown': ok = x >= x1 - 9 && x <= x1 + 9 && y <= y1 + 2 && y >= y1 - 28; break;
         case 'text': case 'callout': {
@@ -1124,6 +1135,11 @@ export class ChartRenderer {
     if (x < 0) return;
     const i = Math.round(this.idxOf(x));
     x = Math.round(this.xOf(i)) + 0.5;
+    if (this.replayPick) {
+      c.strokeStyle = theme.accent; c.lineWidth = 2; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, this.h - TIME_H); c.stroke(); c.lineWidth = 1;
+      c.fillStyle = theme.accent; c.fillRect(x - 13, 8, 26, 22); c.fillStyle = '#fff'; c.font = '15px system-ui, sans-serif'; c.textAlign = 'center'; c.fillText('\u2702', x, 20); c.textAlign = 'left';
+      c.font = '11px ui-monospace, "JetBrains Mono", monospace';
+    }
     c.strokeStyle = theme.cross; c.setLineDash([4, 4]); c.lineWidth = 1;
     c.beginPath(); c.moveTo(x, 0); c.lineTo(x, this.h - TIME_H); if (y >= 0) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(this.plotW, Math.round(y) + 0.5); } c.stroke();
     c.setLineDash([]);
@@ -1163,6 +1179,11 @@ export class ChartRenderer {
         if (h) { this.hooks.onDrawings(this.s.drawings.filter((d) => d.id !== h.id)); if (this.selected === h.id) this.select(null); }
         return;
       }
+      if (this.replayPick && region(x, y) === 'plot' && this.s.data.n) {
+        const k = Math.max(0, Math.min(this.s.data.n - 1, Math.round(this.idxOf(x))));
+        this.hooks.onReplayPick(this.s.data.t[k]);
+        return;
+      }
       el.setPointerCapture(e.pointerId);
       this.tgt = null;
       const reg = region(x, y);
@@ -1178,6 +1199,12 @@ export class ChartRenderer {
           this.invalidate(); return;
         }
         const pt = this.snap(x, y);
+        if (tool === 'arrowpath') {
+          // every click adds a vertex; the last point follows the cursor until Enter / Esc / double click
+          if (!this.draft) this.draft = { id: crypto.randomUUID(), type: tool, pts: [pt, { ...pt }], color: this.s.theme.accent };
+          else { this.draft.pts[this.draft.pts.length - 1] = pt; this.draft.pts.push({ ...pt }); }
+          this.invalidate(); return;
+        }
         if (!this.draft) {
           this.draft = { id: crypto.randomUUID(), type: tool, pts: [pt], color: this.s.theme.accent };
           if (POINTS[tool] === 1) this.finishDraft();
@@ -1250,6 +1277,7 @@ export class ChartRenderer {
     on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hooks.onHover(null, null, null); this.invalidateOver(); });
     on('dblclick', (e) => {
       const { x, y } = pos(e);
+      if (this.draft?.type === 'arrowpath') { this.finishPath(); return; }
       if (region(x, y) === 'paxis') { this.manual = null; this.invalidate(); }
       else if (region(x, y) === 'taxis') { this.resetView(); this.hooks.onViewChange(); }
     });
@@ -1295,7 +1323,23 @@ export class ChartRenderer {
     this.invalidate();
   }
 
-  cancelDraft() { this.draft = null; this.invalidate(); }
+  /** Finish a multi-click arrow path: drops the cursor-following point and clicks that landed on the same spot. */
+  finishPath() {
+    const d = this.draft;
+    if (!d || d.type !== 'arrowpath') return false;
+    const pts = d.pts.slice(0, -1);
+    while (pts.length > 1) {
+      const a = this.screen(pts[pts.length - 1]), b = this.screen(pts[pts.length - 2]);
+      if (Math.hypot(a.x - b.x, a.y - b.y) < 4) pts.pop(); else break;
+    }
+    if (pts.length < 2) { this.draft = null; this.invalidate(); return true; }
+    d.pts = pts;
+    this.finishDraft();
+    return true;
+  }
+
+  /** Esc: a started arrow path with at least one segment is kept, anything else is dropped. */
+  cancelDraft() { if (this.finishPath()) return; this.draft = null; this.invalidate(); }
 
   deleteSelected() {
     if (!this.selected) return false;
@@ -1403,19 +1447,21 @@ export class ChartRenderer {
     const m = this.panes[0]; if (!m || !this.s.data.n) return;
     const T = this.ensurePrice();
     const [smin, smax] = this.spanLimits();
-    const fOut = Math.max(BAR_MIN / T.barW, T.span / smax), fIn = Math.min(BAR_MAX / T.barW, T.span / smin);
-    let f = Math.exp(amount * 0.003);
-    f = f < 1 ? (fOut > 1 ? 1 : Math.max(f, fOut)) : (fIn < 1 ? 1 : Math.min(f, fIn));
-    if (Math.abs(f - 1) < 1e-4) return;
+    const f0 = Math.exp(amount * 0.003);
+    // time and price zoom independently: once the price axis is at its limit the time axis keeps zooming out (down to BAR_MIN)
+    const ft = Math.min(BAR_MAX, Math.max(BAR_MIN, T.barW * f0)) / T.barW;
+    const spanNew = Math.min(smax, Math.max(smin, T.span / f0));
+    const f = T.span / spanNew;
+    if (Math.abs(ft - 1) < 1e-4 && Math.abs(f - 1) < 1e-4) return;
     // time: keep the bar under the cursor fixed
     T.zoomT = true; T.ax = ax; T.aIdx = this.idxOf(ax);
-    T.barW *= f;
+    T.barW *= ft;
     T.start = this.clampStartV(T.aIdx - (ax - T.barW / 2) / T.barW, T.barW);
     // price: keep the price under the cursor fixed
     const frac = (m.y1 - Math.min(Math.max(y, m.y0), m.y1)) / (m.y1 - m.y0 || 1);
     const ca = this.tx(this.manual!.lo), cs = this.tx(this.manual!.hi) - ca;
     T.pZoom = true; T.pFrac = frac; T.pAnchor = ca + frac * cs;
-    T.span /= f; T.a = T.pAnchor - frac * T.span;
+    T.span = spanNew; T.a = T.pAnchor - frac * T.span;
     this.kick();
   }
 

@@ -5,6 +5,7 @@ import { NATIVES, CONSTS, VARS, SERIES_NAMES, NOOP_NAMESPACES, isNa, truthy, reg
 import type { Ctx, Native } from './natives.ts';
 import type { PineCandles, PineResult, PineMeta, TesterSettings } from './types.ts';
 import './strategy.ts';
+import { indicatorCode, parseParams } from './indlib.ts';
 
 const NaN_ = Number.NaN;
 
@@ -499,6 +500,8 @@ export interface RunOptions {
   mintick?: number;
   /** Strategy Tester settings overriding the strategy() declaration */
   broker?: TesterSettings;
+  /** sources of the library indicators the script reads with oviate.ind (workers have no library of their own) */
+  lib?: Record<string, string>;
 }
 
 export function runPine(code: string, data: PineCandles, opts: RunOptions = {}): PineResult {
@@ -508,7 +511,7 @@ export function runPine(code: string, data: PineCandles, opts: RunOptions = {}):
   const x: Ctx = {
     ...data, bar: 0, tms, params: opts.params ?? {}, inputs: [], plots: [], shapes: [], hlines: [], fills: [],
     bgcolors: new Array(data.n), barcolors: new Array(data.n), warnings: [], meta, step: opts.step ?? 86400,
-    symbol: opts.symbol ?? 'SYMBOL', mintick: opts.mintick ?? 0.01, brokerCfg: opts.broker,
+    symbol: opts.symbol ?? 'SYMBOL', mintick: opts.mintick ?? 0.01, brokerCfg: opts.broker, lib: opts.lib,
     seriesByName: (n: string) => (SERIES_NAMES.has(n) ? new Float64Array(0) : undefined),
   };
   const result = (): PineResult => ({
@@ -527,3 +530,26 @@ export function runPine(code: string, data: PineCandles, opts: RunOptions = {}):
     return r;
   }
 }
+
+// oviate.ind: plot value of a library indicator, computed once over the same candles and read per bar
+NATIVES['oviate.ind'] = {
+  params: ['name', 'plot', 'inputs'],
+  fn: (a, x) => {
+    const name = String(a[0]);
+    const code = indicatorCode(name, x.lib);
+    if (!code) throw new Error(`oviate.ind: indicator "${name}" not found`);
+    const inputs = typeof a[2] === 'string' ? a[2] : '';
+    const key = name + '|' + inputs;
+    const cache = (x.indCache ??= new Map());
+    let res = cache.get(key);
+    if (!res) {
+      res = runPine(code, x, { params: parseParams(inputs), step: x.step, symbol: x.symbol, mintick: x.mintick, lib: x.lib });
+      if (res.error) throw new Error(`oviate.ind "${name}": ${res.error.message}`);
+      cache.set(key, res);
+    }
+    const pl = typeof a[1] === 'number' ? res.plots[a[1]] : res.plots.find((p: { title: string }) => p.title === a[1]);
+    if (!pl) throw new Error(`oviate.ind: "${name}" has no plot "${a[1]}" (${res.plots.map((p: { title: string }) => p.title).join(', ')})`);
+    const v = pl.values[x.bar - pl.offset];
+    return v === undefined ? Number.NaN : v;
+  },
+};
