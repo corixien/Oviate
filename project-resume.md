@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-23 (visual builder v2, replay mode, arrow path, far zoom-out)
+Last updated: 2026-10-23 (builder inside the editor, rewritten chart sync, shared replay, borderless layout drag)
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
@@ -56,6 +56,9 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Editor rework: Builder/Editor toggle swaps only the code area (`BuilderPane.svelte`, the standalone builder page is gone); always-visible settings row (size, SL, TP, direction) + AI text field and send button (indicators: AI row only); file name editable (Save renames the file, charts follow); "Save & add to chart" (skips if already on the chart).
+- [x] Chart sync rewritten: renderer-to-renderer in the same frame (`live` set, `followTime`, `setExternal`), unclamped follower, crosshair mirrored; replay shared via `app.replay` (all charts when sync is on); canvas resize repaints synchronously (flicker fix).
+- [x] Layout: panes touch, border lines are the drag handles (no purple hover lines) for chart splits, watchlist/analysis splits; bracket order legs accept `%`; ray / extended line icons (dot at start / in the middle); Replay/Buy/Sell buttons as tall as the ticker pill.
 - [x] Visual strategy builder v2 (`/visual`, Builder button in the strategy editor, "Edit in builder" in a chart strategy menu): any library indicator + plot + inputs, price, fixed value or None on each side, per-indicator "Ideas", within-N-bars, ALL/ANY groups, long/short, SL/TP, "Fill with AI" (`builder/ai.ts`). Generates normal Pine using the new extension `oviate.ind(name, plot, "Input=value;...")` (`pine/indlib.ts`, native in `interp.ts`, `RunOptions.lib` for workers/optimizer, CLI reads indicator files). Tests in `src/lib/builder/model.test.ts` (added to `npm test`).
 - [x] Replay mode (Replay button / `/replay`, scissors pick, step / play / speed, Shift+Left/Right, Space), arrow path drawing tool, Ctrl+scroll zoom out to 0.03 px per bar (time and price clamp independently).
 - [x] `scriptMeta` fixed: titles containing parentheses (e.g. "Relative Strength Index (RSI)") showed as "Untitled" in lists.

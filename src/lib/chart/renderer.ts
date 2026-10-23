@@ -84,6 +84,11 @@ export function fmtPrice(p: number): string {
   return p.toFixed(a >= 1 ? 2 : a >= 0.1 ? 4 : 6);
 }
 
+/** Charts that are on screen: with sync on they follow each other's time window and crosshair in the same frame (no reactive round trip). */
+const live = new Set<ChartRenderer>();
+export const chartSync = { on: true };
+export function setChartSync(on: boolean) { chartSync.on = on; if (!on) for (const c of live) c.setExternal(null, null); }
+
 interface Pane { kind: 'main' | 'sub'; y0: number; y1: number; ind?: ActiveIndicator; lo: number; hi: number }
 
 export class ChartRenderer {
@@ -122,6 +127,7 @@ export class ChartRenderer {
     this.ctx = main.getContext('2d')!;
     this.octx = over.getContext('2d')!;
     this.s = s;
+    live.add(this);
     this.bind();
   }
 
@@ -144,9 +150,14 @@ export class ChartRenderer {
   resize(w: number, h: number) {
     this.dpr = window.devicePixelRatio || 1;
     this.w = w; this.h = h;
-    for (const c of [this.main, this.over]) { c.width = Math.round(w * this.dpr); c.height = Math.round(h * this.dpr); }
-    if (this.pendingReset && w > 100) { this.pendingReset = false; this.resetView(); return; }
-    this.invalidate();
+    // assigning a canvas size clears it: only when it changed, and repaint in the same task so no blank frame is shown (that was the flicker while resizing)
+    for (const c of [this.main, this.over]) {
+      const cw = Math.round(w * this.dpr), ch = Math.round(h * this.dpr);
+      if (c.width !== cw) c.width = cw;
+      if (c.height !== ch) c.height = ch;
+    }
+    if (this.pendingReset && w > 100) { this.pendingReset = false; this.resetView(); }
+    this.drawNow();
   }
 
   /** Visible time window [left, right] in unix seconds. */
@@ -155,16 +166,37 @@ export class ChartRenderer {
     return [this.idxToTime(this.start - 0.5), this.idxToTime(this.start - 0.5 + bars)];
   }
 
-  /** Apply a time window from another chart (does not emit onViewChange). */
-  setTimeRange(l: number, r: number) {
+  /** A view change made here (pan, zoom, reset): tell the other charts and the host. With sync on the other charts take the same time window and redraw right now. */
+  viewChanged() {
+    if (chartSync.on && live.size > 1) {
+      const [l, r] = this.getTimeRange();
+      for (const p of live) if (p !== this) p.followTime(l, r);
+    }
+    this.hooks.onViewChange();
+  }
+
+  /** Take over the time window of another chart. Not clamped (a follower may show empty space where its own data ends), does not broadcast. */
+  private followTime(l: number, r: number) {
     if (this.w < 100 || !this.s.data.n || r <= l) return;
     const plot = this.w - AXIS_W;
     this.tgt = null;
     const barsVisible = (r - l) / this.s.step;
     this.barW = Math.min(Math.max(plot / barsVisible, BAR_MIN), BAR_MAX);
     this.start = this.timeToIdx(l) + 0.5;
-    this.clampStart();
-    this.invalidate();
+    this.checkHistory();
+    this.drawNow();
+  }
+
+  /** Crosshair of another chart: time of its hovered bar and the height as a fraction of its main pane. */
+  setExternal(t: number | null, y: number | null) {
+    if (this.externalT === t && this.externalY === y) return;
+    this.externalT = t; this.externalY = y;
+    this.invalidateOver();
+  }
+
+  private broadcastCross(t: number | null, y: number | null) {
+    if (!chartSync.on) return;
+    for (const p of live) if (p !== this) p.setExternal(t, y);
   }
 
   resetView(bars = 120) {
@@ -174,7 +206,7 @@ export class ChartRenderer {
     this.start = Math.max(-5, this.s.data.n + RIGHT_PAD - (this.w - AXIS_W) / this.barW);
     this.manual = null;
     this.autoSm = null;
-    this.invalidate();
+    this.drawNow();
   }
 
   scrollToEnd() {
@@ -206,6 +238,7 @@ export class ChartRenderer {
   }
 
   destroy() {
+    live.delete(this);
     cancelAnimationFrame(this.raf); cancelAnimationFrame(this.oraf); cancelAnimationFrame(this.animRaf);
     this.cleanup.forEach((f) => f());
   }
@@ -322,7 +355,7 @@ export class ChartRenderer {
       this.manual = { lo: this.itx(a0 + shift), hi: this.itx(b0 + shift) };
     } else if (this.manual) this.manual = { lo: d.lo!, hi: d.hi! };
     this.checkHistory();
-    this.hooks.onViewChange();
+    this.viewChanged();
   }
 
   get dragging() { return this.drag?.kind === 'pan'; }
@@ -1116,8 +1149,8 @@ export class ChartRenderer {
     c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
     if (!this.panes.length || !data.n) return;
     c.font = '11px ui-monospace, "JetBrains Mono", monospace'; c.textBaseline = 'middle';
-    let x = -1, y = -1;
-    if (this.mx >= 0 && this.mx < this.plotW && this.my >= 0 && this.my < this.h - TIME_H) { x = this.mx; y = this.my; }
+    let x = -1, y = -1, own = false;
+    if (this.mx >= 0 && this.mx < this.plotW && this.my >= 0 && this.my < this.h - TIME_H) { x = this.mx; y = this.my; own = true; }
     else if (this.externalT !== null) {
       x = this.xOf(this.timeToIdx(this.externalT));
       const m0 = this.panes[0];
@@ -1134,6 +1167,8 @@ export class ChartRenderer {
     }
     if (x < 0) return;
     const i = Math.round(this.idxOf(x));
+    // the view may have moved under a resting mouse (replay, wheel animation): keep the other charts' crosshair on this bar
+    if (own) { const m0 = this.panes[0]; this.broadcastCross(this.s.data.t[Math.max(0, Math.min(data.n - 1, i))], m0 && y >= m0.y0 && y <= m0.y1 ? (y - m0.y0) / (m0.y1 - m0.y0) : null); }
     x = Math.round(this.xOf(i)) + 0.5;
     if (this.replayPick) {
       c.strokeStyle = theme.accent; c.lineWidth = 2; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, this.h - TIME_H); c.stroke(); c.lineWidth = 1;
@@ -1229,7 +1264,9 @@ export class ChartRenderer {
       const i = Math.max(0, Math.min(this.s.data.n - 1, Math.round(this.idxOf(x))));
       const inPlot = x < this.plotW && y < this.h - TIME_H;
       const m0 = this.panes[0];
-      if (!this.drag) this.hooks.onHover(inPlot ? i : null, this.s.data.n ? this.s.data.t[i] : null, inPlot && m0 && y >= m0.y0 && y <= m0.y1 ? (y - m0.y0) / (m0.y1 - m0.y0) : null);
+      const yf = inPlot && m0 && y >= m0.y0 && y <= m0.y1 ? (y - m0.y0) / (m0.y1 - m0.y0) : null;
+      if (!this.drag) this.hooks.onHover(inPlot ? i : null, this.s.data.n ? this.s.data.t[i] : null, yf);
+      this.broadcastCross(inPlot && this.s.data.n ? this.s.data.t[i] : null, yf);
       const hn = this.drag ? null : this.newsAt(x, y);
       if (hn !== this.hoverNews) { this.hoverNews = hn; this.invalidate(); }
       el.style.cursor = hn ? 'pointer' : this.drag ? (this.drag.kind === 'move' || this.drag.kind === 'pan' ? 'grabbing' : el.style.cursor)
@@ -1274,12 +1311,12 @@ export class ChartRenderer {
         if (dr && (dr.type === 'text' || dr.type === 'callout')) this.startEdit(dr);
       }
     });
-    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hooks.onHover(null, null, null); this.invalidateOver(); });
+    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hooks.onHover(null, null, null); this.broadcastCross(null, null); this.invalidateOver(); });
     on('dblclick', (e) => {
       const { x, y } = pos(e);
       if (this.draft?.type === 'arrowpath') { this.finishPath(); return; }
       if (region(x, y) === 'paxis') { this.manual = null; this.invalidate(); }
-      else if (region(x, y) === 'taxis') { this.resetView(); this.hooks.onViewChange(); }
+      else if (region(x, y) === 'taxis') { this.resetView(); this.viewChanged(); }
     });
     on('wheel', (e) => {
       e.preventDefault();
@@ -1416,7 +1453,7 @@ export class ChartRenderer {
       this.tgt = null;
     }
     this.checkHistory();
-    this.hooks.onViewChange();
+    this.viewChanged();
     this.drawNow();
     if (this.tgt) this.animRaf = requestAnimationFrame(this.animate);
     else { this.animRaf = 0; this.lastAnim = 0; }
@@ -1472,7 +1509,8 @@ export class ChartRenderer {
     this.start = anchor - (anchorPx - this.barW / 2) / this.barW;
     this.clampStart();
     this.invalidate();
+    this.viewChanged();
   }
 
-  panBars(n: number) { this.tgt = null; this.start += n; this.clampStart(); this.checkHistory(); this.invalidate(); this.hooks.onViewChange(); }
+  panBars(n: number) { this.tgt = null; this.start += n; this.clampStart(); this.checkHistory(); this.invalidate(); this.viewChanged(); }
 }

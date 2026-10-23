@@ -10,7 +10,7 @@
   import { splitPanes } from '$lib/pine/panes.ts';
   import { candleStore } from './candleStore';
   import Icons from '$lib/ui/Icons.svelte';
-  import { ChartRenderer, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
+  import { ChartRenderer, setChartSync, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
   import * as PE from '$lib/paper/engine.ts';
   import { t } from '$lib/i18n';
@@ -27,7 +27,7 @@
   let menuFor = $state('');
   let selectedId = $state<string | null>(null);
   let ctxMenu = $state<{ x: number; y: number } | null>(null);
-  function resetChart() { ctxMenu = null; r?.resetView(); if (r && app.sync) { const [l, rr] = r.getTimeRange(); app.view = { l, r: rr, from: cfg.id }; } }
+  function resetChart() { ctxMenu = null; r?.resetView(); r?.viewChanged(); }
   function openCtx(e: MouseEvent) {
     if (edit) return;
     e.preventDefault();
@@ -154,7 +154,8 @@
 
   const symDrawings = $derived(cfg.drawings.filter((d) => d.sym === cfg.symbol));
   // ----- replay: the candles right of the picked bar are hidden; indicators and strategies only see what is visible -----
-  let replay = $state<{ t: number | null; playing: boolean; speed: number } | null>(null);
+  const replay = $derived(app.replay && (app.sync || app.replay.owner === cfg.id) ? app.replay : null);
+  const isOwner = $derived(app.replay?.owner === cfg.id);
   const REPLAY_SPEEDS = [1, 2, 5, 10, 30];
   const barsUpTo = (t: number) => { let lo = 0, hi = raw.n; while (lo < hi) { const m = (lo + hi) >> 1; if (raw.t[m] <= t) lo = m + 1; else hi = m; } return lo; };
   const view = $derived.by<Candles>(() => {
@@ -163,22 +164,34 @@
     return { n: k, t: raw.t.subarray(0, k), o: raw.o.subarray(0, k), h: raw.h.subarray(0, k), l: raw.l.subarray(0, k), c: raw.c.subarray(0, k), v: raw.v.subarray(0, k) };
   });
   const display = $derived(transform(view, cfg.type));
-  function startReplay() { replay = { t: null, playing: false, speed: 1 }; r!.replayPick = true; r!.setState({}); }
-  function exitReplay() { replay = null; if (r) { r.replayPick = false; r.setState({}); r.scrollToEnd(); } }
-  function pickReplay(t: number) { if (!replay) return; replay = { ...replay, t }; r!.replayPick = false; tick().then(() => r?.scrollToEnd()); }
+  function startReplay() { app.replay = { owner: cfg.id, t: null, playing: false, speed: 1 }; }
+  function exitReplay() { app.replay = null; }
   function replayStep(d: number) {
-    if (!replay || replay.t === null) return;
-    const k = Math.min(raw.n - 1, Math.max(0, barsUpTo(replay.t) - 1 + d));
-    replay.t = raw.t[k];
-    if (d > 0 && k >= raw.n - 1) replay.playing = false;
-    tick().then(() => r?.scrollToEnd());
+    const rp = app.replay;
+    if (!rp || rp.t === null) return;
+    const k = Math.min(raw.n - 1, Math.max(0, barsUpTo(rp.t) - 1 + d));
+    rp.t = raw.t[k];
+    if (d > 0 && k >= raw.n - 1) rp.playing = false;
   }
+  // the scissors line is only on the chart where replay was started; a picked bar cuts every chart that follows
+  $effect(() => { const picking = !!app.replay && app.replay.t === null && isOwner; if (!r) return; r.replayPick = picking; r.setState({}); });
+  // keep the newest visible bar in view while replaying, and fit the chart again when replay ends
+  let hadReplay = false;
   $effect(() => {
-    if (!replay?.playing) return;
+    const t = replay?.t ?? null, on = !!replay;
+    void view;
+    untrack(() => {
+      if (!r) return;
+      if (t !== null || (!on && hadReplay)) tick().then(() => r?.scrollToEnd());
+      hadReplay = on;
+    });
+  });
+  $effect(() => {
+    if (!replay?.playing || !isOwner) return;
     const iv = setInterval(() => replayStep(1), 1000 / replay!.speed);
     return () => clearInterval(iv);
   });
-  $effect(() => { const q = app.replayReq; if (!r || !q.n || q.id !== cfg.id) return; untrack(() => { if (replay) exitReplay(); else startReplay(); }); });
+  $effect(() => { const q = app.replayReq; if (!r || !q.n || q.id !== cfg.id) return; untrack(() => { if (app.replay) exitReplay(); else startReplay(); }); });
   // ----- Pine indicators: computed in a worker, coalesced so ticks cannot pile up -----
   let pineResults = $state<Record<string, PineResult>>({});
   let pineRunning = false, pineDirty = false, lastPineRun = 0;
@@ -319,15 +332,15 @@
 
   onMount(() => {
     r = new ChartRenderer(main, over, {
-      onHover: (i, tm, yf) => { hover = i; if (app.sync) app.crossT = { t: tm, y: yf, from: cfg.id }; },
-      onViewChange: () => { if (app.sync && r) { const [l, rr] = r.getTimeRange(); app.view = { l, r: rr, from: cfg.id }; } },
+      onHover: (i) => { hover = i; },
+      onViewChange: () => {},
       onNeedHistory: () => loadMore(),
       onDrawings: (d) => { cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))]; app.persist(); },
       onToolDone: () => { app.tool = 'cursor'; },
       onSelect: (id) => { selectedId = id; },
       onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0]),
       onEditText: (id, x, y, text) => openEditor(id, x, y, text),
-      onReplayPick: (t) => pickReplay(t)
+      onReplayPick: (t) => { if (app.replay) app.replay.t = t; }
     }, {
       data: display, raw: view, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
@@ -344,7 +357,7 @@
     const key = cfg.symbol + '|' + cfg.tf;
     if (key === lastKey) return;
     lastKey = key;
-    untrack(() => { if (replay) exitReplay(); load(true); news = []; loadNews(); });
+    untrack(() => { if (isOwner) exitReplay(); load(true); news = []; loadNews(); });
   });
   $effect(() => { const iv = setInterval(loadNews, 10 * 60 * 1000); return () => clearInterval(iv); });
 
@@ -388,20 +401,7 @@
     untrack(() => resetChart());
   });
 
-  $effect(() => {
-    if (!r) return;
-    const ext = app.sync && app.crossT.from !== cfg.id;
-    r.externalT = ext ? app.crossT.t : null;
-    r.externalY = ext ? app.crossT.y : null;
-    r.setState({});
-  });
-
-  // Zoom/scroll sync: follow the time window of whichever chart the user is moving.
-  $effect(() => {
-    const v = app.view;
-    if (!r || !app.sync || !v || v.from === cfg.id) return;
-    r.setTimeRange(v.l, v.r);
-  });
+  $effect(() => { setChartSync(app.sync); });
 
   $effect(() => {
     if (app.active !== index || !r) return;
@@ -411,11 +411,11 @@
       if (e.ctrlKey || e.metaKey) return;
       if (replay && (e.key === ' ' || (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')))) {
         e.preventDefault();
-        if (e.key === ' ') { if (replay.t !== null) replay.playing = !replay.playing; } else replayStep(e.key === 'ArrowRight' ? 1 : -1);
+        if (e.key === ' ') { if (app.replay && app.replay.t !== null) app.replay.playing = !app.replay.playing; } else replayStep(e.key === 'ArrowRight' ? 1 : -1);
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') { if (r!.deleteSelected()) e.preventDefault(); }
-      else if (e.key === 'Escape') { if (replay && replay.t === null) exitReplay(); r!.cancelDraft(); app.tool = 'cursor'; }
+      else if (e.key === 'Escape') { if (app.replay && app.replay.t === null) exitReplay(); r!.cancelDraft(); app.tool = 'cursor'; }
       else if (e.key === 'Enter') { if (r!.finishPath()) e.preventDefault(); } // keeps the command bar from opening
       else if (e.key === 'ArrowLeft') r!.panBars(e.shiftKey ? -20 : -3);
       else if (e.key === 'ArrowRight') r!.panBars(e.shiftKey ? 20 : 3);
@@ -450,7 +450,7 @@
       </span>
     </div>
     <div class="trade">
-      <button class="rp" class:on={!!replay} title="Replay mode" onclick={() => { app.active = index; replay ? exitReplay() : startReplay(); }}>&#9986; Replay</button>
+      <button class="rp" class:on={!!replay} title="Replay mode" onclick={() => { app.active = index; if (app.replay) exitReplay(); else startReplay(); }}>&#9986; Replay</button>
       <button class="b" title="Buy {cfg.symbol} (paper)" onclick={() => { app.active = index; paper.orderDialog = { open: true, side: 'buy', symbol: cfg.symbol }; }}>Buy</button>
       <button class="s" title="Sell {cfg.symbol} (paper)" onclick={() => { app.active = index; paper.orderDialog = { open: true, side: 'sell', symbol: cfg.symbol }; }}>Sell</button>
     </div>
@@ -513,7 +513,7 @@
       onkeydown={editKey} onpaste={editPaste} onblur={() => { if (Date.now() >= editArmed) closeEditor(true); }} onpointerdown={(e) => e.stopPropagation()}></div>
   {/if}
 
-  {#if replay}
+  {#if replay && (replay.t !== null || isOwner)}
     <div class="rbar" role="toolbar" tabindex="-1" onpointerdown={(e) => e.stopPropagation()}>
       {#if replay.t === null}
         <span>Click a bar to start the replay</span>
@@ -523,7 +523,7 @@
         <button class="pl" title="Play / pause (Space)" onclick={() => (replay!.playing = !replay!.playing)}>{replay.playing ? '\u23F8' : '\u25B6'}</button>
         <button title="Forward one bar (Shift+Right)" onclick={() => { replay!.playing = false; replayStep(1); }}>&#9197;</button>
         <button class="sp" title="Speed: bars per second" onclick={() => { replay!.speed = REPLAY_SPEEDS[(REPLAY_SPEEDS.indexOf(replay!.speed) + 1) % REPLAY_SPEEDS.length]; }}>{replay.speed}x</button>
-        <button title="Choose another start bar" onclick={() => { replay!.playing = false; replay!.t = null; r!.replayPick = true; r!.setState({}); }}>&#9986;</button>
+        <button title="Choose another start bar" onclick={() => { replay!.playing = false; replay!.owner = cfg.id; replay!.t = null; }}>&#9986;</button>
         <button onclick={exitReplay}>Exit</button>
       {/if}
     </div>
@@ -543,7 +543,7 @@
 
 <style>
   .pane { position: relative; min-width: 0; min-height: 0; background: var(--pane); border: 1px solid var(--line); overflow: hidden; }
-  .pane.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 1px var(--accent); }
+  .pane.active { z-index: 1; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 1px var(--accent); }
   .layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .top { touch-action: none; }
   .legend { position: absolute; top: 8px; left: 10px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; font: 12px ui-monospace, 'JetBrains Mono', monospace; max-width: calc(100% - 90px); }
@@ -558,11 +558,11 @@
   .sbadge { font: 800 9px system-ui, sans-serif; background: var(--accent); color: #fff; padding: 1px 4px; margin-right: 6px; }
   .live { font: 800 8.5px system-ui, sans-serif; border: 1px solid var(--up); color: var(--up); padding: 0 4px; margin-left: 6px; letter-spacing: 0.06em; }
   .hd2 { color: var(--dim) !important; font-size: 10.5px !important; text-transform: uppercase; letter-spacing: 0.08em; }
-  .trade { display: inline-flex; gap: 4px; pointer-events: auto; }
-  .trade button { background: #000; border: 1px solid; padding: 3px 12px; font: 800 11px system-ui, sans-serif; letter-spacing: 0.06em; cursor: pointer; text-transform: uppercase; }
+  .trade { display: inline-flex; gap: 4px; pointer-events: auto; align-items: stretch; }
+  .trade button { display: inline-flex; align-items: center; background: #000; border: 1px solid; padding: 0 12px; font: 800 11px system-ui, sans-serif; letter-spacing: 0.06em; cursor: pointer; text-transform: uppercase; }
   .trade .b { color: var(--up); border-color: var(--up); } .trade .b:hover { background: var(--up); color: #000; }
   .trade .s { color: var(--down); border-color: var(--down); } .trade .s:hover { background: var(--down); color: #000; }
-  .top { display: flex; gap: 8px; align-items: center; }
+  .top { display: flex; gap: 8px; align-items: stretch; }
   .pill.bad .nm { color: var(--down); }
   .tk .dim { margin-left: 8px; }
   .dot { width: 7px; height: 7px; margin-right: 8px; background: var(--dim); flex: none; }

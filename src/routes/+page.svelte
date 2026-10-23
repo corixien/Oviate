@@ -10,7 +10,6 @@
   import Analysis from '$lib/ui/Analysis.svelte';
   import NewsPage from '$lib/ui/NewsPage.svelte';
   import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
-  import StrategyBuilder from '$lib/ui/StrategyBuilder.svelte';
   import { library } from '$lib/library.svelte';
   import PaperPanel from '$lib/ui/PaperPanel.svelte';
   import OrderDialog from '$lib/ui/OrderDialog.svelte';
@@ -39,17 +38,17 @@
     drag(e, (ev) => {
       if (!ov) return;
       const r = ov.getBoundingClientRect();
-      app.split[axis] = axis === 'c' ? clamp((ev.clientX - r.left - 5) / (r.width - 10), 0.15, 0.85) : clamp((ev.clientY - r.top - 5) / (r.height - 10), 0.15, 0.85);
+      app.split[axis] = axis === 'c' ? clamp((ev.clientX - r.left) / r.width, 0.15, 0.85) : clamp((ev.clientY - r.top) / r.height, 0.15, 0.85);
     });
   }
   function startRightDrag(e: PointerEvent) {
-    drag(e, (ev) => { app.split.rightW = clamp(window.innerWidth - ev.clientX - 12, 220, Math.min(700, window.innerWidth * 0.5)); });
+    drag(e, (ev) => { app.split.rightW = clamp(window.innerWidth - ev.clientX - 11, 220, Math.min(700, window.innerWidth * 0.5)); });
   }
   function startListDrag(e: PointerEvent) {
     drag(e, (ev) => {
       if (!rcol) return;
       const r = rcol.getBoundingClientRect();
-      app.split.listFrac = clamp((ev.clientY - r.top - 5) / (r.height - 10), 0.12, 0.85);
+      app.split.listFrac = clamp((ev.clientY - r.top) / r.height, 0.12, 0.85);
     });
   }
 
@@ -95,27 +94,26 @@
   <TopBar />
   {#if app.page === 'news'}<NewsPage />{/if}
   {#if app.page === 'editor'}<ScriptEditor />{/if}
-  {#if app.page === 'builder'}<StrategyBuilder />{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
     <div class="center">
      <div class="chartarea" bind:this={center}>
-      <main class="grid l{app.layout}" style:grid-template-columns={cols} style:grid-template-rows={rows}>
+      <main class="grid l{app.layout}" class:flush={app.showWatchlist} style:grid-template-columns={cols} style:grid-template-rows={rows}>
         {#each app.charts.slice(0, app.count) as c, i (c.id)}
           <Chart bind:cfg={app.charts[i]} index={i} />
         {/each}
       </main>
       {#if ['2v', '3', '4'].includes(app.layout)}
-        <div class="ov" bind:this={ov}>
-          <div class="hv" style:left="calc((100% - 10px) * {app.split.c})" role="separator" aria-orientation="vertical" onpointerdown={(e) => startDrag(e, 'c')}></div>
+        <div class="ov" class:flush={app.showWatchlist} bind:this={ov}>
+          <div class="hv" style:left="calc(100% * {app.split.c})" role="separator" aria-orientation="vertical" onpointerdown={(e) => startDrag(e, 'c')}></div>
           {#if app.layout === '3' || app.layout === '4'}
-            <div class="hh" class:half={app.layout === '3'} style:top="calc((100% - 10px) * {app.split.r})" style:left={app.layout === '3' ? `calc((100% - 10px) * ${app.split.c} + 10px)` : '0'} role="separator" aria-orientation="horizontal" onpointerdown={(e) => startDrag(e, 'r')}></div>
+            <div class="hh" class:half={app.layout === '3'} style:top="calc(100% * {app.split.r})" style:left={app.layout === '3' ? `calc(100% * ${app.split.c})` : '0'} role="separator" aria-orientation="horizontal" onpointerdown={(e) => startDrag(e, 'r')}></div>
           {/if}
         </div>
       {/if}
       {#if app.layout === '2h'}
-        <div class="ov" bind:this={ov}>
-          <div class="hh" style:top="calc((100% - 10px) * {app.split.r})" role="separator" aria-orientation="horizontal" onpointerdown={(e) => startDrag(e, 'r')}></div>
+        <div class="ov" class:flush={app.showWatchlist} bind:this={ov}>
+          <div class="hh" style:top="calc(100% * {app.split.r})" role="separator" aria-orientation="horizontal" onpointerdown={(e) => startDrag(e, 'r')}></div>
         </div>
       {/if}
      </div>
@@ -123,7 +121,7 @@
     </div>
     {#if app.showWatchlist}
       <div class="vsplit" role="separator" aria-orientation="vertical" onpointerdown={startRightDrag}></div>
-      <div class="rcol" bind:this={rcol} style:width="{app.split.rightW}px" style:grid-template-rows="{app.split.listFrac}fr 10px {1 - app.split.listFrac}fr">
+      <div class="rcol" bind:this={rcol} style:width="{app.split.rightW}px" style:grid-template-rows="{app.split.listFrac}fr 0px {1 - app.split.listFrac}fr">
         <Watchlist />
         <div class="lsplit" role="separator" aria-orientation="horizontal" onpointerdown={startListDrag}></div>
         <Analysis />
@@ -163,17 +161,25 @@
   .body.hid { display: none; }
   .center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
   .chartarea { flex: 1; position: relative; min-width: 0; min-height: 0; display: flex; }
-  .grid { flex: 1; display: grid; gap: 10px; padding: 12px; background: var(--bg); min-width: 0; min-height: 0; }
-  .rcol { flex: none; display: grid; margin: 12px 12px 12px 0; min-height: 0; min-width: 0; }
-  .vsplit { width: 8px; flex: none; margin: 12px 0; cursor: col-resize; position: relative; }
-  .vsplit::after, .lsplit::after, .hv::after, .hh::after { content: ''; position: absolute; inset: 0; margin: auto; background: var(--accent); opacity: 0; transition: opacity 0.15s; }
-  .vsplit::after { width: 2px; height: 100%; } .lsplit::after { height: 2px; width: 100%; }
-  .vsplit:hover::after, .lsplit:hover::after, .hv:hover::after, .hh:hover::after { opacity: 1; }
-  .lsplit { cursor: row-resize; position: relative; }
-  .ov { position: absolute; inset: 12px; pointer-events: none; }
+  .grid { flex: 1; display: grid; gap: 0; padding: 12px; background: var(--bg); min-width: 0; min-height: 0; }
+  .grid.flush { padding-right: 0; }
+  /* sections touch: their own border lines are the drag handles (invisible hit zones straddle them) */
+  .rcol { flex: none; display: grid; margin: 12px 12px 12px -1px; min-height: 0; min-width: 0; }
+  .rcol > :global(*:last-child) { margin-top: -1px; }
+  .vsplit, .lsplit { position: relative; z-index: 6; }
+  .vsplit { width: 0; flex: none; margin: 12px 0; }
+  .vsplit::before { content: ''; position: absolute; top: 0; bottom: 0; left: -5px; width: 10px; cursor: col-resize; }
+  .lsplit { height: 0; }
+  .lsplit::before { content: ''; position: absolute; left: 0; right: 0; top: -5px; height: 10px; cursor: row-resize; }
+  .ov { position: absolute; inset: 12px; pointer-events: none; z-index: 6; }
+  .ov.flush { right: 0; }
   .hv, .hh { position: absolute; pointer-events: auto; }
-  .hv { top: 0; bottom: 0; width: 10px; cursor: col-resize; } .hv::after { width: 2px; height: 100%; }
-  .hh { left: 0; right: 0; height: 10px; cursor: row-resize; } .hh::after { height: 2px; width: 100%; }
+  .hv { top: 0; bottom: 0; width: 10px; margin-left: -5px; cursor: col-resize; }
+  .hh { left: 0; right: 0; height: 10px; margin-top: -5px; cursor: row-resize; }
+  .grid :global(.pane:nth-child(n + 2)) { margin-left: -1px; }
+  .l2h :global(.pane:nth-child(2)), .l3 :global(.pane:nth-child(3)), .l4 :global(.pane:nth-child(n + 3)) { margin-top: -1px; }
+  .l2h :global(.pane:nth-child(2)), .l3 :global(.pane:nth-child(1)), .l1 :global(.pane) { margin-left: 0; }
+  .l4 :global(.pane:nth-child(3)) { margin-left: 0; }
   .l1 { grid-template: 1fr / 1fr; }
   .l2v { grid-template-rows: 1fr; }
   .l2h { grid-template-columns: 1fr; }

@@ -66,14 +66,14 @@ class App {
   /** Request to reset the view of a chart (right-click menu, command bar). */
   resetReq = $state({ id: '', n: 0 });
   replayReq = $state({ id: '', n: 0 });
+  /** Replay shared by the charts: `t` = time of the last visible bar (null while the start is being picked); with sync on every chart follows, else only the owner. */
+  replay = $state<{ owner: string; t: number | null; playing: boolean; speed: number } | null>(null);
   /** AI indicator dialog (indicator from plain text). */
   aiDialog = $state<'indicators' | 'strategies' | null>(null);
-  page = $state<'chart' | 'news' | 'editor' | 'builder'>('chart');
-  /** strategy opened in the visual builder (null = new) */
-  builder = $state<{ name: string | null }>({ name: null });
+  page = $state<'chart' | 'news' | 'editor'>('chart');
   /** Script editor target: an existing script or a new one (name null). */
   /** name null = a new script; blank = nothing selected yet (opened with /ind or /strat) */
-  editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean }>({ kind: 'indicators', name: null });
+  editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean; /** open in the visual builder instead of the code */ builder?: boolean }>({ kind: 'indicators', name: null });
   newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
   showNews = $state(true);
   showParams = $state(false);
@@ -108,8 +108,8 @@ class App {
   replayChart() { this.replayReq = { id: this.chart.id, n: this.replayReq.n + 1 }; }
   resetChart() { this.resetReq = { id: this.chart.id, n: this.resetReq.n + 1 }; }
 
-  /** Open the visual strategy builder on a strategy it generated (name) or on a new one. */
-  openBuilder(name: string | null = null) { this.builder = { name }; this.page = 'builder'; }
+  /** Open the strategy editor in its visual builder view, on a saved strategy (name) or a new one. */
+  openBuilder(name: string | null = null) { this.editor = { kind: 'strategies', name, builder: true }; this.page = 'editor'; }
 
   /** Open the code editor with nothing selected (what `/ind` and `/strat` do). */
   openEditor(kind: 'indicators' | 'strategies') {

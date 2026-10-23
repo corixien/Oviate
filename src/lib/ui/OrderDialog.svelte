@@ -34,11 +34,23 @@
   const notional = $derived(qty * refPrice);
   const fee = $derived(acc ? (notional * acc.commissionPct) / 100 : 0);
 
+  /** "105.5" is a price; "5%" is the move from the entry price (up for a buy's take profit and a sell's stop loss, down for the others). */
+  function leg(v: string, role: 'tp' | 'sl'): number | undefined {
+    const t = v.trim().replace(',', '.');
+    if (t.endsWith('%')) {
+      const pct = Math.abs(parseFloat(t));
+      if (!(pct > 0) || !(refPrice > 0)) return undefined;
+      const up = (role === 'tp') === (side === 'buy');
+      return refPrice * (1 + (up ? pct : -pct) / 100);
+    }
+    return parseFloat(t) || undefined;
+  }
+  const tpPx = $derived(leg(tp, 'tp')), slPx = $derived(leg(sl, 'sl'));
   const input = $derived<E.OrderInput>({
     symbol: sym, side, type, qty,
     limit: type === 'limit' ? parseFloat(limit) || undefined : undefined,
     stop: type === 'stop' ? parseFloat(stop) || undefined : undefined,
-    tif, bracket: bracket ? { takeProfit: parseFloat(tp) || undefined, stopLoss: parseFloat(sl) || undefined } : undefined,
+    tif, bracket: bracket ? { takeProfit: tpPx, stopLoss: slPx } : undefined,
   });
   const problem = $derived(acc ? (qty > 0 ? E.validate(acc, input, price) : 'Quantity rounds down to 0 for this input') : 'Create a paper account first');
   const label = $derived(`${side === 'buy' ? 'Buy' : 'Sell'} ${qty || ''} ${sym} ${type === 'market' ? '@ market' : type.replace('_', ' ')}`);
@@ -153,8 +165,8 @@
               <div class="bubble small"><p>Attach a take-profit (limit) and a stop-loss (stop) to the order. When your order fills, both are placed as a pair: when one fills, the other is cancelled (OCO).</p></div>
             </div>
             {#if bracket}
-              <div class="inp"><input type="number" step="any" bind:value={tp} placeholder="Take profit price" /></div>
-              <div class="inp"><input type="number" step="any" bind:value={sl} placeholder="Stop loss price" /></div>
+              <div class="inp"><input type="text" inputmode="decimal" bind:value={tp} placeholder="Take profit: price or % (5%)" />{#if tp.trim().endsWith('%') && tpPx}<small>= {p(tpPx)}</small>{/if}</div>
+              <div class="inp"><input type="text" inputmode="decimal" bind:value={sl} placeholder="Stop loss: price or % (2%)" />{#if sl.trim().endsWith('%') && slPx}<small>= {p(slPx)}</small>{/if}</div>
             {/if}
           </div>
         </div>
@@ -190,6 +202,7 @@
   .lab { width: 104px; flex: none; font-size: 12px; color: var(--dim); padding-top: 2px; }
   .meta { display: flex; gap: 16px; flex-wrap: wrap; padding: 6px 0 4px; font-size: 11.5px; color: var(--dim); } .meta b { color: var(--fg); font-family: ui-monospace, monospace; margin-left: 4px; }
   .acct, .inp { display: flex; gap: 6px; align-items: center; flex: 1; }
+  .inp small { color: var(--dim); font: 11px ui-monospace, monospace; white-space: nowrap; }
   .types { display: flex; flex-wrap: wrap; gap: 0; }
   .types button { background: none; border: 1px solid var(--line); margin-right: -1px; color: var(--fg); padding: 6px 11px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .types button.on { background: var(--accent); border-color: var(--accent); color: #fff; position: relative; z-index: 1; }

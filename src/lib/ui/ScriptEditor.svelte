@@ -1,11 +1,16 @@
 <script lang="ts">
   import { app } from '$lib/app.svelte';
   import { library, type ScriptKind } from '$lib/library.svelte';
+  import { paper } from '$lib/paper/paper.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { aiComplete } from '$lib/api';
   import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
+  import { aiBuilder } from '$lib/builder/ai.ts';
+  import { indInfo, allInfos } from '$lib/builder/info';
+  import { checkModel, newModel, parseModel, toPine, type Model } from '$lib/builder/model.ts';
   import AiStrategyFields from './AiStrategyFields.svelte';
+  import BuilderPane from './BuilderPane.svelte';
 
   const kind = $derived<ScriptKind>(app.editor.kind);
   let search = $state('');
@@ -48,12 +53,10 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   const blank = $derived(!!app.editor.blank);
   const isNew = $derived(app.editor.name === null && !blank);
 
-  // ----- AI edit of the open script -----
-  let aiOpen = $state(false);
+  // ----- settings row (always visible) and AI -----
   let aiText = $state('');
   let aiBusy = $state(false);
-  let aiError = $state('');
-  let undoCode = $state<string | null>(null);
+  let undo = $state<{ code: string } | { model: Model } | null>(null);
   let qtyType = $state<StrategyOpts['qtyType']>('percent_of_equity');
   let qty = $state('100');
   let sl = $state('');
@@ -61,46 +64,104 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   let direction = $state<StrategyOpts['direction']>('auto');
   const num = (v: string) => { const n = parseFloat(v.replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
   const qtyOk = $derived(num(qty) > 0 && (qtyType !== 'percent_of_equity' || num(qty) <= 100));
-  const canAi = $derived(!aiBusy && (aiText.trim().length > 0 || kind === 'strategies') && (kind === 'indicators' || qtyOk));
 
-  /** The form always mirrors the code that is open (also while typing in the editor). */
+  // ----- visual builder view (strategies): replaces only the code area -----
+  let mode = $state<'code' | 'builder'>('code');
+  let model = $state<Model>(newModel());
+  let enterSnap = '';
+  const inBuilder = $derived(mode === 'builder' && kind === 'strategies');
+  const snap = () => $state.snapshot(model) as Model;
+  const problem = $derived(inBuilder ? checkModel(snap(), indInfo) : null);
+  const builderDirty = $derived(inBuilder && JSON.stringify(snap()) !== enterSnap);
+
+  function enterBuilder() {
+    const parsed = parseModel(code);
+    const foreign = !parsed && code.trim() !== '' && code.trim() !== TEMPLATES.strategies.trim();
+    model = parsed ?? newModel();
+    enterSnap = JSON.stringify($state.snapshot(model));
+    mode = 'builder';
+    status = foreign ? { ok: false, text: 'This script was not made by the builder: the builder starts empty, and saving from it replaces the code. Switch back to Editor to keep the code.' } : null;
+  }
+  function leaveBuilder() {
+    if (builderDirty) {
+      if (problem) { status = { ok: false, text: `The builder changes were not applied to the code: ${problem}` }; }
+      else { model.name = name.trim() || model.name; code = toPine(snap(), indInfo); }
+    }
+    mode = 'code';
+  }
+  const toggleMode = () => (inBuilder ? leaveBuilder() : enterBuilder());
+
+  // the settings mirror what is open: the model in the builder, the code otherwise (also while typing)
   $effect(() => {
     if (kind !== 'strategies') return;
-    const f = extractStrategyForm(code);
-    qtyType = f.qtyType; qty = String(f.qty); sl = f.sl ? String(f.sl) : ''; tp = f.tp ? String(f.tp) : ''; direction = f.direction;
+    if (mode === 'builder') {
+      const m = model; const s = m.long.on ? m.long : m.short;
+      qtyType = m.qtyType; qty = String(m.qty); sl = s.sl ? String(s.sl) : ''; tp = s.tp ? String(s.tp) : '';
+      direction = m.long.on && m.short.on ? 'both' : m.short.on ? 'short' : 'long';
+    } else {
+      const f = extractStrategyForm(code);
+      qtyType = f.qtyType; qty = String(f.qty); sl = f.sl ? String(f.sl) : ''; tp = f.tp ? String(f.tp) : ''; direction = f.direction;
+    }
   });
-  const noSl = $derived(kind === 'strategies' && !hasLimitInput(code, 'sl'));
-  const noTp = $derived(kind === 'strategies' && !hasLimitInput(code, 'tp'));
-  /** Size, stop loss and take profit change the code directly, no AI needed. */
+  const noSl = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'sl'));
+  const noTp = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'tp'));
+  const dirHint = $derived(inBuilder ? 'Switches the long and short sides on or off' : 'Applied by the AI when you press the send button');
+
+  /** Size, stop loss and take profit change the code (or the builder) directly, no AI needed. */
   function applyParams() {
-    if (!qtyOk) { const f = extractStrategyForm(code); qtyType = f.qtyType; qty = String(f.qty); return; }
-    const next = setStrategyParams(code, { qtyType, qty: num(qty), sl: noSl ? 0 : num(sl) > 0 ? num(sl) : 0, tp: noTp ? 0 : num(tp) > 0 ? num(tp) : 0 });
+    if (!qtyOk) {
+      if (inBuilder) { qtyType = model.qtyType; qty = String(model.qty); }
+      else { const f = extractStrategyForm(code); qtyType = f.qtyType; qty = String(f.qty); }
+      return;
+    }
+    const slv = num(sl) > 0 ? num(sl) : 0, tpv = num(tp) > 0 ? num(tp) : 0;
+    if (inBuilder) {
+      model.qtyType = qtyType; model.qty = num(qty);
+      for (const sd of [model.long, model.short]) { sd.sl = slv; sd.tp = tpv; }
+      if (direction === 'long') { model.long.on = true; model.short.on = false; }
+      else if (direction === 'short') { model.long.on = false; model.short.on = true; }
+      else if (direction === 'both') { model.long.on = true; model.short.on = true; }
+      return;
+    }
+    const next = setStrategyParams(code, { qtyType, qty: num(qty), sl: noSl ? 0 : slv, tp: noTp ? 0 : tpv });
     if (next !== code) { code = next; status = null; }
   }
-  function toggleAi() { aiOpen = !aiOpen; aiError = ''; }
+
+  const canAi = $derived(!aiBusy && (aiText.trim().length > 0 || (kind === 'strategies' && !inBuilder)) && (kind === 'indicators' || qtyOk));
   async function runAi() {
     if (!canAi) return;
-    aiBusy = true; aiError = '';
+    aiBusy = true; status = null;
     try {
-      const out = kind === 'strategies'
-        ? await editStrategy(code, aiText, { qtyType, qty: num(qty), sl: num(sl) > 0 ? num(sl) : 0, tp: num(tp) > 0 ? num(tp) : 0, direction }, aiComplete)
-        : await editIndicator(code, aiText, aiComplete);
-      undoCode = code; code = out; aiText = '';
-      status = { ok: true, text: 'AI edit applied to the editor. Review it, then Save (Ctrl+S).' };
-    } catch (e) { aiError = e instanceof Error ? e.message : String(e); }
+      if (inBuilder) {
+        const before = snap();
+        const m = await aiBuilder(aiText, allInfos(), aiComplete);
+        undo = { model: before }; model = m; aiText = '';
+        status = { ok: true, text: 'The AI filled in the builder. Check the conditions, then save.' };
+      } else {
+        const out = kind === 'strategies'
+          ? await editStrategy(code, aiText, { qtyType, qty: num(qty), sl: num(sl) > 0 ? num(sl) : 0, tp: num(tp) > 0 ? num(tp) : 0, direction }, aiComplete)
+          : await editIndicator(code, aiText, aiComplete);
+        undo = { code }; code = out; aiText = '';
+        status = { ok: true, text: 'AI edit applied to the editor. Review it, then Save (Ctrl+S).' };
+      }
+    } catch (e) { status = { ok: false, text: e instanceof Error ? e.message : String(e) }; }
     finally { aiBusy = false; }
   }
-  function undoAi() { if (undoCode !== null) { code = undoCode; undoCode = null; status = null; } }
+  function undoAi() {
+    if (!undo) return;
+    if ('model' in undo) model = undo.model; else code = undo.code;
+    undo = null; status = null;
+  }
 
   function open(k: ScriptKind, n: string | null) {
     app.editor = { kind: k, name: n };
   }
 
   $effect(() => {
-    const key = kind + '|' + (app.editor.name ?? '') + (app.editor.blank ? '|blank' : '');
+    const key = kind + '|' + (app.editor.name ?? '') + (app.editor.blank ? '|blank' : '') + (app.editor.builder ? '|builder' : '');
     if (key === loadedKey) return;
     loadedKey = key;
-    status = null; aiOpen = false; aiError = ''; undoCode = null;
+    status = null; undo = null; mode = 'code';
     if (app.editor.blank) { name = ''; code = ''; }
     else if (app.editor.name === null) { name = ''; code = TEMPLATES[kind]; }
     else {
@@ -108,31 +169,59 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
       name = f?.name ?? app.editor.name;
       code = f?.code ?? '';
     }
+    if (app.editor.builder && kind === 'strategies' && !app.editor.blank) untrack(() => enterBuilder());
   });
 
-  function check(): boolean {
-    const info = describeScript(code);
+  function check(c = code): boolean {
+    const info = describeScript(c);
     if (info.error) { status = { ok: false, text: `${info.error.line ? 'Line ' + info.error.line + ': ' : ''}${info.error.message}` }; return false; }
     const expected = kind === 'indicators' ? 'indicator' : 'strategy';
     if (info.meta.kind !== expected && info.meta.kind !== 'indicator') { status = { ok: false, text: `Expected a ${expected}() declaration` }; return false; }
     status = { ok: true, text: `OK: "${info.meta.title}", ${info.inputs.length} input${info.inputs.length === 1 ? '' : 's'}, ${info.plots.length} plot${info.plots.length === 1 ? '' : 's'}` };
     return true;
   }
+  function checkClick() {
+    if (inBuilder) status = problem ? { ok: false, text: problem } : { ok: true, text: 'The builder strategy is valid.' };
+    else check();
+  }
 
-  async function save() {
+  /** Save (and rename the file when the name field changed). Returns the saved name, or null when it failed. */
+  async function save(addToChart = false) {
     if (saving || blank) return;
-    const info = describeScript(code);
+    let out = code;
+    if (inBuilder) {
+      if (problem) { status = { ok: false, text: problem }; return; }
+      model.name = name.trim() || model.name;
+      out = toPine(snap(), indInfo);
+    }
+    const info = describeScript(out);
     const finalName = (name.trim() || info.meta.title || '').trim();
     if (!finalName) { status = { ok: false, text: 'Give the script a name' }; return; }
-    if (!check()) return;
+    if (!check(out)) return;
+    const old = app.editor.name;
+    if (old && finalName !== old && library.get(kind, finalName)) { status = { ok: false, text: `A ${label.toLowerCase()} named "${finalName}" already exists` }; return; }
     saving = true;
     try {
-      const saved = await library.save(kind, finalName, code);
+      const saved = await library.save(kind, finalName, out);
+      code = out;
+      if (old && saved !== old) {
+        // renamed: the old file goes away and every chart that used it follows the new name
+        await library.remove(kind, old);
+        for (const ch of app.charts) ch.indicators = ch.indicators.map((i) => (i.id === old && !!i.strategy === (kind === 'strategies') ? { ...i, id: saved } : i));
+      }
       name = saved;
       loadedKey = kind + '|' + saved;
       app.editor = { kind, name: saved };
-      status = { ok: true, text: `Saved as ${saved}.pine` };
+      status = { ok: true, text: old && saved !== old ? `Renamed to ${saved}.pine` : `Saved as ${saved}.pine` };
       app.notify(`${label} saved`);
+      if (addToChart) {
+        const on = app.chart.indicators.some((i) => i.id === saved && !!i.strategy === (kind === 'strategies'));
+        if (on) app.notify(`${saved} is already on the chart`);
+        else if (kind === 'strategies') { app.addStrategy(saved); paper.panelOpen = true; paper.panelTab = 'tester'; paper.persist(); }
+        else app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: saved, params: {} }];
+        app.persist();
+        app.page = 'chart';
+      } else app.persist();
     } catch (e) { status = { ok: false, text: String(e) }; }
     finally { saving = false; }
   }
@@ -142,13 +231,6 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     if (!confirm(`Delete ${app.editor.name}.pine?`)) return;
     await library.remove(kind, app.editor.name);
     app.editor = { kind, name: null };
-  }
-
-  function addToChart() {
-    if (kind !== 'indicators' || !app.editor.name) return;
-    app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: app.editor.name, params: {} }];
-    app.persist();
-    app.page = 'chart';
   }
 
   function onKey(e: KeyboardEvent) {
@@ -164,7 +246,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   const back = () => (app.page = 'chart');
 </script>
 
-<svelte:window onkeydown={(e) => { if (app.page === 'editor') { onKey(e); if (e.key === 'Escape' && document.activeElement !== ta) back(); } }} />
+<svelte:window onkeydown={(e) => { if (app.page === 'editor') { onKey(e); if (e.key === 'Escape' && document.activeElement !== ta && !(e.target as HTMLElement)?.closest('input, textarea')) back(); } }} />
 
 <div class="page">
   <header>
@@ -192,42 +274,44 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
 
     <section class="main">
       <div class="bar">
-        <input class="name" bind:value={name} placeholder={blank ? '' : isNew ? 'File name (default: script title)' : 'File name'} spellcheck="false" disabled={!isNew} />
+        <input class="name" bind:value={name} placeholder={blank ? '' : isNew ? 'File name (default: script title)' : 'File name (change it and save to rename)'} spellcheck="false" disabled={blank} aria-label="File name" />
         <span class="ext">.pine</span>
         <div class="spacer"></div>
-        <button class:on={aiOpen} onclick={toggleAi} disabled={blank} title="Change this {label.toLowerCase()} with AI">AI</button>
-        {#if kind === 'strategies'}<button onclick={() => app.openBuilder(!isNew && !blank && code.includes('@oviate-builder') ? app.editor.name : null)} title="Build a strategy from indicator conditions, no code">Builder</button>{/if}
-        <button onclick={check} disabled={blank}>Check</button>
-        {#if kind === 'indicators' && !isNew && !blank}<button onclick={addToChart}>Add to chart</button>{/if}
+        {#if kind === 'strategies'}<button class:on={inBuilder} onclick={toggleMode} disabled={blank} title={inBuilder ? 'Back to the Pine code' : 'Build the strategy from indicator conditions, no code'}>{inBuilder ? 'Editor' : 'Builder'}</button>{/if}
+        <button onclick={checkClick} disabled={blank}>Check</button>
         {#if !isNew && !blank}<button class="danger" onclick={remove}>Delete</button>{/if}
-        <button class="primary" onclick={save} disabled={saving || blank}>Save <kbd>Ctrl+S</kbd></button>
+        <button class="primary" onclick={() => save()} disabled={saving || blank}>Save <kbd>Ctrl+S</kbd></button>
+        <button class="primary" onclick={() => save(true)} disabled={saving || blank} title="Save, and put it on the chart unless it is already there">Save & add to chart</button>
       </div>
-      {#if kind === 'strategies' && !blank}
-        <div class="params"><AiStrategyFields part="params" bind:qtyType bind:qty bind:sl bind:tp bind:direction commit={applyParams} {noSl} {noTp} /></div>
-      {/if}
-      {#if aiOpen && !blank}
-        <div class="ai">
-          {#if kind === 'strategies'}<AiStrategyFields part="direction" bind:qtyType bind:qty bind:sl bind:tp bind:direction />{/if}
-          <textarea bind:value={aiText} rows="3" spellcheck="false" placeholder={kind === 'strategies' ? 'What should change? e.g. add an RSI filter above 50 for entries, exit on a close below the EMA 20. Leave empty to only apply the settings above.' : 'What should change? e.g. add a signal line (EMA 9) and colour the histogram green above zero'}
-            onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runAi(); } }}></textarea>
-          <div class="aibar">
-            <button class="primary" onclick={runAi} disabled={!canAi}>{aiBusy ? 'Editing…' : 'Edit with AI'} <kbd>Ctrl+Enter</kbd></button>
-            {#if undoCode !== null}<button onclick={undoAi}>Undo last AI edit</button>{/if}
-            <button onclick={() => (aiOpen = false)}>Close</button>
-            {#if aiBusy}<span class="hint">Writing and test-running the change, this can take up to a minute…</span>{/if}
-            {#if aiError}<span class="aierr">{aiError}</span>{/if}
+      {#if !blank}
+        <div class="setrow">
+          {#if kind === 'strategies'}
+            <div class="settings"><AiStrategyFields bind:qtyType bind:qty bind:sl bind:tp bind:direction commit={applyParams} {noSl} {noTp} {dirHint} /></div>
+          {/if}
+          <div class="aibox">
+            <textarea bind:value={aiText} rows="2" spellcheck="false" aria-label="Describe a change for the AI"
+              placeholder={inBuilder ? 'Describe the strategy in words and let the AI fill the builder, e.g. buy when RSI crosses back above 30 while the close is above the EMA 50, sell when RSI crosses 70' : kind === 'strategies' ? 'What should change? e.g. add an RSI filter above 50 for entries, exit on a close below the EMA 20. Leave empty to only apply the settings on the left.' : 'What should change? e.g. add a signal line (EMA 9) and colour the histogram green above zero'}
+              onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runAi(); } }}></textarea>
+            <div class="aibtns">
+              <button class="primary" onclick={runAi} disabled={!canAi} title="Ctrl+Enter">{aiBusy ? 'Working…' : inBuilder ? 'Fill with AI' : 'Edit with AI'}</button>
+              {#if undo}<button onclick={undoAi}>Undo</button>{/if}
+            </div>
           </div>
         </div>
       {/if}
-      <div class="editor">
+      <div class="editor" class:bpane={inBuilder}>
         {#if blank}
           <div class="blank">Select {kind === 'indicators' ? 'an indicator' : 'a strategy'} on the left, or create a new one.</div>
+        {:else if inBuilder}
+          <BuilderPane bind:model />
         {:else}
           <div class="gutter" bind:this={gutter}>{#each Array(lines) as _, i}<div>{i + 1}</div>{/each}</div>
           <textarea bind:this={ta} bind:value={code} onscroll={sync} spellcheck="false" autocomplete="off" wrap="off" placeholder={`Paste your Pine Script v5 ${label.toLowerCase()} here`}></textarea>
         {/if}
       </div>
-      {#if status}<div class="status" class:ok={status.ok}>{status.text}</div>{/if}
+      {#if aiBusy}<div class="status hint">Writing and test-running the change, this can take up to a minute…</div>
+      {:else if status}<div class="status" class:ok={status.ok}>{status.text}</div>
+      {:else if problem}<div class="status">{problem}</div>{/if}
     </section>
   </div>
 </div>
@@ -268,15 +352,17 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .gutter { width: 48px; flex: none; overflow: hidden; text-align: right; padding: 12px 8px 12px 0; color: var(--dim); font: 13px/1.55 ui-monospace, monospace; border-right: 1px solid var(--line); user-select: none; }
   textarea { flex: 1; min-width: 0; resize: none; background: #000; color: var(--fg); border: 0; outline: 0; padding: 12px 14px; font: 13px/1.55 ui-monospace, monospace; tab-size: 4; white-space: pre; overflow: auto; }
   .bar button.on { border-color: var(--accent); color: var(--accent); } .bar button:disabled { opacity: 0.45; cursor: default; }
-  .params { padding: 10px 14px 0; border-bottom: 1px solid var(--line); background: var(--bar); }
-  .ai { padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--bar); }
-  .ai textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px/1.5 system-ui, sans-serif; outline: none; }
-  .ai textarea:focus { border-color: var(--accent); }
-  .aibar { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .aibar button { background: none; border: 1px solid var(--line); color: var(--fg); padding: 6px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; } .aibar button:hover:not(:disabled) { border-color: var(--accent); }
-  .aibar .primary { background: var(--accent); border-color: var(--accent); color: #fff; } .aibar button:disabled { opacity: 0.5; cursor: default; }
-  .hint { color: var(--dim); font-size: 12px; } .aierr { color: var(--down); font-size: 12px; }
   .blank { flex: 1; display: grid; place-items: center; color: var(--dim); font-size: 14px; }
   .status { padding: 8px 16px; border-top: 1px solid var(--line); font: 12.5px ui-monospace, monospace; color: var(--down); }
   .status.ok { color: var(--up); }
+  .setrow { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--bar); }
+  .settings { flex: none; }
+  .aibox { flex: 1; min-width: 320px; display: flex; gap: 8px; align-items: stretch; }
+  .aibox textarea { flex: 1; min-width: 0; min-height: 56px; box-sizing: border-box; resize: vertical; padding: 8px 10px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px/1.45 system-ui, sans-serif; outline: none; }
+  .aibox textarea:focus { border-color: var(--accent); }
+  .aibtns { display: flex; flex-direction: column; gap: 6px; }
+  .aibtns button { background: none; border: 1px solid var(--line); color: var(--fg); padding: 6px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; white-space: nowrap; } .aibtns button:hover:not(:disabled) { border-color: var(--accent); }
+  .aibtns .primary { background: var(--accent); border-color: var(--accent); color: #fff; } .aibtns button:disabled { opacity: 0.5; cursor: default; }
+  .editor.bpane { display: flex; flex-direction: column; background: var(--bg); }
+  .status.hint { color: var(--dim); }
 </style>
