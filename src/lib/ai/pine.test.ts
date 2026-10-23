@@ -398,7 +398,7 @@ test('realistic model strategies run and trade on the sample', () => {
 });
 
 // ---------------------------------------------------------------- editing
-import { extractStrategyForm, editIndicator, editStrategy, setStrategyParams, hasLimitInput } from './pine.ts';
+import { extractStrategyForm, editIndicator, editStrategy, setStrategyParams, hasLimitInput, setDirection, readDirection } from './pine.ts';
 
 test('extractStrategyForm reads size, stop loss, take profit and directions from existing code', () => {
   const a = extractStrategyForm(STRATEGY_EXAMPLE_LONG);
@@ -443,4 +443,53 @@ test('setStrategyParams changes size and stop loss / take profit defaults withou
   assert.equal(f.qtyType, 'cash'); assert.equal(f.qty, 500); assert.equal(f.sl, 3.5); assert.equal(f.tp, 0);
   assert.ok(hasLimitInput(c, 'sl') && hasLimitInput(c, 'tp'));
   assert.ok(!hasLimitInput('strategy("x")\nif close > open\n    strategy.entry("L", strategy.long)', 'sl'));
+});
+
+test('setStrategyParams adds a stop loss / take profit exit to code that has none, and later edits change its defaults', () => {
+  const base = `//@version=5
+strategy("X", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+if ta.crossover(ta.sma(close, 5), ta.sma(close, 20))
+    strategy.entry("Long", strategy.long)
+if ta.crossunder(ta.sma(close, 5), ta.sma(close, 20))
+    strategy.close("Long")
+`;
+  assert.ok(!hasLimitInput(base, 'sl'));
+  const a = setStrategyParams(base, { qtyType: 'percent_of_equity', qty: 100, sl: 2, tp: 0 });
+  assert.ok(hasLimitInput(a, 'sl') && hasLimitInput(a, 'tp'));
+  assert.equal(extractStrategyForm(a).sl, 2);
+  const r = runPine(a, STRAT_SAMPLE);
+  assert.ok(!r.error, r.error?.message ?? '');
+  assert.ok(r.strategy!.trades.some((t) => t.exitComment === 'stop'), 'stop loss never hit');
+  const b = setStrategyParams(a, { qtyType: 'percent_of_equity', qty: 100, sl: 5, tp: 4 });
+  assert.equal(b.match(/Stop loss %/g)!.length, 1);
+  assert.equal(extractStrategyForm(b).tp, 4);
+  assert.equal(setStrategyParams(base, { qtyType: 'fixed', qty: 3, sl: 0, tp: 0 }).includes('oviSl'), false);
+});
+
+test('setDirection filters entries by switches without AI', () => {
+  const code = `//@version=5
+strategy("X", overlay=true)
+longC = ta.crossover(ta.sma(close, 5), ta.sma(close, 20))
+shortC = ta.crossunder(ta.sma(close, 5), ta.sma(close, 20))
+if longC
+    strategy.entry("Long", strategy.long)
+if shortC
+    strategy.entry("Short", strategy.short, comment="s", when=close > 0)
+`;
+  assert.equal(readDirection(code), 'both');
+  assert.equal(setDirection(code, 'both'), code);
+  assert.equal(setDirection(code, 'auto'), code);
+  const lo = setDirection(code, 'long');
+  assert.equal(readDirection(lo), 'long');
+  assert.match(lo, /strategy\.entry\("Long", strategy\.long, when=allowLong\)/);
+  assert.match(lo, /when=\(close > 0\) and allowShort/);
+  const r1 = runPine(lo, STRAT_SAMPLE);
+  assert.ok(!r1.error, r1.error?.message ?? '');
+  assert.ok(r1.strategy!.trades.length > 0 && r1.strategy!.trades.every((t) => t.dir === 'long'));
+  const so = setDirection(lo, 'short');
+  assert.equal(readDirection(so), 'short');
+  assert.equal((so.match(/allowLong = input/g) ?? []).length, 1);
+  const r2 = runPine(so, STRAT_SAMPLE);
+  assert.ok(r2.strategy!.trades.length > 0 && r2.strategy!.trades.every((t) => t.dir === 'short'));
+  assert.equal(readDirection(setDirection(so, 'both')), 'both');
 });

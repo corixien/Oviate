@@ -1,14 +1,14 @@
 <script lang="ts">
   import { app } from '$lib/app.svelte';
-  import { library, type ScriptKind } from '$lib/library.svelte';
+  import { library, scriptMeta, type ScriptKind } from '$lib/library.svelte';
   import { paper } from '$lib/paper/paper.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick, untrack } from 'svelte';
   import { aiComplete } from '$lib/api';
-  import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
-  import { aiBuilder } from '$lib/builder/ai.ts';
+  import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, setDirection, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
+  import { aiBuilder, aiBuilderFromCode } from '$lib/builder/ai.ts';
   import { indInfo, allInfos } from '$lib/builder/info';
-  import { checkModel, newModel, parseModel, toPine, type Model } from '$lib/builder/model.ts';
+  import { builderModelOf, checkModel, newModel, toPine, type Model } from '$lib/builder/model.ts';
   import AiStrategyFields from './AiStrategyFields.svelte';
   import BuilderPane from './BuilderPane.svelte';
 
@@ -74,13 +74,23 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   const problem = $derived(inBuilder ? checkModel(snap(), indInfo) : null);
   const builderDirty = $derived(inBuilder && JSON.stringify(snap()) !== enterSnap);
 
-  function enterBuilder() {
-    const parsed = parseModel(code);
+  /** Open the builder on the code: a builder-made script as it is, any other Pine code read into the builder by the AI (the closest indicators of the list). */
+  async function enterBuilder() {
+    const parsed = builderModelOf(code, indInfo);
     const foreign = !parsed && code.trim() !== '' && code.trim() !== TEMPLATES.strategies.trim();
-    model = parsed ?? newModel();
+    if (foreign) {
+      aiBusy = true; status = { ok: true, text: 'Reading your code into the builder with the AI, this can take up to a minute…' };
+      try {
+        model = await aiBuilderFromCode(code, allInfos(), aiComplete);
+        status = { ok: true, text: 'Your code was read into the builder (closest indicators of your list). Check the conditions; the code stays as it is until you change something here and save.' };
+      } catch (e) {
+        model = newModel();
+        status = { ok: false, text: `The code could not be read into the builder (${e instanceof Error ? e.message : e}). The builder starts empty, and saving from it replaces the code. Switch back to Editor to keep the code.` };
+      } finally { aiBusy = false; }
+    } else model = parsed ?? newModel();
     enterSnap = JSON.stringify($state.snapshot(model));
     mode = 'builder';
-    status = foreign ? { ok: false, text: 'This script was not made by the builder: the builder starts empty, and saving from it replaces the code. Switch back to Editor to keep the code.' } : null;
+    if (!foreign) status = null;
   }
   function leaveBuilder() {
     if (builderDirty) {
@@ -89,7 +99,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     }
     mode = 'code';
   }
-  const toggleMode = () => (inBuilder ? leaveBuilder() : enterBuilder());
+  const toggleMode = () => { if (!aiBusy) { if (inBuilder) leaveBuilder(); else enterBuilder(); } };
 
   // the settings mirror what is open: the model in the builder, the code otherwise (also while typing)
   $effect(() => {
@@ -103,9 +113,10 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
       qtyType = f.qtyType; qty = String(f.qty); sl = f.sl ? String(f.sl) : ''; tp = f.tp ? String(f.tp) : ''; direction = f.direction;
     }
   });
-  const noSl = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'sl'));
-  const noTp = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'tp'));
-  const dirHint = $derived(inBuilder ? 'Switches the long and short sides on or off' : 'Applied by the AI when you press the send button');
+  // without any stop loss / take profit input the editor adds one; with only one of them present the other cannot be added
+  const noSl = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'sl') && hasLimitInput(code, 'tp'));
+  const noTp = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'tp') && hasLimitInput(code, 'sl'));
+  const dirHint = $derived(inBuilder ? 'Switches the long and short sides on or off' : 'Long only / short only / both: switches the entries of the code (allowLong / allowShort inputs)');
 
   /** Size, stop loss and take profit change the code (or the builder) directly, no AI needed. */
   function applyParams() {
@@ -123,11 +134,12 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
       else if (direction === 'both') { model.long.on = true; model.short.on = true; }
       return;
     }
-    const next = setStrategyParams(code, { qtyType, qty: num(qty), sl: noSl ? 0 : slv, tp: noTp ? 0 : tpv });
+    let next = setStrategyParams(code, { qtyType, qty: num(qty), sl: noSl ? 0 : slv, tp: noTp ? 0 : tpv });
+    next = setDirection(next, direction);
     if (next !== code) { code = next; status = null; }
   }
 
-  const canAi = $derived(!aiBusy && (aiText.trim().length > 0 || (kind === 'strategies' && !inBuilder)) && (kind === 'indicators' || qtyOk));
+  const canAi = $derived(!aiBusy && aiText.trim().length > 0 && (kind === 'indicators' || qtyOk));
   async function runAi() {
     if (!canAi) return;
     aiBusy = true; status = null;
@@ -153,6 +165,23 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     undo = null; status = null;
   }
 
+  // the file name and the script title are one name: editing either changes the other
+  let lastTitle = '';
+  const codeTitle = $derived(scriptMeta(code).title);
+  $effect(() => {
+    const t = codeTitle;
+    untrack(() => { if (t !== lastTitle) { lastTitle = t; if (!blank && t !== 'Untitled') name = t; } });
+  });
+  function onNameInput() {
+    const t = name.trim();
+    if (!t) return;
+    if (inBuilder) model.name = t;
+    else {
+      const next = code.replace(/((?:indicator|strategy|study)\s*\(\s*(?:title\s*=\s*)?)(["'])(.*?)\2/, (_m, a: string, q: string) => a + q + t.replace(/["'\\]/g, '') + q);
+      if (next !== code) { code = next; lastTitle = scriptMeta(next).title; }
+    }
+  }
+
   function open(k: ScriptKind, n: string | null) {
     app.editor = { kind: k, name: n };
   }
@@ -169,6 +198,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
       name = f?.name ?? app.editor.name;
       code = f?.code ?? '';
     }
+    lastTitle = scriptMeta(code).title;
     if (app.editor.builder && kind === 'strategies' && !app.editor.blank) untrack(() => enterBuilder());
   });
 
@@ -274,10 +304,10 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
 
     <section class="main">
       <div class="bar">
-        <input class="name" bind:value={name} placeholder={blank ? '' : isNew ? 'File name (default: script title)' : 'File name (change it and save to rename)'} spellcheck="false" disabled={blank} aria-label="File name" />
+        <input class="name" bind:value={name} oninput={onNameInput} placeholder={blank ? '' : isNew ? 'File name (default: script title)' : 'File name (change it and save to rename)'} spellcheck="false" disabled={blank} aria-label="File name" />
         <span class="ext">.pine</span>
         <div class="spacer"></div>
-        {#if kind === 'strategies'}<button class:on={inBuilder} onclick={toggleMode} disabled={blank} title={inBuilder ? 'Back to the Pine code' : 'Build the strategy from indicator conditions, no code'}>{inBuilder ? 'Editor' : 'Builder'}</button>{/if}
+        {#if kind === 'strategies'}<button onclick={toggleMode} disabled={blank} title={inBuilder ? 'Back to the Pine code' : 'Build the strategy from indicator conditions, no code'}>{inBuilder ? 'Editor' : 'Builder'}</button>{/if}
         <button onclick={checkClick} disabled={blank}>Check</button>
         {#if !isNew && !blank}<button class="danger" onclick={remove}>Delete</button>{/if}
         <button class="primary" onclick={() => save()} disabled={saving || blank}>Save <kbd>Ctrl+S</kbd></button>
@@ -290,7 +320,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
           {/if}
           <div class="aibox">
             <textarea bind:value={aiText} rows="2" spellcheck="false" aria-label="Describe a change for the AI"
-              placeholder={inBuilder ? 'Describe the strategy in words and let the AI fill the builder, e.g. buy when RSI crosses back above 30 while the close is above the EMA 50, sell when RSI crosses 70' : kind === 'strategies' ? 'What should change? e.g. add an RSI filter above 50 for entries, exit on a close below the EMA 20. Leave empty to only apply the settings on the left.' : 'What should change? e.g. add a signal line (EMA 9) and colour the histogram green above zero'}
+              placeholder={inBuilder ? 'Describe the strategy in words and let the AI fill the builder, e.g. buy when RSI crosses back above 30 while the close is above the EMA 50, sell when RSI crosses 70' : kind === 'strategies' ? 'What should change? e.g. add an RSI filter above 50 for entries, exit on a close below the EMA 20.' : 'What should change? e.g. add a signal line (EMA 9) and colour the histogram green above zero'}
               onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runAi(); } }}></textarea>
             <div class="aibtns">
               <button class="primary" onclick={runAi} disabled={!canAi} title="Ctrl+Enter">{aiBusy ? 'Working…' : inBuilder ? 'Fill with AI' : 'Edit with AI'}</button>

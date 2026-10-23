@@ -207,8 +207,8 @@
   .types button { background: none; border: 1px solid var(--line); margin-right: -1px; color: var(--fg); padding: 6px 11px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .types button.on { background: var(--accent); border-color: var(--accent); color: #fff; position: relative; z-index: 1; }
   .types button:hover:not(.on) { border-color: var(--accent); position: relative; z-index: 1; }
-  input[type='number'] { background: #000; border: 1px solid var(--line); color: var(--fg); padding: 7px 9px; font: 13px ui-monospace, monospace; outline: none; min-width: 0; }
-  input[type='number'] { flex: 1; } input:focus, select:focus { border-color: var(--accent); }
+  input[type='number'], input[type='text'] { background: #000; border: 1px solid var(--line); color: var(--fg); padding: 7px 9px; font: 13px ui-monospace, monospace; outline: none; min-width: 0; }
+  input[type='number'], input[type='text'] { flex: 1; } input:focus, select:focus { border-color: var(--accent); }
   .qty { flex: 1; display: flex; flex-direction: column; gap: 6px; }
   .mini { background: none; border: 1px solid var(--line); color: var(--dim); padding: 0 12px; height: 30px; box-sizing: border-box; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .mini:hover { border-color: var(--accent); color: var(--fg); }

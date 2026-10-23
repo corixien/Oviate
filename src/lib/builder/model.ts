@@ -350,3 +350,11 @@ export function suggest(ind: string, i: IndInfo): Suggestion[] {
   add({ l: op(main), cmp: 'turn_up' }); add({ l: op(main), cmp: 'turn_down' });
   return out;
 }
+
+/** The model of a builder-made script, but only while its conditions are still the ones the builder generated (hand-edited logic returns null). */
+export function builderModelOf(code: string, info: InfoFn): Model | null {
+  const m = parseModel(code);
+  if (!m || checkModel(m, info)) return null;
+  const tail = (c: string) => (c.split('// indicator values')[1] ?? '').replace(/\s+/g, '');
+  return tail(toPine(m, info)) === tail(code) ? m : null;
+}

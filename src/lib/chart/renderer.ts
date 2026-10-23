@@ -86,8 +86,17 @@ export function fmtPrice(p: number): string {
 
 /** Charts that are on screen: with sync on they follow each other's time window and crosshair in the same frame (no reactive round trip). */
 const live = new Set<ChartRenderer>();
-export const chartSync = { on: true };
-export function setChartSync(on: boolean) { chartSync.on = on; if (!on) for (const c of live) c.setExternal(null, null); }
+/**
+ * With sync on, one chart leads (the one the user touched last) and the others take over its view every frame:
+ * the same time window, and a price range scaled to their own last close so the last-price line sits at the same height everywhere.
+ */
+export const chartSync: { on: boolean; leader: ChartRenderer | null; last: SyncView | null } = { on: true, leader: null, last: null };
+interface SyncView { l: number; r: number; rlo: number; rhi: number }
+export function setChartSync(on: boolean) {
+  chartSync.on = on;
+  if (on) return;
+  for (const c of live) { c.setExternal(null, null); c.releaseFollow(); }
+}
 
 interface Pane { kind: 'main' | 'sub'; y0: number; y1: number; ind?: ActiveIndicator; lo: number; hi: number }
 
@@ -156,7 +165,7 @@ export class ChartRenderer {
       if (c.width !== cw) c.width = cw;
       if (c.height !== ch) c.height = ch;
     }
-    if (this.pendingReset && w > 100) { this.pendingReset = false; this.resetView(); }
+    if (this.pendingReset && w > 100) { this.pendingReset = false; if (!this.followLeader()) { this.resetView(); if (!chartSync.leader) chartSync.leader = this; } }
     this.drawNow();
   }
 
@@ -166,25 +175,55 @@ export class ChartRenderer {
     return [this.idxToTime(this.start - 0.5), this.idxToTime(this.start - 0.5 + bars)];
   }
 
-  /** A view change made here (pan, zoom, reset): tell the other charts and the host. With sync on the other charts take the same time window and redraw right now. */
+  /** The user (or a reset / replay step) changed this chart's view: it leads from now on, and the other charts follow in its next draw. */
   viewChanged() {
-    if (chartSync.on && live.size > 1) {
-      const [l, r] = this.getTimeRange();
-      for (const p of live) if (p !== this) p.followTime(l, r);
-    }
+    chartSync.leader = this;
     this.hooks.onViewChange();
+    this.invalidate();
   }
 
-  /** Take over the time window of another chart. Not clamped (a follower may show empty space where its own data ends), does not broadcast. */
-  private followTime(l: number, r: number) {
-    if (this.w < 100 || !this.s.data.n || r <= l) return;
+  private followed = false;
+
+  /** Hand the chart back to its own auto scale (sync was switched off). */
+  releaseFollow() {
+    if (!this.followed) return;
+    this.followed = false; this.manual = null; this.autoSm = null;
+    this.invalidate();
+  }
+
+  /** Take over the leader's view: same time window (unclamped, a follower may show empty space where its data ends) and its price range in multiples of the last close. */
+  private applyView(v: SyncView) {
+    const d = this.s.data;
+    if (this.w < 100 || !d.n || v.r <= v.l) return;
     const plot = this.w - AXIS_W;
     this.tgt = null;
-    const barsVisible = (r - l) / this.s.step;
-    this.barW = Math.min(Math.max(plot / barsVisible, BAR_MIN), BAR_MAX);
-    this.start = this.timeToIdx(l) + 0.5;
+    this.barW = Math.min(Math.max(plot / ((v.r - v.l) / this.s.step), BAR_MIN), BAR_MAX);
+    this.start = this.timeToIdx(v.l) + 0.5;
+    const c = d.c[d.n - 1];
+    if (c > 0 && Number.isFinite(v.rlo) && Number.isFinite(v.rhi) && v.rhi > v.rlo) {
+      this.manual = { lo: v.rlo * c, hi: v.rhi * c };
+      this.autoSm = null; this.followed = true;
+    }
     this.checkHistory();
     this.drawNow();
+  }
+
+  /** The leader's current view, computed after its ranges are known (end of its draw). */
+  private pushView() {
+    const d = this.s.data, m = this.panes[0];
+    if (!d.n || !m) return;
+    const c = d.c[d.n - 1];
+    const [l, r] = this.getTimeRange();
+    const view: SyncView = { l, r, rlo: c > 0 ? m.lo / c : NaN, rhi: c > 0 ? m.hi / c : NaN };
+    chartSync.last = view;
+    for (const p of live) if (p !== this) p.applyView(view);
+  }
+
+  /** Join the leader's view (a chart that just loaded, or came back from an empty state). False when there is nothing to follow. */
+  followLeader(): boolean {
+    if (!chartSync.on || !chartSync.last || !chartSync.leader || chartSync.leader === this) return false;
+    this.applyView(chartSync.last);
+    return true;
   }
 
   /** Crosshair of another chart: time of its hovered bar and the height as a fraction of its main pane. */
@@ -213,7 +252,7 @@ export class ChartRenderer {
     this.tgt = null;
     const vis = (this.w - AXIS_W) / this.barW;
     this.start = this.s.data.n + RIGHT_PAD - vis;
-    this.invalidate();
+    this.viewChanged();
   }
 
   /** History was prepended: keep the view (and any running wheel animation) on the same bars. */
@@ -239,6 +278,8 @@ export class ChartRenderer {
 
   destroy() {
     live.delete(this);
+    if (chartSync.leader === this) chartSync.leader = null;
+    if (live.size === 1) for (const c of live) c.releaseFollow(); // a single chart scales itself again
     cancelAnimationFrame(this.raf); cancelAnimationFrame(this.oraf); cancelAnimationFrame(this.animRaf);
     this.cleanup.forEach((f) => f());
   }
@@ -369,6 +410,7 @@ export class ChartRenderer {
     if (w < 80 || h < 80) return;
     this.layout();
     this.computeRanges();
+    if (chartSync.on && chartSync.leader === this && live.size > 1) this.pushView();
     const [a, b] = this.visible();
     ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
     ctx.textBaseline = 'middle';
@@ -1219,6 +1261,7 @@ export class ChartRenderer {
         this.hooks.onReplayPick(this.s.data.t[k]);
         return;
       }
+      chartSync.leader = this; // whatever is dragged here (time, price axis, drawings) is mirrored by the other charts
       el.setPointerCapture(e.pointerId);
       this.tgt = null;
       const reg = region(x, y);
@@ -1320,6 +1363,7 @@ export class ChartRenderer {
     });
     on('wheel', (e) => {
       e.preventDefault();
+      chartSync.leader = this;
       const { x, y } = pos(e);
       const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? this.h : 1;
       const dX = e.deltaX * unit, dY = e.deltaY * unit;

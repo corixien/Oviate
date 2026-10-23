@@ -313,15 +313,98 @@ export function setPositionSize(code: string, type: StrategyOpts['qtyType'], qty
 const LIMIT_TITLE = { sl: /stop\s*loss|\bsl\b/i, tp: /take\s*profit|\btp\b/i };
 const LIMIT_INPUT = /(input\.(?:float|int)\(\s*)(-?[\d.]+)(\s*,\s*"([^"]*)")/g;
 
+// ---- direction filter: input.bool switches that gate the entry calls (no AI needed) ----
+const GUARD_RE = { long: /allowLong\s*=\s*input\.bool\(\s*(true|false)/, short: /allowShort\s*=\s*input\.bool\(\s*(true|false)/ };
+
+/** strategy.entry / strategy.order calls whose direction is written as strategy.long or strategy.short: span of the arguments and the direction. */
+function entryCalls(code: string): { from: number; to: number; dir: 'long' | 'short'; args: string[] }[] {
+  const out: { from: number; to: number; dir: 'long' | 'short'; args: string[] }[] = [];
+  for (const m of code.matchAll(/strategy\.(?:entry|order)\s*\(/g)) {
+    const from = m.index! + m[0].length;
+    let depth = 1, q = '', i = from;
+    for (; i < code.length && depth > 0; i++) {
+      const ch = code[i];
+      if (q) { if (ch === q && code[i - 1] !== '\\') q = ''; continue; }
+      if (ch === '"' || ch === "'") q = ch; else if (ch === '(') depth++; else if (ch === ')') depth--;
+    }
+    if (depth !== 0) continue;
+    const to = i - 1;
+    const args = splitArgs(code.slice(from, to));
+    const named = args.find((a) => /^direction\s*=/.test(a));
+    const dirArg = named ? named.replace(/^[^=]+=\s*/, '') : args[1] && !/^\w+\s*=(?!=)/.test(args[1]) ? args[1] : '';
+    const dir = /^strategy\.long$/.test(dirArg.trim()) ? 'long' : /^strategy\.short$/.test(dirArg.trim()) ? 'short' : null;
+    if (dir) out.push({ from, to, dir, args });
+  }
+  return out;
+}
+
+/** Directions the strategy trades: the switches when the editor added them, else the directions its entries are written with. */
+export function readDirection(code: string): StrategyOpts['direction'] {
+  const gl = GUARD_RE.long.exec(code)?.[1], gs = GUARD_RE.short.exec(code)?.[1];
+  if (gl !== undefined || gs !== undefined) {
+    const l = gl !== 'false', sh = gs !== 'false';
+    return l && sh ? 'both' : l ? 'long' : sh ? 'short' : 'auto';
+  }
+  const calls = entryCalls(code);
+  const long = calls.some((c) => c.dir === 'long') || /strategy\.long\b/.test(code), short = calls.some((c) => c.dir === 'short') || /strategy\.short\b/.test(code);
+  return long && short ? 'both' : long ? 'long' : short ? 'short' : 'auto';
+}
+
+/**
+ * Long only / short only / both without AI: every entry written with strategy.long / strategy.short gets `when=allowLong` / `when=allowShort`
+ * (existing `when=` is kept, and-ed), and two input.bool switches after the strategy() line hold the choice. "auto" changes nothing.
+ */
+export function setDirection(code: string, dir: StrategyOpts['direction']): string {
+  if (dir === 'auto') return code;
+  const want = { long: dir !== 'short', short: dir !== 'long' };
+  const calls = entryCalls(code);
+  if (!calls.length) return code;
+  const hasGuards = GUARD_RE.long.test(code) || GUARD_RE.short.test(code);
+  if (!hasGuards && want.long && want.short) return code; // nothing to filter
+  let out = code;
+  for (const c of [...calls].reverse()) {
+    const g = c.dir === 'long' ? 'allowLong' : 'allowShort';
+    if (c.args.some((a) => new RegExp(`^when\\s*=.*\\b${g}\\b`).test(a))) continue;
+    const i = c.args.findIndex((a) => /^when\s*=/.test(a));
+    const args = [...c.args];
+    if (i >= 0) args[i] = `when=(${args[i].replace(/^when\s*=\s*/, '')}) and ${g}`; else args.push(`when=${g}`);
+    out = out.slice(0, c.from) + args.join(', ') + out.slice(c.to);
+  }
+  const line = (k: 'long' | 'short') => `${k === 'long' ? 'allowLong' : 'allowShort'} = input.bool(${want[k]}, "${k === 'long' ? 'Long' : 'Short'} trades")`;
+  for (const k of ['long', 'short'] as const) {
+    if (GUARD_RE[k].test(out)) out = out.replace(GUARD_RE[k], (m) => m.replace(/(true|false)$/, String(want[k])));
+  }
+  const add = (['long', 'short'] as const).filter((k) => !GUARD_RE[k].test(out)).map(line);
+  if (add.length) {
+    const span = declSpan(out);
+    const eol = span ? out.indexOf('\n', span[1]) : -1;
+    const at = eol < 0 ? out.length : eol + 1;
+    out = out.slice(0, at) + (eol < 0 ? '\n' : '') + add.join('\n') + '\n' + out.slice(at);
+  }
+  return out;
+}
+
+const LIMIT_BLOCK = (sl: number, tp: number) => `
+// stop loss / take profit from the editor settings
+oviSl = input.float(${sl}, "Stop loss %", minval=0, step=0.1)
+oviTp = input.float(${tp}, "Take profit %", minval=0, step=0.1)
+if strategy.position_size > 0
+    strategy.exit("Long SL/TP", stop=oviSl > 0 ? strategy.position_avg_price * (1 - oviSl / 100) : na, limit=oviTp > 0 ? strategy.position_avg_price * (1 + oviTp / 100) : na)
+if strategy.position_size < 0
+    strategy.exit("Short SL/TP", stop=oviSl > 0 ? strategy.position_avg_price * (1 + oviSl / 100) : na, limit=oviTp > 0 ? strategy.position_avg_price * (1 - oviTp / 100) : na)
+`;
+
 /** Does the code have a stop loss / take profit input (a float or int input titled so)? */
 export function hasLimitInput(code: string, k: 'sl' | 'tp'): boolean {
   for (const m of code.matchAll(LIMIT_INPUT)) if (LIMIT_TITLE[k].test(m[4])) return true;
   return false;
 }
 
-/** Change the form values that need no AI: position size, and the default of the stop loss / take profit inputs the code already has (0 or empty = off). */
+/** Change the form values without AI: position size, and stop loss / take profit (the inputs the code has, else an input and exit block is added; 0 or empty = off). */
 export function setStrategyParams(code: string, o: Pick<StrategyOpts, 'qtyType' | 'qty' | 'sl' | 'tp'>): string {
   let out = setPositionSize(code, o.qtyType, o.qty);
+  // no stop loss / take profit in the code yet: add inputs and an exit that uses them
+  if (!hasLimitInput(out, 'sl') && !hasLimitInput(out, 'tp') && ((o.sl ?? 0) > 0 || (o.tp ?? 0) > 0)) out = out.trimEnd() + '\n' + LIMIT_BLOCK(o.sl && o.sl > 0 ? o.sl : 0, o.tp && o.tp > 0 ? o.tp : 0);
   for (const k of ['sl', 'tp'] as const) {
     const v = o[k] && o[k]! > 0 ? o[k]! : 0;
     out = out.replace(LIMIT_INPUT, (all, a, _val, b, title) => (LIMIT_TITLE[k].test(title) ? a + String(v) + b : all));
@@ -401,8 +484,7 @@ export function extractStrategyForm(code: string): StrategyOpts {
     if (/stop\s*loss|\bsl\b/i.test(title) && val > 0) out.sl = val;
     else if (/take\s*profit|\btp\b/i.test(title) && val > 0) out.tp = val;
   }
-  const long = /strategy\.long\b/.test(code), short = /strategy\.short\b/.test(code);
-  out.direction = long && short ? 'both' : long ? 'long' : short ? 'short' : 'auto';
+  out.direction = readDirection(code);
   return out;
 }
 

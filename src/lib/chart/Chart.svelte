@@ -182,7 +182,9 @@
     void view;
     untrack(() => {
       if (!r) return;
-      if (t !== null || (!on && hadReplay)) tick().then(() => r?.scrollToEnd());
+      // with sync on only one chart scrolls (it leads, the others follow): the replay owner, or the active chart when replay ends
+      const lead = !app.sync || (on ? isOwner : app.active === index);
+      if (lead && (t !== null || (!on && hadReplay))) tick().then(() => r?.scrollToEnd());
       hadReplay = on;
     });
   });
@@ -303,7 +305,7 @@
       status = c.n ? 'ok' : 'empty';
       if (c.n) paper.feed(sym, { last: c.c[c.n - 1], t: Math.floor(Date.now() / 1000) });
       await tick();
-      if (reset) r?.resetView();
+      if (reset && r) { if (!r.followLeader()) { r.resetView(); r.viewChanged(); } } // with sync on a freshly loaded chart joins the view of the others
     } catch (e) { if (sym === cfg.symbol) { status = 'error'; errMsg = String(e); } }
   }
 

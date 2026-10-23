@@ -56,6 +56,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Chart sync v3: leader/follower model (`pushView` at the end of the leader's draw: same time window + price range in multiples of the last close, so last-price lines align), mirrors axis drags, resets, replay; loading charts `followLeader()`. Editor settings need no AI (`setStrategyParams` injects SL/TP block, `setDirection` adds allowLong/allowShort), file name = script title, non-builder Pine is read into the builder by the AI (`aiBuilderFromCode`), Builder/Editor toggle no longer highlighted, bracket text inputs styled again.
 - [x] Editor rework: Builder/Editor toggle swaps only the code area (`BuilderPane.svelte`, the standalone builder page is gone); always-visible settings row (size, SL, TP, direction) + AI text field and send button (indicators: AI row only); file name editable (Save renames the file, charts follow); "Save & add to chart" (skips if already on the chart).
 - [x] Chart sync rewritten: renderer-to-renderer in the same frame (`live` set, `followTime`, `setExternal`), unclamped follower, crosshair mirrored; replay shared via `app.replay` (all charts when sync is on); canvas resize repaints synchronously (flicker fix).
 - [x] Layout: panes touch, border lines are the drag handles (no purple hover lines) for chart splits, watchlist/analysis splits; bracket order legs accept `%`; ray / extended line icons (dot at start / in the middle); Replay/Buy/Sell buttons as tall as the ticker pill.

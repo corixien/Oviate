@@ -43,11 +43,10 @@ function problem(m: Model, info: InfoFn): string | null {
   return r.error ? r.error.message : null;
 }
 
-export async function aiBuilder(text: string, list: { name: string; info: IndInfo }[], complete: Complete, tries = 3): Promise<Model> {
-  if (!text.trim()) throw new Error('Describe the strategy first.');
+async function buildLoop(userContent: string, list: { name: string; info: IndInfo }[], complete: Complete, tries: number): Promise<Model> {
   const byName = new Map(list.map((x) => [x.name, x.info]));
   const info: InfoFn = (n) => byName.get(n);
-  const msgs: Msg[] = [{ role: 'system', content: `${SYSTEM}\n\nIndicators (name: title | where | plots | numeric inputs):\n${catalogText(list)}` }, { role: 'user', content: `Strategy idea: ${text.trim()}` }];
+  const msgs: Msg[] = [{ role: 'system', content: `${SYSTEM}\n\nIndicators (name: title | where | plots | numeric inputs):\n${catalogText(list)}` }, { role: 'user', content: userContent }];
   let last = '';
   for (let i = 0; i < tries; i++) {
     const reply = await complete(msgs);
@@ -59,4 +58,15 @@ export async function aiBuilder(text: string, list: { name: string; info: IndInf
     msgs.push({ role: 'assistant', content: reply }, { role: 'user', content: `That model fails: ${err}\nFix it and reply with ONLY the corrected json block.` });
   }
   throw new Error(`The AI could not build a working strategy (${last}). Try describing it differently.`);
+}
+
+export async function aiBuilder(text: string, list: { name: string; info: IndInfo }[], complete: Complete, tries = 3): Promise<Model> {
+  if (!text.trim()) throw new Error('Describe the strategy first.');
+  return buildLoop(`Strategy idea: ${text.trim()}`, list, complete, tries);
+}
+
+/** Pine code that was not made by the builder, read into the builder: the same entries and exits expressed with the indicators of the list. */
+export async function aiBuilderFromCode(code: string, list: { name: string; info: IndInfo }[], complete: Complete, tries = 3): Promise<Model> {
+  const req = `Convert this Pine Script strategy into the builder model. Keep its entry and exit rules, sides, position size, stop loss and take profit; express every indicator it uses with the closest indicator of the list, using its input values (put the code's lengths into "p"). If a rule cannot be expressed exactly, use the closest equivalent.\n\n\`\`\`pine\n${code.slice(0, 6000)}\n\`\`\``;
+  return buildLoop(req, list, complete, tries);
 }
