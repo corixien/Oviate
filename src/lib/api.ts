@@ -84,10 +84,10 @@ export const newsWindow = (symbol: string | null, from: number, to: number) =>
   inTauri ? call<NewsResult>('news_window', { symbol, from, to }) : Promise.resolve({ items: [], errors: [] } as NewsResult);
 
 export interface CalEvent { id: string; ts: number; country: string; title: string; impact: 'high' | 'medium' | 'low' | 'holiday'; actual: string | null; forecast: string | null; previous: string | null; provider: string; kind: 'macro' | 'earnings' | 'dividend' | 'split' | 'ipo'; symbol: string | null; detail: string | null }
-export interface CalendarResult { items: CalEvent[]; errors: { provider: string; error: string }[] }
+export interface CalendarResult { items: CalEvent[]; errors: { provider: string; error: string }[]; /** company data is still being fetched: ask again shortly */ pending: boolean }
 /** Calendar events in [from, to]: macro and company events (earnings, dividends, splits, IPOs) (unix seconds). Cached by the backend, refreshed hourly (`force` refreshes now). */
 export const calendarWindow = (from: number, to: number, force = false) =>
-  inTauri ? call<CalendarResult>('calendar_window', { from, to, force }) : Promise.resolve({ items: [], errors: [] } as CalendarResult);
+  inTauri ? call<CalendarResult>('calendar_window', { from, to, force }) : Promise.resolve({ items: [], errors: [], pending: false } as CalendarResult);
 
 export interface AiSummary { what: string; impact: string; direction: 'bullish' | 'bearish' | 'neutral' | 'mixed'; intensity: number; assets: string[]; horizon: string; model: string }
 export const aiSummary = (id: string, lang: string, force = false) =>

@@ -72,9 +72,15 @@
 
   // ----- economic calendar markers: events grouped onto the bar they fall into (future ones by bar-sized slot) -----
   let calEvents = $state<CalEvent[]>([]);
-  async function loadCal() {
+  let calTimer: ReturnType<typeof setTimeout> | undefined;
+  async function loadCal(tries = 0) {
+    clearTimeout(calTimer);
     const now = Math.floor(Date.now() / 1000);
-    try { calEvents = (await calendarWindow(now - 14 * 86400, now + 14 * 86400)).items; } catch { /* markers are optional */ }
+    try {
+      const res = await calendarWindow(now - 14 * 86400, now + 14 * 86400);
+      calEvents = res.items;
+      if (res.pending && tries < 30) calTimer = setTimeout(() => loadCal(tries + 1), 3000); // company days arrive in the background
+    } catch { /* markers are optional */ }
   }
   const IMP = { high: 3, medium: 2, low: 1, holiday: 0 } as const;
   const calMarks = $derived.by<CalMark[]>(() => {
@@ -97,7 +103,7 @@
     }
     return [...groups.values()];
   });
-  $effect(() => { loadCal(); const iv = setInterval(loadCal, 30 * 60 * 1000); return () => clearInterval(iv); });
+  $effect(() => { loadCal(); const iv = setInterval(() => loadCal(), 30 * 60 * 1000); return () => { clearInterval(iv); clearTimeout(calTimer); }; });
 
   async function loadNews() {
     const sym = cfg.symbol;

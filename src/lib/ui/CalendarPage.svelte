@@ -45,16 +45,23 @@
   });
   const nextId = $derived(shown.find((e) => e.ts >= now)?.id);
 
-  async function load(force = false) {
+  let pending = $state(false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  /** Shows what is cached at once; while the backend still fetches company days in the background, ask again every 2 s. */
+  async function load(force = false, tries = 0) {
+    clearTimeout(timer);
     const r = RANGES.find((x) => x.id === range)!, d = new Date();
+    const mine = range;
     loading = true;
     try {
       const res = await calendarWindow(r.from(d), r.to(d), force);
-      items = res.items; errors = res.errors;
-    } catch (e) { errors = [{ provider: 'calendar', error: String(e) }]; }
+      if (mine !== range) return;
+      items = res.items; errors = res.errors; pending = res.pending;
+      if (res.pending && tries < 60) timer = setTimeout(() => load(false, tries + 1), 2000);
+    } catch (e) { errors = [{ provider: 'calendar', error: String(e) }]; pending = false; }
     finally { loading = false; }
   }
-  onMount(() => { load(); });
+  onMount(() => { load(); return () => clearTimeout(timer); });
   $effect(() => { void range; load(); });
 
   const time = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -71,7 +78,8 @@
       {#each RANGES as r (r.id)}<button class:on={range === r.id} onclick={() => (range = r.id)}>{r.label}</button>{/each}
     </div>
     <div class="spacer"></div>
-    <button class="ghost" onclick={() => load(true)} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+    {#if pending}<span class="dim">Loading company data in the background…</span>{/if}
+    <button class="ghost" onclick={() => load(true)} disabled={loading}>Refresh</button>
   </header>
 
   <div class="filters">
@@ -107,7 +115,7 @@
         </div>
       {/each}
     {:else}
-      <p class="empty">{loading ? 'Loading…' : 'No events for this filter.'}</p>
+      <p class="empty">{loading || pending ? 'Loading…' : 'No events for this filter.'}</p>
     {/each}
     {#each errors as er}<p class="err">{er.provider}: {er.error}</p>{/each}
     <p class="note">Macro: Forex Factory weekly calendar (USD, EUR, GBP, JPY, CAD, AUD, NZD, CHF, CNY; no key){items.some((e) => e.provider === 'fmp') ? ' and Financial Modeling Prep' : '. A free Financial Modeling Prep key in Settings adds more countries, a wider range and actual values'}. Companies (earnings, ex-dividends, splits, IPOs): Nasdaq, no key, 30 days back to 21 days ahead; earnings of the symbol on a chart appear on that chart. Times are shown in your local time zone.</p>

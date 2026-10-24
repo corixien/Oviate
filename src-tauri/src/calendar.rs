@@ -38,7 +38,12 @@ fn macro_kind() -> String { "macro".into() }
 pub struct ProviderError { pub provider: String, pub error: String }
 
 #[derive(Debug, Serialize)]
-pub struct CalendarResult { pub items: Vec<CalEvent>, pub errors: Vec<ProviderError> }
+pub struct CalendarResult {
+    pub items: Vec<CalEvent>,
+    pub errors: Vec<ProviderError>,
+    /// company data is still being fetched in the background: ask again in a moment
+    pub pending: bool,
+}
 
 fn text(v: &Value) -> Option<String> {
     match v {
