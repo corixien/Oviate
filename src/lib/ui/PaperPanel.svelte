@@ -52,27 +52,28 @@
   const dstats = $derived(sres && tester ? detailedStats(sres, { stepSec: tester.stepSec, firstClose: tester.firstClose, lastClose: tester.lastClose }) : null);
   const bhCurves = $derived(sres && tester ? buyHoldCurves(sres, tester.closes) : { full: [], invested: [] });
   // equity chart: which lines are shown and which scale they share
-  let showEq = $state(true), showBh = $state(true), showBhInv = $state(true);
-  let eqScale = $state<'equity' | 'all'>('equity');
+  // remembered choice: app.eqView is persisted with the app state
+  const toggleLine = (k: 'eq' | 'bh' | 'bhi') => { app.eqView[k] = !app.eqView[k]; app.persist(); };
+  const setScale = (v: 'equity' | 'all') => { app.eqView.scale = v; app.persist(); };
   const sCurve = $derived.by(() => {
     const eq = sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : [];
     const c = curve(eq, 800, 150, sres?.initialCapital);
     if (eq.length < 2) return { ...c, full: '', invested: '', clipped: false };
     const init = sres!.initialCapital;
-    const shown = [...(showBh ? bhCurves.full : []), ...(showBhInv ? bhCurves.invested : [])].filter((v) => Number.isFinite(v));
+    const shown = [...(app.eqView.bh ? bhCurves.full : []), ...(app.eqView.bhi ? bhCurves.invested : [])].filter((v) => Number.isFinite(v));
     const eLo = Math.min(...eq, init), eHi = Math.max(...eq, init), eSpan = eHi - eLo || 1;
     // "equity": the equity keeps its own scale and the buy & hold lines may widen it by at most 0.6 of its span (beyond that they are cut off, so a runaway
     // buy & hold cannot flatten the equity). "all lines": one scale that holds every shown line completely.
     let lo = eLo, hi = eHi;
     if (shown.length) {
       const bLo = Math.min(...shown), bHi = Math.max(...shown);
-      if (eqScale === 'all') { lo = showEq ? Math.min(eLo, bLo) : Math.min(init, bLo); hi = showEq ? Math.max(eHi, bHi) : Math.max(init, bHi); }
+      if (app.eqView.scale === 'all') { lo = app.eqView.eq ? Math.min(eLo, bLo) : Math.min(init, bLo); hi = app.eqView.eq ? Math.max(eHi, bHi) : Math.max(init, bHi); }
       else { lo = Math.min(eLo, Math.max(bLo, eLo - eSpan * 0.6)); hi = Math.max(eHi, Math.min(bHi, eHi + eSpan * 0.6)); }
-    } else if (!showEq) { lo = init - 1; hi = init + 1; }
+    } else if (!app.eqView.eq) { lo = init - 1; hi = init + 1; }
     const span = hi - lo || 1;
     const line = (pts: number[]) => pts.map((v, i) => `${i ? 'L' : 'M'}${((i / (pts.length - 1)) * 800).toFixed(1)},${(144 - ((v - lo) / span) * 138).toFixed(1)}`).join('');
     const clipped = shown.some((v) => v < lo || v > hi);
-    return { path: line(eq), lo, hi, y0: 144 - ((init - lo) / span) * 138, full: showBh && bhCurves.full.length > 1 ? line(bhCurves.full) : '', invested: showBhInv && bhCurves.invested.length > 1 ? line(bhCurves.invested) : '', clipped };
+    return { path: line(eq), lo, hi, y0: 144 - ((init - lo) / span) * 138, full: app.eqView.bh && bhCurves.full.length > 1 ? line(bhCurves.full) : '', invested: app.eqView.bhi && bhCurves.invested.length > 1 ? line(bhCurves.invested) : '', clipped };
   });
   const endOf = (a: number[]) => (a.length ? a[a.length - 1] : NaN);
   function setT(k: 'initialCapital' | 'commissionValue' | 'slippagePct', e: Event) {
@@ -205,12 +206,12 @@
           {#if testerSub === 'overview'}
             <h5>Equity <span class="dim">red = below the starting capital</span></h5>
             <div class="legend">
-              <button class:off={!showEq} onclick={() => (showEq = !showEq)} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
-              <button class:off={!showBh} onclick={() => (showBh = !showBh)} title="What the same capital would be worth if you bought at the start and held to the end"><i class="sw bh"></i>Buy &amp; hold <b>{money(endOf(bhCurves.full))}</b></button>
-              <button class:off={!showBhInv} onclick={() => (showBhInv = !showBhInv)} title="Buy & hold growth, applied only for the share of time the strategy was invested"><i class="sw bi"></i>Buy &amp; hold, invested time only <b>{money(endOf(bhCurves.invested))}</b></button>
+              <button class:off={!app.eqView.eq} onclick={() => toggleLine('eq')} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
+              <button class:off={!app.eqView.bh} onclick={() => toggleLine('bh')} title="What the same capital would be worth if you bought at the start and held to the end"><i class="sw bh"></i>Buy &amp; hold <b>{money(endOf(bhCurves.full))}</b></button>
+              <button class:off={!app.eqView.bhi} onclick={() => toggleLine('bhi')} title="Buy & hold growth, applied only for the share of time the strategy was invested"><i class="sw bi"></i>Buy &amp; hold, invested time only <b>{money(endOf(bhCurves.invested))}</b></button>
               <span class="grow"></span>
               <span class="dim">Scale</span>
-              <div class="mseg"><button class:on={eqScale === 'equity'} onclick={() => (eqScale = 'equity')} title="Scale to the equity; far-off buy & hold lines are cut at the edge">Equity</button><button class:on={eqScale === 'all'} onclick={() => (eqScale = 'all')} title="Scale so every shown line is fully visible">All lines</button></div>
+              <div class="mseg"><button class:on={app.eqView.scale === 'equity'} onclick={() => setScale('equity')} title="Scale to the equity; far-off buy & hold lines are cut at the edge">Equity</button><button class:on={app.eqView.scale === 'all'} onclick={() => setScale('all')} title="Scale so every shown line is fully visible">All lines</button></div>
             </div>
 
             <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq">
@@ -221,7 +222,7 @@
               <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
               {#if sCurve.full}<path d={sCurve.full} fill="none" stroke="#b9a8e6" stroke-opacity="0.7" stroke-width="1.5" vector-effect="non-scaling-stroke" />{/if}
               {#if sCurve.invested}<path d={sCurve.invested} fill="none" stroke="#22e5ff" stroke-opacity="0.75" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" />{/if}
-              {#if showEq}
+              {#if app.eqView.eq}
                 <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-above)" />
                 <path d={sCurve.path} fill="none" stroke="var(--down)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-below)" />
               {/if}

@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Tester equity view (lines + scale) remembered in `app.eqView`, buy & hold lines off by default. Note: with tiny trades the equity hugs the starting capital, so on the "All lines" scale it looks flat and its red / purple split (below / above start) flips along the baseline; that is correct, not a bug.
 - [x] Calendar list anchored on the next upcoming event / the clicked chart event (ranges only ±7 and ±14 days); tester equity legend with final values, per-line toggles and an Equity / All lines scale switch (the buy & hold lines were invisible when far off the equity scale).
 - [x] Chart calendar markers filtered by symbol region: bundled table of the 1500 largest US-listed stocks (country -> currencies), rules for pairs / crypto / indices / exchange suffixes, backend `symbol_regions` for unknown symbols (Nasdaq profile, else Groq, cached forever). A TSLA chart no longer shows GBP events.
 - [x] Calendar polish: list opens at today (ranges: today, this week, next week, ±7, ±14 days), empty Actual/Forecast/Previous boxes removed (free feed has no actuals), Forex Factory 429 cooldown + FMP 402 block (user's FMP key has no calendar access: ignored for 24 h with a hint), bottom panel outlined like the panes, tester equity line back on its own scale with the faint buy & hold lines behind it.
