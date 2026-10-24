@@ -1430,7 +1430,8 @@ export class ChartRenderer {
       const { x, y } = pos(e);
       const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? this.h : 1;
       const dX = e.deltaX * unit, dY = e.deltaY * unit;
-      if (e.ctrlKey) this.wheelZoom(-dY, Math.min(x, this.plotW), y);
+      if (e.ctrlKey) this.wheelZoom(-dY, Math.min(x, this.plotW), y, e.shiftKey);
+      else if (e.altKey) this.wheelBars(dY || dX);
       else if (e.shiftKey) this.wheelPrice(dY || dX);
       else this.wheelTime(dX + dY);
     }, { passive: false });
@@ -1570,6 +1571,9 @@ export class ChartRenderer {
   private wheelTime(delta: number) {
     const T = this.ensureTgt();
     T.zoomT = false;
+    // the price scale follows the visible candles again: hand the manual range over to the eased auto scale
+    if (this.manual) { this.autoSm = { ...this.manual }; this.manual = null; this.easing = true; this.easeT = performance.now(); }
+    T.price = false;
     T.start = this.clampStartV(T.start + (delta * 0.6) / T.barW, T.barW);
     this.kick();
   }
@@ -1586,26 +1590,50 @@ export class ChartRenderer {
     this.kick();
   }
 
-  /** Ctrl+scroll: zoom time and price together around the cursor. Stops as soon as either axis reaches its limit. */
-  private wheelZoom(amount: number, ax: number, y: number) {
+  /** Alt+scroll: stretch or squeeze the time axis around the middle of the plot (the counterpart of Shift+scroll on the price axis). */
+  private wheelBars(delta: number) {
+    if (!this.s.data.n) return;
+    const T = this.ensureTgt();
+    const ax = this.plotW / 2;
+    T.zoomT = true; T.ax = ax; T.aIdx = this.idxOf(ax);
+    T.barW = Math.min(BAR_MAX, Math.max(BAR_MIN, T.barW * Math.exp(-delta * 0.002)));
+    T.start = this.clampStartV(T.aIdx - (ax - T.barW / 2) / T.barW, T.barW);
+    this.kick();
+  }
+
+  /** Ctrl+scroll: zoom time and price by the same factor (the x / y ratio never changes) around the cursor; with `toStart` (Ctrl+Shift) around the first candle. */
+  private wheelZoom(amount: number, cx: number, cy: number, toStart = false) {
     const m = this.panes[0]; if (!m || !this.s.data.n) return;
     const T = this.ensurePrice();
     const [smin, smax] = this.spanLimits();
     const f0 = Math.exp(amount * 0.003);
-    // time and price zoom independently: once the price axis is at its limit the time axis keeps zooming out (down to BAR_MIN)
-    const ft = Math.min(BAR_MAX, Math.max(BAR_MIN, T.barW * f0)) / T.barW;
-    const spanNew = Math.min(smax, Math.max(smin, T.span / f0));
-    const f = T.span / spanNew;
+    // one factor for both axes, limited by whichever axis reaches its limit first
+    const fl = Math.max(BAR_MIN / T.barW, T.span / smax), fh = Math.min(BAR_MAX / T.barW, T.span / smin);
+    let ft: number, f: number;
+    if (fl <= fh) {
+      ft = f = Math.min(fh, Math.max(fl, f0));
+      if ((f0 < 1 && f > 1) || (f0 > 1 && f < 1)) return;
+    } else { // a view that is already beyond a limit (dragged / synced): clamp the axes on their own
+      ft = Math.min(BAR_MAX, Math.max(BAR_MIN, T.barW * f0)) / T.barW;
+      f = T.span / Math.min(smax, Math.max(smin, T.span / f0));
+    }
     if (Math.abs(ft - 1) < 1e-4 && Math.abs(f - 1) < 1e-4) return;
-    // time: keep the bar under the cursor fixed
-    T.zoomT = true; T.ax = ax; T.aIdx = this.idxOf(ax);
+    let ax = cx, ay = cy, aIdx = this.idxOf(cx);
+    if (toStart) { // anchor on the first candle (or the plot edge when it is off screen)
+      const d = this.s.data, x0 = this.xOf(0);
+      ax = Math.min(Math.max(x0, 0), this.plotW);
+      aIdx = ax === x0 ? 0 : this.idxOf(ax);
+      ay = this.py(d.c[0], m);
+    }
+    // time: keep the anchor bar fixed
+    T.zoomT = true; T.ax = ax; T.aIdx = aIdx;
     T.barW *= ft;
-    T.start = this.clampStartV(T.aIdx - (ax - T.barW / 2) / T.barW, T.barW);
-    // price: keep the price under the cursor fixed
-    const frac = (m.y1 - Math.min(Math.max(y, m.y0), m.y1)) / (m.y1 - m.y0 || 1);
+    T.start = this.clampStartV(aIdx - (ax - T.barW / 2) / T.barW, T.barW);
+    // price: keep the anchor price fixed
+    const frac = (m.y1 - Math.min(Math.max(ay, m.y0), m.y1)) / (m.y1 - m.y0 || 1);
     const ca = this.tx(this.manual!.lo), cs = this.tx(this.manual!.hi) - ca;
     T.pZoom = true; T.pFrac = frac; T.pAnchor = ca + frac * cs;
-    T.span = spanNew; T.a = T.pAnchor - frac * T.span;
+    T.span = T.span / f; T.a = T.pAnchor - frac * T.span;
     this.kick();
   }
 

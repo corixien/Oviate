@@ -204,7 +204,7 @@
         </div>
         <div class="body">
           {#if testerSub === 'overview'}
-            <h5>Equity <span class="dim">red = below the starting capital</span></h5>
+            <h5>Equity <span class="dim">red = negative result</span></h5>
             <div class="legend">
               <button class:off={!app.eqView.eq} onclick={() => toggleLine('eq')} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
               <button class:off={!app.eqView.bh} onclick={() => toggleLine('bh')} title="What the same capital would be worth if you bought at the start and held to the end"><i class="sw bh"></i>Buy &amp; hold <b>{money(endOf(bhCurves.full))}</b></button>
@@ -215,16 +215,11 @@
             </div>
 
             <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq">
-              <defs>
-                <clipPath id="eq-above"><rect x="0" y="0" width="800" height={Math.max(0, sCurve.y0)} /></clipPath>
-                <clipPath id="eq-below"><rect x="0" y={sCurve.y0} width="800" height={Math.max(0, 150 - sCurve.y0)} /></clipPath>
-              </defs>
               <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
               {#if sCurve.full}<path d={sCurve.full} fill="none" stroke="#b9a8e6" stroke-opacity="0.7" stroke-width="1.5" vector-effect="non-scaling-stroke" />{/if}
               {#if sCurve.invested}<path d={sCurve.invested} fill="none" stroke="#22e5ff" stroke-opacity="0.75" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" />{/if}
               {#if app.eqView.eq}
-                <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-above)" />
-                <path d={sCurve.path} fill="none" stroke="var(--down)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-below)" />
+                <path d={sCurve.path} fill="none" stroke={dstats.equity < sres.initialCapital ? 'var(--down)' : 'var(--accent)'} stroke-width="2" vector-effect="non-scaling-stroke" />
               {/if}
             </svg>
             {#if sCurve.clipped}<p class="eqnote">A buy &amp; hold line leaves the chart on this scale: switch to "All lines" to see it completely.</p>{/if}

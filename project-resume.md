@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Wheel navigation: Ctrl zoom keeps the x / y ratio (joint factor), Ctrl+Shift zooms toward the first candle, Alt+scroll stretches time, plain scroll re-enables the auto price scale; tester equity line is fully red when the result is negative, else fully purple.
 - [x] Tester equity view (lines + scale) remembered in `app.eqView`, buy & hold lines off by default. Note: with tiny trades the equity hugs the starting capital, so on the "All lines" scale it looks flat and its red / purple split (below / above start) flips along the baseline; that is correct, not a bug.
 - [x] Calendar list anchored on the next upcoming event / the clicked chart event (ranges only ±7 and ±14 days); tester equity legend with final values, per-line toggles and an Equity / All lines scale switch (the buy & hold lines were invisible when far off the equity scale).
 - [x] Chart calendar markers filtered by symbol region: bundled table of the 1500 largest US-listed stocks (country -> currencies), rules for pairs / crypto / indices / exchange suffixes, backend `symbol_regions` for unknown symbols (Nasdaq profile, else Groq, cached forever). A TSLA chart no longer shows GBP events.
