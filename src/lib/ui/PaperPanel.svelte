@@ -51,20 +51,30 @@
   const sres = $derived(tester?.result.strategy);
   const dstats = $derived(sres && tester ? detailedStats(sres, { stepSec: tester.stepSec, firstClose: tester.firstClose, lastClose: tester.lastClose }) : null);
   const bhCurves = $derived(sres && tester ? buyHoldCurves(sres, tester.closes) : { full: [], invested: [] });
+  // equity chart: which lines are shown and which scale they share
+  let showEq = $state(true), showBh = $state(true), showBhInv = $state(true);
+  let eqScale = $state<'equity' | 'all'>('equity');
   const sCurve = $derived.by(() => {
     const eq = sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : [];
     const c = curve(eq, 800, 150, sres?.initialCapital);
-    if (eq.length < 2) return { ...c, full: '', invested: '' };
-    // The equity keeps its own scale (as before). The faint buy & hold lines share it and widen it by at most one equity span on each side,
-    // so a runaway buy & hold cannot flatten the equity curve: where it leaves the chart it is simply cut off.
-    const bh = [...bhCurves.full, ...bhCurves.invested].filter((v) => Number.isFinite(v));
-    const eLo = Math.min(...eq, sres!.initialCapital), eHi = Math.max(...eq, sres!.initialCapital), eSpan = eHi - eLo || 1;
-    const lo = bh.length ? Math.min(eLo, Math.max(Math.min(...bh), eLo - eSpan * 0.6)) : eLo;
-    const hi = bh.length ? Math.max(eHi, Math.min(Math.max(...bh), eHi + eSpan * 0.6)) : eHi;
+    if (eq.length < 2) return { ...c, full: '', invested: '', clipped: false };
+    const init = sres!.initialCapital;
+    const shown = [...(showBh ? bhCurves.full : []), ...(showBhInv ? bhCurves.invested : [])].filter((v) => Number.isFinite(v));
+    const eLo = Math.min(...eq, init), eHi = Math.max(...eq, init), eSpan = eHi - eLo || 1;
+    // "equity": the equity keeps its own scale and the buy & hold lines may widen it by at most 0.6 of its span (beyond that they are cut off, so a runaway
+    // buy & hold cannot flatten the equity). "all lines": one scale that holds every shown line completely.
+    let lo = eLo, hi = eHi;
+    if (shown.length) {
+      const bLo = Math.min(...shown), bHi = Math.max(...shown);
+      if (eqScale === 'all') { lo = showEq ? Math.min(eLo, bLo) : Math.min(init, bLo); hi = showEq ? Math.max(eHi, bHi) : Math.max(init, bHi); }
+      else { lo = Math.min(eLo, Math.max(bLo, eLo - eSpan * 0.6)); hi = Math.max(eHi, Math.min(bHi, eHi + eSpan * 0.6)); }
+    } else if (!showEq) { lo = init - 1; hi = init + 1; }
     const span = hi - lo || 1;
     const line = (pts: number[]) => pts.map((v, i) => `${i ? 'L' : 'M'}${((i / (pts.length - 1)) * 800).toFixed(1)},${(144 - ((v - lo) / span) * 138).toFixed(1)}`).join('');
-    return { path: line(eq), lo, hi, y0: 144 - ((sres!.initialCapital - lo) / span) * 138, full: bhCurves.full.length > 1 ? line(bhCurves.full) : '', invested: bhCurves.invested.length > 1 ? line(bhCurves.invested) : '' };
+    const clipped = shown.some((v) => v < lo || v > hi);
+    return { path: line(eq), lo, hi, y0: 144 - ((init - lo) / span) * 138, full: showBh && bhCurves.full.length > 1 ? line(bhCurves.full) : '', invested: showBhInv && bhCurves.invested.length > 1 ? line(bhCurves.invested) : '', clipped };
   });
+  const endOf = (a: number[]) => (a.length ? a[a.length - 1] : NaN);
   function setT(k: 'initialCapital' | 'commissionValue' | 'slippagePct', e: Event) {
     let v = parseFloat((e.currentTarget as HTMLInputElement).value);
     if (!Number.isFinite(v) || v < 0) return;
@@ -193,18 +203,30 @@
         </div>
         <div class="body">
           {#if testerSub === 'overview'}
-            <h5>Equity <span class="dim">red = below the starting capital · faint: <span class="bh1">buy & hold</span>, <span class="bh2">buy & hold invested time only</span></span></h5>
+            <h5>Equity <span class="dim">red = below the starting capital</span></h5>
+            <div class="legend">
+              <button class:off={!showEq} onclick={() => (showEq = !showEq)} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
+              <button class:off={!showBh} onclick={() => (showBh = !showBh)} title="What the same capital would be worth if you bought at the start and held to the end"><i class="sw bh"></i>Buy &amp; hold <b>{money(endOf(bhCurves.full))}</b></button>
+              <button class:off={!showBhInv} onclick={() => (showBhInv = !showBhInv)} title="Buy & hold growth, applied only for the share of time the strategy was invested"><i class="sw bi"></i>Buy &amp; hold, invested time only <b>{money(endOf(bhCurves.invested))}</b></button>
+              <span class="grow"></span>
+              <span class="dim">Scale</span>
+              <div class="mseg"><button class:on={eqScale === 'equity'} onclick={() => (eqScale = 'equity')} title="Scale to the equity; far-off buy & hold lines are cut at the edge">Equity</button><button class:on={eqScale === 'all'} onclick={() => (eqScale = 'all')} title="Scale so every shown line is fully visible">All lines</button></div>
+            </div>
+
             <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq">
               <defs>
                 <clipPath id="eq-above"><rect x="0" y="0" width="800" height={Math.max(0, sCurve.y0)} /></clipPath>
                 <clipPath id="eq-below"><rect x="0" y={sCurve.y0} width="800" height={Math.max(0, 150 - sCurve.y0)} /></clipPath>
               </defs>
               <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
-              {#if sCurve.full}<path d={sCurve.full} fill="none" stroke="#8f7fb0" stroke-opacity="0.38" stroke-width="1.5" vector-effect="non-scaling-stroke" />{/if}
-              {#if sCurve.invested}<path d={sCurve.invested} fill="none" stroke="#22e5ff" stroke-opacity="0.38" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" />{/if}
-              <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-above)" />
-              <path d={sCurve.path} fill="none" stroke="var(--down)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-below)" />
+              {#if sCurve.full}<path d={sCurve.full} fill="none" stroke="#b9a8e6" stroke-opacity="0.7" stroke-width="1.5" vector-effect="non-scaling-stroke" />{/if}
+              {#if sCurve.invested}<path d={sCurve.invested} fill="none" stroke="#22e5ff" stroke-opacity="0.75" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" />{/if}
+              {#if showEq}
+                <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-above)" />
+                <path d={sCurve.path} fill="none" stroke="var(--down)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eq-below)" />
+              {/if}
             </svg>
+            {#if sCurve.clipped}<p class="eqnote">A buy &amp; hold line leaves the chart on this scale: switch to "All lines" to see it completely.</p>{/if}
             {#each [
               ['Performance', [['Net profit', signed(dstats.netProfit), cls(dstats.netProfit)], ['Return', signed(dstats.returnPct) + '%', cls(dstats.returnPct)], ['Buy & hold, whole period', signed(dstats.buyHold) + '%', cls(dstats.buyHold)], ['Buy & hold, invested time only', signed(dstats.buyHoldInvested) + '%', cls(dstats.buyHoldInvested)],
                 ['Initial capital', money(dstats.initial), ''], ['Final equity', money(dstats.equity), cls(dstats.equity - dstats.initial)], ['Profit factor', pf(dstats.profitFactor), ''], ['Fees paid', money(dstats.commission), '']]],
@@ -289,7 +311,13 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); margin: 12px; padding: 0 1px 1px 0; }
   .cell { border: 1px solid var(--line); margin: 0 -1px -1px 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; } .cell span { color: var(--dim); font-size: 11px; } .cell b { font: 600 14px ui-monospace, monospace; }
   .eq { width: calc(100% - 24px); height: 150px; margin: 12px; background: #000; border: 1px solid var(--line); } .eq.small { height: 110px; }
-  .bh1 { color: #8f7fb0; } .bh2 { color: var(--up); }
+  .legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 12px 0; font: 11.5px system-ui, sans-serif; color: var(--dim); }
+  .legend button { display: inline-flex; align-items: center; gap: 7px; box-sizing: border-box; height: 26px; padding: 0 10px; background: none; border: 1px solid var(--line); color: var(--fg); font: 600 11.5px system-ui, sans-serif; cursor: pointer; }
+  .legend button:hover { border-color: var(--accent); } .legend button.off { opacity: 0.45; } .legend button b { font: 600 11.5px ui-monospace, monospace; color: var(--dim); }
+  .legend .grow { flex: 1; }
+  .sw { display: inline-block; width: 18px; height: 0; border-top: 2px solid; } .sw.eq { border-color: var(--accent); } .sw.bh { border-color: #b9a8e6; } .sw.bi { border-top-style: dashed; border-color: #22e5ff; }
+  .mseg { display: inline-flex; border: 1px solid var(--line); } .mseg button { border: 0; height: 24px; color: var(--dim); } .mseg button.on { background: var(--accent); color: #fff; }
+  .eqnote { margin: 0 12px 10px; color: var(--dim); font-size: 11.5px; }
   .base { stroke: var(--line); stroke-dasharray: 4 4; } .eqinfo { display: flex; gap: 18px; padding: 0 14px 12px; color: var(--dim); font: 11.5px ui-monospace, monospace; }
   h5 { margin: 12px 14px 0; font: 700 10.5px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); } h5 .dim { color: var(--dim); text-transform: none; letter-spacing: 0; margin-left: 6px; }
   h5.sec { margin-top: 14px; } .ls { margin: 8px 12px 14px; width: calc(100% - 24px); }

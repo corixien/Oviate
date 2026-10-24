@@ -6,11 +6,8 @@
 
   const DAY = 86400;
   const day0 = (d: Date) => Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000);
-  const monday = (d: Date) => day0(d) - ((d.getDay() + 6) % 7) * DAY;
+  /** The list always opens on the next event: past events are above (scroll up), the coming ones below. */
   const RANGES: { id: string; label: string; from: (d: Date) => number; to: (d: Date) => number }[] = [
-    { id: 'today', label: 'Today', from: (d) => day0(d), to: (d) => day0(d) + DAY },
-    { id: 'week', label: 'This week', from: (d) => monday(d), to: (d) => monday(d) + 7 * DAY },
-    { id: 'next', label: 'Next week', from: (d) => monday(d) + 7 * DAY, to: (d) => monday(d) + 14 * DAY },
     { id: 'pm7', label: '±7 days', from: (d) => day0(d) - 7 * DAY, to: (d) => day0(d) + 8 * DAY },
     { id: 'pm14', label: '±14 days', from: (d) => day0(d) - 14 * DAY, to: (d) => day0(d) + 15 * DAY },
   ];
@@ -20,9 +17,11 @@
   const KIND_NAME: Record<string, string> = { macro: 'Economic release', earnings: 'Earnings', dividend: 'Ex-dividend', split: 'Stock split', ipo: 'IPO' };
   const LABELS: Record<string, [string, string, string]> = { macro: ['Actual', 'Forecast', 'Previous'], earnings: ['', 'EPS estimate', 'Last year EPS'], dividend: ['Dividend', '', ''], split: ['', '', ''], ipo: ['', '', ''] };
 
-  let range = $state('week');
-  /** the range whose list was scrolled to today already */
-  let scrolledFor = '';
+  let range = $state('pm7');
+  /** the event the list is anchored on (top of the list): from a chart marker, else the next upcoming one */
+  let anchorId = $state<string | null>(null);
+  /** once the user scrolls by hand the list stops re-anchoring when data arrives */
+  let userScrolled = false;
   let kind = $state<'all' | CalEvent['kind']>('all');
   let impact = $state<'all' | 'medium' | 'high'>('all');
   let region = $state('all');
@@ -68,8 +67,8 @@
     return out;
   });
   const current = $derived(items.find((e) => e.id === sel) ?? null);
-  /** the next upcoming event that passes the filters, preferring the important ones */
-  const next = $derived(shown.filter((e) => e.ts >= nowS && e.kind === 'macro').sort((a, b) => IMP[b.impact] - IMP[a.impact] || a.ts - b.ts).find((e) => e.ts - nowS < 2 * DAY) ?? shown.find((e) => e.ts >= nowS));
+  /** the next upcoming event that passes the filters: the list is anchored on it */
+  const next = $derived(shown.find((e) => e.ts >= nowS));
 
   // ---------------------------------------------------------------- data
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -88,7 +87,7 @@
     } catch (e) { if (my === run) { errors = [{ provider: 'calendar', error: String(e) }]; pending = false; loaded = true; } }
     finally { if (my === run) loading = false; }
   }
-  $effect(() => { void range; untrack(() => { scrolledFor = ''; load(); }); });
+  $effect(() => { void range; untrack(() => { userScrolled = false; load(); }); });
 
   onMount(() => {
     newsStatus().then((s) => (hasGroq = s.groq));
@@ -98,20 +97,29 @@
     return () => { clearTimeout(timer); clearInterval(iv); clearInterval(clock); window.removeEventListener('focus', onFocus); };
   });
 
-  // a chart marker opened the page on one event: find its day and select it
+  // a chart marker opened the page on one event: select it and put it at the top of the list
   $effect(() => {
     const want = app.calFocus.id;
-    if (!want || !items.length) return;
+    if (!want) return;
     const e = items.find((x) => x.id === want);
-    if (e) { sel = want; app.calFocus = { id: null }; tick().then(() => document.querySelector('.row.on')?.scrollIntoView({ block: 'center' })); }
+    if (e) { sel = want; anchorId = want; userScrolled = false; app.calFocus = { id: null }; }
+    else if (loaded && range === 'pm7') range = 'pm14'; // the chart looks 10 days ahead
   });
-  // the list starts at today: events before it are above (scroll up), the coming ones below
+  /** Put the anchor event (or the next upcoming one) at the top of the list, just under the sticky day header. */
+  function anchorList() {
+    if (!listEl || !shown.length) return;
+    const target = (anchorId && shown.find((e) => e.id === anchorId)) || shown.find((e) => e.ts >= nowS) || shown[shown.length - 1];
+    const row = [...listEl.querySelectorAll<HTMLElement>('.row')].find((r) => r.dataset.id === target.id);
+    const head = listEl.querySelector<HTMLElement>('.day');
+    if (row) listEl.scrollTop = Math.max(0, row.offsetTop - (head?.offsetHeight ?? 0));
+  }
   $effect(() => {
-    if (!groups.length || !listEl || scrolledFor === range) return;
-    scrolledFor = range;
-    const gi = Math.max(0, groups.findIndex((g) => g.today || g.rows[0].ts >= nowS));
-    tick().then(() => { const el = listEl?.querySelectorAll<HTMLElement>('.day')[gi]; if (el && listEl) listEl.scrollTop = el.offsetTop; });
+    void groups; void anchorId;
+    if (userScrolled) return;
+    tick().then(anchorList);
   });
+  const touch = () => (userScrolled = true);
+  function jumpNext() { if (next) { sel = next.id; anchorId = next.id; userScrolled = false; tick().then(anchorList); } }
   // nothing selected yet: the next upcoming event (or the first one)
   $effect(() => { if (!sel && shown.length) sel = (next ?? shown[0]).id; });
 
@@ -173,7 +181,7 @@
       {#each RANGES as r (r.id)}<button class:on={range === r.id} onclick={() => (range = r.id)}>{r.label}</button>{/each}
     </div>
     {#if next}
-      <button class="next" onclick={() => (sel = next.id)} title="Jump to the next event">
+      <button class="next" onclick={jumpNext} title="Jump to the next event">
         <i style:background={impactColor(next.impact)}></i><span>Next: {next.symbol ?? next.country} {next.title}</span><b>{rel(next.ts)}</b>
       </button>
     {/if}
@@ -192,13 +200,13 @@
   </div>
 
   <div class="cols">
-    <div class="list" bind:this={listEl}>
+    <div class="list" bind:this={listEl} onwheel={touch} onpointerdown={touch} onkeydown={touch} role="presentation">
       {#each groups as g (g.key)}
         <div class="day" class:today={g.today}>{g.day}{#if g.today}<i>today</i>{/if}</div>
         {#each g.rows as e, i (e.id + ':' + i)}
           {@const lab = LABELS[e.kind] ?? LABELS.macro}
           {@const sp = surprise(e)}
-          <button class="row" class:on={e.id === sel} class:past={e.ts < nowS} onclick={() => (sel = e.id)}>
+          <button class="row" data-id={e.id} class:on={e.id === sel} class:past={e.ts < nowS} onclick={() => (sel = e.id)}>
             <span class="t">{hhmm(e.ts)}</span>
             <span class="c" class:co={e.kind !== 'macro'}>{e.symbol ?? e.country}</span>
             <span class="i" style:--c={impactColor(e.impact)} title={e.impact}><u class:f={IMP[e.impact] >= 1}></u><u class:f={IMP[e.impact] >= 2}></u><u class:f={IMP[e.impact] >= 3}></u></span>
