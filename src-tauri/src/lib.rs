@@ -166,7 +166,7 @@ async fn liquid_brief(st: &AppState) -> Result<(Vec<news::NewsItem>, Vec<mcp::Un
 async fn news_window(st: State<'_>, symbol: Option<String>, from: i64, to: i64, limit: Option<usize>) -> Result<news::NewsResult> {
     let now = chrono::Utc::now().timestamp();
     let key = symbol.clone().unwrap_or_else(|| "*".into());
-    let ttl = if symbol.is_some() { 3600 } else { 600 };
+    let ttl = 300; // recent windows are re-checked every 5 minutes (past windows never expire, see news_window_covered)
     let mut errors = Vec::new();
     if !st.cache.news_window_covered(&key, from, to, now, ttl)? {
         let mut extra = Vec::new();
@@ -196,7 +196,12 @@ fn cal_cached(st: &AppState, key: &str) -> Option<CalDay> {
 }
 
 /// Fetch company days and IPO months into the cache, nearest days first, 12 requests at a time. Runs in the background so the calendar opens at once.
+/// Clears the background flag however the refresh ends (also on a panic), so the calendar never reports "pending" forever.
+struct CalBgGuard;
+impl Drop for CalBgGuard { fn drop(&mut self) { CAL_BG.store(false, std::sync::atomic::Ordering::SeqCst); } }
+
 async fn calendar_refresh(st: Arc<AppState>, mut days: Vec<chrono::NaiveDate>, months: Vec<String>) {
+    let _guard = CalBgGuard;
     let now = chrono::Utc::now().timestamp();
     let today = chrono::Utc::now().date_naive();
     days.sort_by_key(|d| (*d - today).num_days().abs());
@@ -218,7 +223,6 @@ async fn calendar_refresh(st: Arc<AppState>, mut days: Vec<chrono::NaiveDate>, m
         }
     }
     let _ = st.cache.kv_set("cal_nq_error", &first_error.unwrap_or_default());
-    CAL_BG.store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Calendar events in [from, to] (unix seconds): macro (Forex Factory weekly feed always, Financial Modeling Prep with a key) and company events
@@ -273,7 +277,9 @@ async fn calendar_window(st: State<'_>, from: i64, to: i64, force: Option<bool>)
             n += 1;
             match cal_cached(&st, &format!("cal_nq_{d}")) {
                 Some(c) => {
-                    let stale = !(d < today - chrono::Duration::days(1) || now - c.at < 6 * 3600) || (force && d >= today - chrono::Duration::days(1));
+                    // today and the next days change often (new estimates, late reports): hourly; further out every 6 hours; past days never
+                    let ttl = if d <= today + chrono::Duration::days(2) { 3600 } else { 6 * 3600 };
+                    let stale = !(d < today - chrono::Duration::days(1) || now - c.at < ttl) || (force && d >= today - chrono::Duration::days(1));
                     company.extend(c.ev);
                     if stale { todo.push(d); }
                 }

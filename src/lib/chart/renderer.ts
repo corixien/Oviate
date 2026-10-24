@@ -114,6 +114,9 @@ export class ChartRenderer {
   externalY: number | null = null;
   private hoverNews: NewsMark | null = null;
   private hoverCal: CalMark | null = null;
+  /** markers that fit on screen right now (see declutter) */
+  private shownNews: NewsMark[] = [];
+  private shownCal: CalMark[] = [];
   /** Drawing whose text is being edited in the HTML overlay (not painted on the canvas meanwhile). */
   editingId: string | null = null;
   /** Replay start selection: a scissors line follows the cursor, a click picks the bar. */
@@ -431,6 +434,8 @@ export class ChartRenderer {
       this.drawDrawings();
       this.drawLines();
       this.drawTrades();
+      this.shownNews = this.declutter(this.s.news, (m) => this.newsPos(m).x, (m) => m.ids.length);
+      this.shownCal = this.declutter(this.s.calendar, (m) => this.calPos(m).x, (m) => ({ high: 3, medium: 2, low: 1 } as Record<string, number>)[m.impact] * 1000 + m.titles.length);
       this.drawNews();
       this.drawCalendar();
       ctx.restore();
@@ -847,21 +852,30 @@ export class ChartRenderer {
     }
   }
 
+  /** Zoomed out, markers that would overlap collapse to the most important one (higher priority first); zooming in brings the others back. */
+  private declutter<T>(marks: T[], x: (m: T) => number, prio: (m: T) => number, gap = 17): T[] {
+    const vis = marks.filter((m) => { const px = x(m); return px >= -10 && px <= this.plotW + 10; }).sort((a, b) => prio(b) - prio(a));
+    const placed: number[] = [], out: T[] = [];
+    for (const m of vis) {
+      const px = x(m);
+      if (placed.some((q) => Math.abs(q - px) < gap)) continue;
+      placed.push(px); out.push(m);
+    }
+    return out;
+  }
+
   // ---------- news markers ----------
   private newsPos(m: NewsMark) { return { x: this.xOf(this.timeToIdx(m.t)), y: this.panes[0].y1 - 11 }; }
 
   private drawNews() {
     const { ctx } = this; const { theme } = this.s;
-    for (const m of this.s.news) {
+    for (const m of this.shownNews) {
       const { x, y } = this.newsPos(m);
-      if (x < -10 || x > this.plotW + 10) continue;
       const hot = m === this.hoverNews;
       ctx.fillStyle = hot ? theme.accent : '#000';
-      ctx.strokeStyle = theme.accent; ctx.lineWidth = 1.5;
-      ctx.shadowColor = theme.accent; ctx.shadowBlur = hot ? 12 : 6;
-      ctx.fillRect(x - 7, y - 7, 14, 14); ctx.strokeRect(x - 7, y - 7, 14, 14);
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = hot ? '#fff' : theme.accent; ctx.lineWidth = 1;
+      ctx.strokeStyle = theme.accent; ctx.lineWidth = 1;
+      ctx.fillRect(x - 7, y - 7, 14, 14); ctx.strokeRect(x - 6.5, y - 6.5, 13, 13);
+      ctx.strokeStyle = hot ? '#fff' : theme.accent;
       ctx.beginPath(); ctx.moveTo(x - 4, y - 3.5); ctx.lineTo(x + 4, y - 3.5); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x - 4, y + 3.5); ctx.lineTo(x + 1, y + 3.5); ctx.stroke();
       if (m.ids.length > 1) {
         ctx.fillStyle = theme.accent; ctx.fillRect(x + 4, y - 12, 12, 10);
@@ -875,7 +889,7 @@ export class ChartRenderer {
 
   private newsAt(x: number, y: number): NewsMark | null {
     if (!this.panes.length) return null;
-    for (const m of this.s.news) {
+    for (const m of this.shownNews) {
       const p = this.newsPos(m);
       if (Math.abs(x - p.x) <= 9 && Math.abs(y - p.y) <= 9) return m;
     }
@@ -886,16 +900,21 @@ export class ChartRenderer {
   private calPos(m: CalMark) { return { x: this.xOf(this.timeToIdx(m.t)), y: this.panes[0].y1 - 31 }; }
   private calColor(m: CalMark) { return m.kind !== 'macro' ? this.s.theme.accent : m.impact === 'high' ? this.s.theme.down : m.impact === 'medium' ? '#ff9800' : this.s.theme.text; }
 
+  /** Square tag like the news marker: black, 1px border in the impact colour (accent for company events), a header strip on top, the count or the type letter inside. No glow. */
   private drawCalendar() {
     const { ctx } = this;
-    for (const m of this.s.calendar) {
+    for (const m of this.shownCal) {
       const { x, y } = this.calPos(m);
-      if (x < -10 || x > this.plotW + 10) continue;
       const col = this.calColor(m), hot = m === this.hoverCal;
-      ctx.fillStyle = hot ? col : '#000'; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 8); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = hot ? '#000' : col; ctx.font = '700 9px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(m.titles.length > 1 ? String(Math.min(m.titles.length, 9)) : ({ earnings: 'E', dividend: 'D', split: 'S', ipo: 'I' } as Record<string, string>)[m.kind] ?? '€', x, y + 0.5); ctx.textAlign = 'left';
+      ctx.fillStyle = '#000'; ctx.fillRect(x - 7, y - 7, 14, 14);
+      if (hot) { ctx.globalAlpha = 0.35; ctx.fillStyle = col; ctx.fillRect(x - 7, y - 7, 14, 14); ctx.globalAlpha = 1; }
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(x - 6.5, y - 6.5, 13, 13);
+      ctx.fillStyle = col; ctx.fillRect(x - 6, y - 6, 12, 3.5);
+      ctx.fillStyle = hot ? '#fff' : col; ctx.font = '700 9px ui-monospace, monospace'; ctx.textAlign = 'center';
+      const letter = ({ earnings: 'E', dividend: 'D', split: 'S', ipo: 'I' } as Record<string, string>)[m.kind];
+      ctx.fillText(m.titles.length > 1 ? String(Math.min(m.titles.length, 9)) : letter ?? '', x, y + 3);
+      if (!letter && m.titles.length === 1) { ctx.fillRect(x - 3.5, y, 2, 2); ctx.fillRect(x + 0.5, y, 2, 2); ctx.fillRect(x - 3.5, y + 3, 2, 2); ctx.fillRect(x + 0.5, y + 3, 2, 2); }
+      ctx.textAlign = 'left';
       ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
     }
     ctx.lineWidth = 1;
@@ -903,7 +922,7 @@ export class ChartRenderer {
 
   private calAt(x: number, y: number): CalMark | null {
     if (!this.panes.length) return null;
-    for (const m of this.s.calendar) { const p = this.calPos(m); if (Math.abs(x - p.x) <= 9 && Math.abs(y - p.y) <= 10) return m; }
+    for (const m of this.shownCal) { const p = this.calPos(m); if (Math.abs(x - p.x) <= 9 && Math.abs(y - p.y) <= 10) return m; }
     return null;
   }
 

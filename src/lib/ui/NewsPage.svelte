@@ -83,7 +83,23 @@
     lastFocus = k;
     reset();
   });
-  onMount(() => { newsStatus().then((s) => (hasGroq = s.groq)); });
+  /** Newest news: re-check the latest week and put anything new at the top. */
+  async function refreshLatest() {
+    if (loading) return;
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      const res = await newsWindow(focusSym, now - WEEK, now);
+      const have = new Set(items.map((i) => i.id));
+      const fresh = res.items.filter((i) => !have.has(i.id));
+      if (fresh.length) items = [...fresh, ...items].sort((a, b) => b.ts - a.ts);
+    } catch { /* the next round tries again */ }
+  }
+  onMount(() => {
+    newsStatus().then((s) => (hasGroq = s.groq));
+    const iv = setInterval(refreshLatest, 3 * 60 * 1000), onFocus = () => refreshLatest();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(iv); window.removeEventListener('focus', onFocus); };
+  });
 
   function onScroll() {
     if (!listEl) return;

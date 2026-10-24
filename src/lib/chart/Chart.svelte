@@ -77,7 +77,7 @@
     clearTimeout(calTimer);
     const now = Math.floor(Date.now() / 1000);
     try {
-      const res = await calendarWindow(now - 14 * 86400, now + 14 * 86400);
+      const res = await calendarWindow(now - 7 * 86400, now + 10 * 86400);
       calEvents = res.items;
       if (res.pending && tries < 30) calTimer = setTimeout(() => loadCal(tries + 1), 3000); // company days arrive in the background
     } catch { /* markers are optional */ }
@@ -103,7 +103,7 @@
     }
     return [...groups.values()];
   });
-  $effect(() => { loadCal(); const iv = setInterval(() => loadCal(), 30 * 60 * 1000); return () => { clearInterval(iv); clearTimeout(calTimer); }; });
+  $effect(() => { loadCal(); const iv = setInterval(() => loadCal(), 10 * 60 * 1000); const onFocus = () => { loadCal(); loadNews(); }; window.addEventListener('focus', onFocus); return () => { clearInterval(iv); clearTimeout(calTimer); window.removeEventListener('focus', onFocus); }; });
 
   async function loadNews() {
     const sym = cfg.symbol;
@@ -397,7 +397,7 @@
     lastKey = key;
     untrack(() => { if (isOwner) exitReplay(); load(true); news = []; loadNews(); });
   });
-  $effect(() => { const iv = setInterval(loadNews, 10 * 60 * 1000); return () => clearInterval(iv); });
+  $effect(() => { const iv = setInterval(loadNews, 5 * 60 * 1000); return () => clearInterval(iv); });
 
   // Live ticks: batch to ~5 updates/s so indicators are not recomputed per trade.
   let tickTimer: ReturnType<typeof setTimeout> | undefined;

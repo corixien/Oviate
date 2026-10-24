@@ -61,7 +61,13 @@
     } catch (e) { errors = [{ provider: 'calendar', error: String(e) }]; pending = false; }
     finally { loading = false; }
   }
-  onMount(() => { load(); return () => clearTimeout(timer); });
+  onMount(() => {
+    load();
+    // keep checking for the latest events: every 5 minutes and when the window gets focus (the backend decides what is stale)
+    const iv = setInterval(() => load(), 5 * 60 * 1000), onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => { clearTimeout(timer); clearInterval(iv); window.removeEventListener('focus', onFocus); };
+  });
   $effect(() => { void range; load(); });
 
   const time = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -115,7 +121,7 @@
         </div>
       {/each}
     {:else}
-      <p class="empty">{loading || pending ? 'Loading…' : 'No events for this filter.'}</p>
+      <p class="empty">{items.length === 0 && (loading || pending) ? 'Loading…' : 'No events for this filter. Widen the impact filter, the type or the range.'}</p>
     {/each}
     {#each errors as er}<p class="err">{er.provider}: {er.error}</p>{/each}
     <p class="note">Macro: Forex Factory weekly calendar (USD, EUR, GBP, JPY, CAD, AUD, NZD, CHF, CNY; no key){items.some((e) => e.provider === 'fmp') ? ' and Financial Modeling Prep' : '. A free Financial Modeling Prep key in Settings adds more countries, a wider range and actual values'}. Companies (earnings, ex-dividends, splits, IPOs): Nasdaq, no key, 30 days back to 21 days ahead; earnings of the symbol on a chart appear on that chart. Times are shown in your local time zone.</p>

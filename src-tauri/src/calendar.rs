@@ -91,7 +91,7 @@ pub async fn forex_factory(http: &reqwest::Client) -> Result<Vec<CalEvent>> {
     let mut out = Vec::new();
     let mut last_err = None;
     for (i, url) in FF_URLS.iter().enumerate() {
-        match http.get(*url).header("User-Agent", UA).send().await.and_then(|r| r.error_for_status()) {
+        match http.get(*url).timeout(std::time::Duration::from_secs(12)).header("User-Agent", UA).send().await.and_then(|r| r.error_for_status()) {
             Ok(r) => out.extend(parse_ff(&r.json::<Value>().await?)),
             Err(e) => { if i == 0 { last_err = Some(e); } } // next week is published late in the week: a miss there is normal
         }
@@ -113,6 +113,7 @@ const NQ: &str = "https://api.nasdaq.com/api";
 
 async fn nq_json(http: &reqwest::Client, path: &str, date: &str) -> Result<Value> {
     Ok(http.get(format!("{NQ}{path}")).query(&[("date", date)])
+        .timeout(std::time::Duration::from_secs(12))
         .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/120.0").header("Accept", "application/json")
         .header("Origin", "https://www.nasdaq.com").header("Referer", "https://www.nasdaq.com/")
         .send().await?.error_for_status()?.json().await?)
