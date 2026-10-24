@@ -5,6 +5,7 @@
   import { fmtPrice } from '$lib/chart/renderer';
   import Select from './Select.svelte';
   import OptimizerPanel from './OptimizerPanel.svelte';
+  import JournalPanel from './JournalPanel.svelte';
   import { detailedStats, buyHoldCurves } from '$lib/pine/stats.ts';
 
   const acc = $derived(paper.active);
@@ -23,7 +24,7 @@
 
   const SUBS: [PaperSub, string][] = [['positions', 'Positions'], ['orders', 'Orders'], ['history', 'History'], ['stats', 'Statistics'], ['equity', 'Equity']];
 
-  function setTab(t: 'paper' | 'tester' | 'optimizer') { paper.panelTab = t; paper.panelOpen = true; paper.persist(); }
+  function setTab(t: 'paper' | 'tester' | 'optimizer' | 'journal') { paper.panelTab = t; paper.panelOpen = true; paper.persist(); }
   function toggle() { paper.panelOpen = !paper.panelOpen; paper.persist(); }
 
   // ----- drag to resize -----
@@ -97,6 +98,7 @@
       <button class:on={paper.panelOpen && paper.panelTab === 'paper'} onclick={() => setTab('paper')}>Paper Trading</button>
       <button class:on={paper.panelOpen && paper.panelTab === 'tester'} onclick={() => setTab('tester')}>Strategy Tester</button>
       <button class:on={paper.panelOpen && paper.panelTab === 'optimizer'} onclick={() => setTab('optimizer')}>Optimizer</button>
+      <button class:on={paper.panelOpen && paper.panelTab === 'journal'} onclick={() => setTab('journal')}>Journal</button>
     </div>
     <div class="sp"></div>
     <button class="chev" onclick={toggle} title={paper.panelOpen ? 'Collapse' : 'Expand'}>{paper.panelOpen ? '⌄' : '⌃'}</button>
@@ -183,6 +185,8 @@
       {/if}
     {:else if paper.panelTab === 'optimizer'}
       <OptimizerPanel />
+    {:else if paper.panelTab === 'journal'}
+      <JournalPanel />
     {:else}
       {#if !tester || !sres || !dstats}
         <div class="empty"><p>No strategy on the active chart.</p><p class="dim">Type <kbd>/strat add</kbd> in the command bar to add one, or <kbd>/strat add new</kbd> to write your own in Pine.</p></div>

@@ -3,7 +3,7 @@ import * as E from './engine.ts';
 import type { Account, OrderInput, PaperOrder, Quote } from './engine.ts';
 import type { PendingOrder, StrategyConfig } from '../pine/types.ts';
 
-export type PanelTab = 'paper' | 'tester' | 'optimizer';
+export type PanelTab = 'paper' | 'tester' | 'optimizer' | 'journal';
 export type PaperSub = 'positions' | 'orders' | 'history' | 'stats' | 'equity';
 
 export interface LiveStrategy { uid: string; accountId: string; symbol: string; name: string; lastBar: number }
@@ -95,6 +95,11 @@ class Paper {
   cancel(accountId: string, orderId: string) {
     const acc = this.accounts.find((a) => a.id === accountId);
     if (acc) { E.cancelOrder(acc, orderId); this.persist(); }
+  }
+
+  setTradeNote(accountId: string, tradeId: string, note: string) {
+    const t = this.accounts.find((a) => a.id === accountId)?.trades.find((x) => x.id === tradeId);
+    if (t) { t.note = note.trim() || undefined; this.persist(); }
   }
 
   closePosition(accountId: string, symbol: string, qty?: number) {

@@ -38,6 +38,8 @@ export interface Position { symbol: string; qty: number; avgPrice: number; opene
 export interface ClosedTrade {
   id: string; symbol: string; side: 'long' | 'short'; qty: number; entryPrice: number; exitPrice: number;
   entryTime: number; exitTime: number; pnl: number; commission: number; source: string; reason: string;
+  /** journal note written by the user */
+  note?: string;
 }
 
 export interface Account {
