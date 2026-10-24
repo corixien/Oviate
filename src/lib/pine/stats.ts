@@ -38,6 +38,26 @@ function side(ts: TradeRec[]): SideStats {
   };
 }
 
+/**
+ * Buy & hold as equity curves on the strategy's capital (same length as the equity): the whole period, and "invested time only"
+ * (the whole-period growth rate per bar applied only on the bars the strategy was in the market, ending where `buyHoldInvested` does).
+ */
+export function buyHoldCurves(res: StrategyResult, closes: ArrayLike<number>): { full: number[]; invested: number[] } {
+  const n = Math.min(res.equity.length, closes.length);
+  const full: number[] = [], invested: number[] = [];
+  if (n < 2 || !(closes[0] > 0) || !(closes[n - 1] > 0)) return { full, invested };
+  const inMarket = new Uint8Array(n);
+  for (const t of res.trades) for (let b = Math.max(0, t.entryBar); b <= (t.open ? n - 1 : Math.min(n - 1, t.exitBar)); b++) inMarket[b] = 1;
+  const g = Math.pow(closes[n - 1] / closes[0], 1 / n);
+  let k = 0;
+  for (let i = 0; i < n; i++) {
+    k += inMarket[i];
+    full.push(res.initialCapital * (closes[i] / closes[0]));
+    invested.push(res.initialCapital * Math.pow(g, k));
+  }
+  return { full, invested };
+}
+
 export function detailedStats(res: StrategyResult, o: StatsOpts): DetailedStats {
   const closed = res.trades.filter((t) => !t.open);
   const open = res.trades.filter((t) => t.open);

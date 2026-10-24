@@ -197,9 +197,9 @@
   .page { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
   header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   h1 { margin: 0; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
-  .back { background: none; border: 1px solid var(--line); color: var(--fg); padding: 6px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+  .back { box-sizing: border-box; height: 30px; background: none; border: 1px solid var(--line); color: var(--fg); padding: 0 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .back:hover { border-color: var(--accent); color: var(--accent); }
-  .q { flex: 0 1 240px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 6px 10px; font: 13px system-ui, sans-serif; outline: none; }
+  .q { flex: 0 1 240px; box-sizing: border-box; height: 30px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 0 10px; font: 13px system-ui, sans-serif; outline: none; }
   .q:focus { border-color: var(--accent); }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
   .chip { background: none; border: 1px solid var(--line); color: var(--dim); padding: 4px 10px; font: 600 11px system-ui, sans-serif; cursor: pointer; text-transform: capitalize; }

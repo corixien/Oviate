@@ -1,12 +1,12 @@
 <script lang="ts">
   import { library } from '$lib/library.svelte';
   import { indInfo } from '$lib/builder/info';
-  import { PRICE_SRCS, PRICE_LABEL, type Operand } from '$lib/builder/model.ts';
+  import { PRICE_SRCS, PRICE_LABEL, POS_LABEL, SESS_LABEL, type Operand, type PosField } from '$lib/builder/model.ts';
 
   /** One side of a condition: price, a library indicator (searchable) or a fixed value; optionally "None". `value === null` is None. */
-  let { value, onchange, none = false, fixed = false, price = true, placeholder = 'Select…', width = '190px' }: {
+  let { value, onchange, none = false, fixed = false, price = true, extras = true, placeholder = 'Select…', width = '190px' }: {
     value: Operand | null; onchange: (o: Operand | null) => void;
-    none?: boolean; fixed?: boolean; price?: boolean; placeholder?: string; width?: string;
+    none?: boolean; fixed?: boolean; price?: boolean; /** time, session, highest / lowest and position entries */ extras?: boolean; placeholder?: string; width?: string;
   } = $props();
 
   let open = $state(false);
@@ -18,11 +18,25 @@
     if (!value) return none ? 'None' : placeholder;
     if (value.k === 'price') return PRICE_LABEL[value.src];
     if (value.k === 'num') return 'Value';
+    if (value.k === 'time') return value.f === 'tod' ? 'Time of day' : 'Day of week';
+    if (value.k === 'sess') return `Session ${SESS_LABEL[value.stat].toLowerCase()}`;
+    if (value.k === 'hl') return value.fn === 'highest' ? 'Highest of N bars' : 'Lowest of N bars';
+    if (value.k === 'pos') return POS_LABEL[value.f];
     return library.get('indicators', value.ind)?.title ?? value.ind;
   });
   const needle = $derived(q.trim().toLowerCase());
   const inds = $derived(library.indicators.filter((f) => !needle || (f.name + ' ' + f.title).toLowerCase().includes(needle)));
   const prices = $derived(PRICE_SRCS.filter((s) => !needle || PRICE_LABEL[s].toLowerCase().includes(needle)));
+
+  const extraItems: { label: string; make: () => Operand }[] = [
+    { label: 'Time of day', make: () => ({ k: 'time', f: 'tod' }) },
+    { label: 'Day of week', make: () => ({ k: 'time', f: 'dow' }) },
+    { label: 'Session high / low / open / close (daily time window)', make: () => ({ k: 'sess', stat: 'high', from: 400, to: 930 }) },
+    { label: 'Highest of the last N bars', make: () => ({ k: 'hl', fn: 'highest', src: 'high', n: 20, ago: 1 }) },
+    { label: 'Lowest of the last N bars', make: () => ({ k: 'hl', fn: 'lowest', src: 'low', n: 20, ago: 1 }) },
+    ...(['entry', 'bars', 'pnl'] as PosField[]).map((f) => ({ label: `Position: ${POS_LABEL[f].toLowerCase()}`, make: (): Operand => ({ k: 'pos', f }) })),
+  ];
+  const extraShown = $derived(extras ? extraItems.filter((x) => !needle || x.label.toLowerCase().includes(needle)) : []);
 
   function toggle() { open = !open; q = ''; if (open) setTimeout(() => search?.focus(), 20); }
   function pick(o: Operand | null) { open = false; onchange(o); }
@@ -50,6 +64,10 @@
         {#if price && prices.length}
           <h6>Price</h6>
           {#each prices as s (s)}<button type="button" class:on={value?.k === 'price' && value.src === s} onclick={() => pick({ k: 'price', src: s })}>{PRICE_LABEL[s]}</button>{/each}
+        {/if}
+        {#if extraShown.length}
+          <h6>Time, ranges and position</h6>
+          {#each extraShown as x (x.label)}<button type="button" onclick={() => pick(x.make())}>{x.label}</button>{/each}
         {/if}
         <h6>Indicators <i>{inds.length}</i></h6>
         {#each inds as f (f.name)}

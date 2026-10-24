@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detailedStats } from './stats.ts';
+import { detailedStats, buyHoldCurves } from './stats.ts';
 import type { StrategyResult, TradeRec } from './types.ts';
 
 const tr = (dir: 'long' | 'short', entryBar: number, exitBar: number, pnl: number, open = false): TradeRec => ({
@@ -38,4 +38,17 @@ test('aggregates, streaks, sides and drawdown', () => {
 test('empty result is all zeros', () => {
   const s = detailedStats(res([], [1000, 1000, 1000]), { stepSec: 60, firstClose: 0, lastClose: 0 });
   assert.equal(s.trades, 0); assert.equal(s.buyHoldInvested, 0); assert.equal(s.profitFactor, 0); assert.equal(s.sharpe, 0); assert.equal(s.maxDrawdown, 0);
+});
+
+test('buy & hold curves: whole period and invested time only', () => {
+  const trades = [tr('long', 2, 4, 5)];
+  const closes = [100, 100, 100, 110, 120, 120, 121];
+  const r = res(trades, [1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+  const { full, invested } = buyHoldCurves(r, closes);
+  assert.equal(full.length, 7);
+  assert.ok(Math.abs(full[6] - 1210) < 1e-9);
+  assert.equal(invested[1], 1000);
+  const s = detailedStats(r, { stepSec: 86400, firstClose: closes[0], lastClose: closes[6] });
+  assert.ok(Math.abs(invested[6] - 1000 * (1 + s.buyHoldInvested / 100)) < 1e-6);
+  assert.deepEqual(buyHoldCurves(res([], []), []), { full: [], invested: [] });
 });

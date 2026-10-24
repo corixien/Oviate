@@ -3,7 +3,7 @@
   import Select from './Select.svelte';
 
   /** Strategy form shared by the "new strategy" dialog and the editor's AI edit: size is required, stop loss / take profit optional. */
-  let { qtyType = $bindable(), qty = $bindable(), sl = $bindable(), tp = $bindable(), direction = $bindable(), part, commit, noSl = false, noTp = false, dirHint = '' }: {
+  let { qtyType = $bindable(), qty = $bindable(), sl = $bindable(), tp = $bindable(), direction = $bindable(), part, commit, noSl = false, noTp = false, dirHint = '', withAuto = false }: {
     qtyType: StrategyOpts['qtyType']; qty: string; sl: string; tp: string; direction: StrategyOpts['direction'];
     /** show only the settings that need no AI ('params') or only the direction; default all */
     part?: 'params' | 'direction';
@@ -12,6 +12,8 @@
     /** the code has no stop loss / take profit input to change */
     noSl?: boolean; noTp?: boolean;
     dirHint?: string;
+    /** offer "As described" (the AI decides; only for a new strategy from text) */
+    withAuto?: boolean;
   } = $props();
 
   const n = $derived(parseFloat(qty.replace(',', '.')));
@@ -32,7 +34,7 @@
   {/if}
   {#if part !== 'params'}
   <div class="f" title={dirHint}><span>Direction</span>
-    <Select value={direction} options={[{ value: 'auto', label: 'As described' }, { value: 'long', label: 'Long only' }, { value: 'short', label: 'Short only' }, { value: 'both', label: 'Long and short' }]} onchange={(v) => { direction = v as StrategyOpts['direction']; commit?.(); }} width="150px" /></div>
+    <Select value={direction} options={[...(withAuto ? [{ value: 'auto', label: 'As described' }] : []), { value: 'long', label: 'Long only' }, { value: 'short', label: 'Short only' }, { value: 'both', label: 'Long and short' }]} onchange={(v) => { direction = v as StrategyOpts['direction']; commit?.(); }} width="150px" /></div>
   {/if}
 </div>
 
@@ -42,6 +44,6 @@
   .f b { color: var(--accent); font-weight: 700; margin-left: 4px; text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.06em; }
   .f i { font-style: normal; opacity: 0.7; margin-left: 4px; }
   .inline { display: flex; gap: 6px; }
-  .num { width: 96px; padding: 7px 9px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; }
+  .num { width: 96px; height: 30px; padding: 0 9px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; }
   .num:focus { border-color: var(--accent); } .num.bad { border-color: var(--down); } .num:disabled { opacity: 0.4; }
 </style>

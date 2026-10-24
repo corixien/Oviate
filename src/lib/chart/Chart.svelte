@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack, tick } from 'svelte';
   import { app, type ChartCfg } from '$lib/app.svelte';
-  import { getCandles, newsWindow, TF_SECONDS, type NewsItem } from '$lib/api';
+  import { getCandles, newsWindow, calendarWindow, type CalEvent, TF_SECONDS, type NewsItem } from '$lib/api';
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
   import { library } from '$lib/library.svelte';
@@ -10,7 +10,7 @@
   import { splitPanes } from '$lib/pine/panes.ts';
   import { candleStore } from './candleStore';
   import Icons from '$lib/ui/Icons.svelte';
-  import { ChartRenderer, setChartSync, fmtPrice, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
+  import { ChartRenderer, setChartSync, fmtPrice, type CalMark, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
   import * as PE from '$lib/paper/engine.ts';
   import { t } from '$lib/i18n';
@@ -69,6 +69,32 @@
     e.preventDefault();
     document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') ?? '');
   }
+
+  // ----- economic calendar markers: events grouped onto the bar they fall into (future ones by bar-sized slot) -----
+  let calEvents = $state<CalEvent[]>([]);
+  async function loadCal() {
+    const now = Math.floor(Date.now() / 1000);
+    try { calEvents = (await calendarWindow(now - 90 * 86400, now + 30 * 86400)).items; } catch { /* markers are optional */ }
+  }
+  const IMP = { high: 3, medium: 2, low: 1, holiday: 0 } as const;
+  const calMarks = $derived.by<CalMark[]>(() => {
+    if (!app.showCalendar || !raw.n || !calEvents.length) return [];
+    const min = IMP[app.calImpact], last = raw.t[raw.n - 1];
+    const groups = new Map<number, CalMark>();
+    for (const e of calEvents) {
+      if (IMP[e.impact] < min || e.impact === 'holiday' || e.ts < raw.t[0]) continue;
+      let t: number;
+      if (e.ts >= last + step) t = Math.floor(e.ts / step) * step;
+      else { let lo = 0, hi = raw.n - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (raw.t[m] <= e.ts) lo = m; else hi = m - 1; } t = raw.t[lo]; }
+      const when = new Date(e.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const g = groups.get(t) ?? { t, titles: [], impact: 'low' as const };
+      g.titles.push(`${when} ${e.country} ${e.title}`);
+      if (IMP[e.impact] > IMP[g.impact]) g.impact = e.impact as 'high' | 'medium' | 'low';
+      groups.set(t, g);
+    }
+    return [...groups.values()];
+  });
+  $effect(() => { loadCal(); const iv = setInterval(loadCal, 30 * 60 * 1000); return () => clearInterval(iv); });
 
   async function loadNews() {
     const sym = cfg.symbol;
@@ -240,7 +266,7 @@
     const res = out[s.uid];
     const d = display;
     candleStore.set(cfg.id, d);
-    app.strategyResults[cfg.id] = { uid: s.uid, name: s.id, symbol: sym, tf: cfg.tf, result: res, stepSec: step, firstClose: d.n ? d.c[0] : 0, lastClose: d.n ? d.c[d.n - 1] : 0 };
+    app.strategyResults[cfg.id] = { uid: s.uid, name: s.id, symbol: sym, tf: cfg.tf, result: res, stepSec: step, firstClose: d.n ? d.c[0] : 0, lastClose: d.n ? d.c[d.n - 1] : 0, closes: d.c };
     const trades = res.strategy!.trades;
     const split = Math.max(0, trades.length - BOX_TRADES);
     const marks: TradeMark[] = [];
@@ -341,11 +367,12 @@
       onToolDone: () => { app.tool = 'cursor'; },
       onSelect: (id) => { selectedId = id; },
       onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0]),
+      onCalClick: () => { app.page = 'calendar'; },
       onEditText: (id, x, y, text) => openEditor(id, x, y, text),
       onReplayPick: (t) => { if (app.replay) app.replay.t = t; }
     }, {
       data: display, raw: view, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
-      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
+      log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet, tool: app.tool, news: newsMarks, calendar: calMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
     });
     const ro = new ResizeObserver(([e]) => r!.resize(e.contentRect.width, e.contentRect.height));
     ro.observe(box);
@@ -393,7 +420,7 @@
     r?.setState({
       data: display, raw: view, type: cfg.type, step, indicators: active, drawings: symDrawings, theme,
       log: cfg.log, volume: cfg.volume && cfg.volumeVisible !== false, grid: app.grid, magnet: app.magnet,
-      tool: app.active === index ? app.tool : 'cursor', news: newsMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
+      tool: app.active === index ? app.tool : 'cursor', news: newsMarks, calendar: calMarks, trades: tradeMarks, boxes: stratBoxes, lines: priceLines
     });
   });
 

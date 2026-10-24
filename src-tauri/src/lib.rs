@@ -1,4 +1,5 @@
 mod ai;
+mod calendar;
 mod cache;
 mod mcp;
 mod model;
@@ -124,18 +125,18 @@ fn save_liquid_tokens(t: &mcp::Tokens) -> Result<()> {
 }
 
 #[derive(serde::Serialize)]
-struct NewsStatus { finnhub: bool, newsapi: bool, alpaca: bool, liquid: bool, groq: bool, openrouter: bool }
+struct NewsStatus { fmp: bool, finnhub: bool, newsapi: bool, alpaca: bool, liquid: bool, groq: bool, openrouter: bool }
 
 #[tauri::command]
 fn news_status() -> NewsStatus {
     let k = news_keys();
-    NewsStatus { finnhub: k.finnhub.is_some(), newsapi: k.newsapi.is_some(), alpaca: k.alpaca.is_some(), liquid: liquid_tokens().is_some(), groq: secret_get("groq_key").is_some(), openrouter: secret_get("openrouter_key").is_some() }
+    NewsStatus { fmp: secret_get("fmp_key").is_some(), finnhub: k.finnhub.is_some(), newsapi: k.newsapi.is_some(), alpaca: k.alpaca.is_some(), liquid: liquid_tokens().is_some(), groq: secret_get("groq_key").is_some(), openrouter: secret_get("openrouter_key").is_some() }
 }
 
 /// Save (non-empty value) or clear (empty value) a news provider key: `finnhub` or `newsapi`.
 #[tauri::command]
 fn save_news_key(provider: String, value: String) -> Result<()> {
-    let name = match provider.as_str() { "finnhub" => "finnhub_key", "newsapi" => "newsapi_key", "groq" => "groq_key", "openrouter" => "openrouter_key", p => return Err(Error::Other(format!("unknown provider {p}"))) };
+    let name = match provider.as_str() { "finnhub" => "finnhub_key", "newsapi" => "newsapi_key", "groq" => "groq_key", "openrouter" => "openrouter_key", "fmp" => "fmp_key", p => return Err(Error::Other(format!("unknown provider {p}"))) };
     let e = keyring_entry(name)?;
     if value.trim().is_empty() { let _ = e.delete_credential(); Ok(()) } else { e.set_password(value.trim()).map_err(|e| Error::Keyring(e.to_string())) }
 }
@@ -183,6 +184,41 @@ async fn news_window(st: State<'_>, symbol: Option<String>, from: i64, to: i64, 
     }
     let items = news::dedupe(st.cache.news_query(symbol.as_deref(), from, to, 800)?, limit.unwrap_or(400));
     Ok(news::NewsResult { items, errors })
+}
+
+/// Economic calendar events in [from, to] (unix seconds). Cached in the kv table, refreshed hourly (or when `force`): the keyless Forex Factory weekly
+/// feed always, plus Financial Modeling Prep for the window when a key is saved (its rows replace the feed's inside that window).
+#[tauri::command]
+async fn calendar_window(st: State<'_>, from: i64, to: i64, force: Option<bool>) -> Result<calendar::CalendarResult> {
+    let now = chrono::Utc::now().timestamp();
+    let mut all: Vec<calendar::CalEvent> = st.cache.kv_get("calendar")?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+    let at: i64 = st.cache.kv_get("calendar_at")?.and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut errors = Vec::new();
+    if force.unwrap_or(false) || now - at > 3600 {
+        let keep_from = now - 120 * 86400;
+        let mut ok = false;
+        match calendar::forex_factory(&st.http).await {
+            Ok(rows) => { all = calendar::merge(all, rows, keep_from); ok = true; }
+            Err(e) => errors.push(calendar::ProviderError { provider: "forexfactory".into(), error: e.to_string() }),
+        }
+        if let Some(key) = secret_get("fmp_key") {
+            let (f, t) = (from.max(now - 90 * 86400), to.min(now + 60 * 86400));
+            match calendar::fmp(&st.http, &key, f, t).await {
+                Ok(rows) => {
+                    // FMP covers this window: drop the feed's rows inside it so nothing shows twice
+                    all.retain(|e| !(e.provider == "ff" && e.ts >= f && e.ts <= t + 86400));
+                    all = calendar::merge(all, rows, keep_from); ok = true;
+                }
+                Err(e) => errors.push(calendar::ProviderError { provider: "fmp".into(), error: e.to_string() }),
+            }
+        }
+        if ok {
+            st.cache.kv_set("calendar", &serde_json::to_string(&all).map_err(|e| Error::Other(e.to_string()))?)?;
+            st.cache.kv_set("calendar_at", &now.to_string())?;
+        }
+    }
+    let items = all.into_iter().filter(|e| e.ts >= from && e.ts <= to).collect();
+    Ok(calendar::CalendarResult { items, errors })
 }
 
 /// Groq chat with the saved key and model; re-picks the model once if the saved one fails (it may have been retired).
@@ -303,6 +339,7 @@ pub fn run() {
             liquid_login,
             liquid_logout,
             news_window,
+            calendar_window,
             ai_summary,
             ai_complete,
             liquid_unusual,

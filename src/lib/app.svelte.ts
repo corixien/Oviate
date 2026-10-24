@@ -60,7 +60,7 @@ class App {
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
   /** Latest backtest per chart (for the Strategy Tester panel). */
-  strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number }>>({});
+  strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number; closes: Float64Array }>>({});
   /** Strategy Tester settings (simulation only: not stored in strategies, not shown in chart drawings). */
   tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippagePct: 0.1, fillOnClose: true });
   /** Request to reset the view of a chart (right-click menu, command bar). */
@@ -70,12 +70,15 @@ class App {
   replay = $state<{ owner: string; t: number | null; playing: boolean; speed: number } | null>(null);
   /** AI indicator dialog (indicator from plain text). */
   aiDialog = $state<'indicators' | 'strategies' | null>(null);
-  page = $state<'chart' | 'news' | 'editor'>('chart');
+  page = $state<'chart' | 'news' | 'editor' | 'calendar'>('chart');
   /** Script editor target: an existing script or a new one (name null). */
   /** name null = a new script; blank = nothing selected yet (opened with /ind or /strat) */
   editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean; /** open in the visual builder instead of the code */ builder?: boolean }>({ kind: 'indicators', name: null });
   newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
   showNews = $state(true);
+  /** economic calendar markers on charts, and the lowest impact shown there */
+  showCalendar = $state(true);
+  calImpact = $state<'high' | 'medium' | 'low'>('high');
   showParams = $state(false);
   indDialog = $state<{ uid: string; mode: 'settings' | 'code' } | null>(null);
   crossT = $state<{ t: number | null; y: number | null; from: string }>({ t: null, y: null, from: '' });
@@ -161,6 +164,8 @@ class App {
         this.lang = s.lang ?? 'en';
         this.anim = s.anim ?? true;
         this.showNews = s.showNews ?? true;
+        this.showCalendar = s.showCalendar ?? true;
+        this.calImpact = s.calImpact ?? 'high';
         this.showParams = s.showParams ?? false;
         this.palette = s.palette ?? 'neon';
         this.grid = s.grid ?? true;
@@ -186,7 +191,7 @@ class App {
     this.timer = setTimeout(() => {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
-        lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
+        lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showCalendar: this.showCalendar, calImpact: this.calImpact, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
         watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, uiZoom: this.uiZoom, tester: $state.snapshot(this.tester)
       }));
     }, 400);

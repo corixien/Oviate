@@ -71,17 +71,23 @@ export async function onTick(cb: (t: Tick) => void): Promise<() => void> {
 
 export interface NewsItem { id: string; headline: string; source: string; provider: string; summary: string; url: string; ts: number; symbols: string[] }
 export interface NewsResult { items: NewsItem[]; errors: { provider: string; error: string }[] }
-export interface NewsStatus { finnhub: boolean; newsapi: boolean; alpaca: boolean; liquid: boolean; groq: boolean; openrouter: boolean }
+export interface NewsStatus { fmp: boolean; finnhub: boolean; newsapi: boolean; alpaca: boolean; liquid: boolean; groq: boolean; openrouter: boolean }
 export interface Unusual { symbol: string; multiple: number; volume: string }
 
-export const newsStatus = () => (inTauri ? call<NewsStatus>('news_status') : Promise.resolve({ finnhub: false, newsapi: false, alpaca: false, liquid: false, groq: false, openrouter: false }));
+export const newsStatus = () => (inTauri ? call<NewsStatus>('news_status') : Promise.resolve({ fmp: false, finnhub: false, newsapi: false, alpaca: false, liquid: false, groq: false, openrouter: false }));
 /** Empty value clears the key. */
-export const saveNewsKey = (provider: 'finnhub' | 'newsapi' | 'groq' | 'openrouter', value: string) => (inTauri ? call<void>('save_news_key', { provider, value }) : Promise.resolve());
+export const saveNewsKey = (provider: 'finnhub' | 'newsapi' | 'groq' | 'openrouter' | 'fmp', value: string) => (inTauri ? call<void>('save_news_key', { provider, value }) : Promise.resolve());
 export const liquidLogin = () => (inTauri ? call<void>('liquid_login') : Promise.reject('Liquid login needs the desktop app'));
 export const liquidLogout = () => (inTauri ? call<void>('liquid_logout') : Promise.resolve());
 /** News in [from, to] (unix seconds); symbol null = market-wide. Cached locally by the backend. */
 export const newsWindow = (symbol: string | null, from: number, to: number) =>
   inTauri ? call<NewsResult>('news_window', { symbol, from, to }) : Promise.resolve({ items: [], errors: [] } as NewsResult);
+
+export interface CalEvent { id: string; ts: number; country: string; title: string; impact: 'high' | 'medium' | 'low' | 'holiday'; actual: string | null; forecast: string | null; previous: string | null; provider: string }
+export interface CalendarResult { items: CalEvent[]; errors: { provider: string; error: string }[] }
+/** Economic calendar events in [from, to] (unix seconds). Cached by the backend, refreshed hourly (`force` refreshes now). */
+export const calendarWindow = (from: number, to: number, force = false) =>
+  inTauri ? call<CalendarResult>('calendar_window', { from, to, force }) : Promise.resolve({ items: [], errors: [] } as CalendarResult);
 
 export interface AiSummary { what: string; impact: string; direction: 'bullish' | 'bearish' | 'neutral' | 'mixed'; intensity: number; assets: string[]; horizon: string; model: string }
 export const aiSummary = (id: string, lang: string, force = false) =>

@@ -553,3 +553,32 @@ NATIVES['oviate.ind'] = {
     return v === undefined ? Number.NaN : v;
   },
 };
+
+// oviate.hhmm / oviate.dow / oviate.date: wall-clock time of each bar in a time zone (IANA name, "UTC" default), computed once per zone.
+// hhmm = hour * 100 + minute (9:30 -> 930), dow = 1 (Monday) .. 7 (Sunday), date = yyyymmdd.
+const zoneFmt = new Map<string, Intl.DateTimeFormat>();
+function zoneTimes(x: import('./natives.ts').Ctx, tz: string) {
+  const cache = ((x as any).zoneCache ??= new Map<string, { hhmm: Float64Array; dow: Float64Array; date: Float64Array }>()) as Map<string, { hhmm: Float64Array; dow: Float64Array; date: Float64Array }>;
+  let c = cache.get(tz);
+  if (c) return c;
+  let f = zoneFmt.get(tz);
+  if (!f) {
+    try { f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' }); }
+    catch { throw new Error(`unknown time zone "${tz}"`); }
+    zoneFmt.set(tz, f);
+  }
+  const DOW: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+  c = { hhmm: new Float64Array(x.n), dow: new Float64Array(x.n), date: new Float64Array(x.n) };
+  for (let i = 0; i < x.n; i++) {
+    const p: Record<string, string> = {};
+    for (const q of f.formatToParts(x.t[i] * 1000)) p[q.type] = q.value;
+    c.hhmm[i] = Number(p.hour) * 100 + Number(p.minute);
+    c.dow[i] = DOW[p.weekday] ?? 0;
+    c.date[i] = Number(p.year) * 10000 + Number(p.month) * 100 + Number(p.day);
+  }
+  cache.set(tz, c);
+  return c;
+}
+for (const [name, key] of [['oviate.hhmm', 'hhmm'], ['oviate.dow', 'dow'], ['oviate.date', 'date']] as const) {
+  NATIVES[name] = { params: ['tz'], fn: (a, x) => zoneTimes(x, typeof a[0] === 'string' && a[0] ? a[0] : 'UTC')[key][x.bar] };
+}

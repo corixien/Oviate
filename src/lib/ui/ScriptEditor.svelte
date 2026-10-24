@@ -5,8 +5,8 @@
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick, untrack } from 'svelte';
   import { aiComplete } from '$lib/api';
-  import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, setDirection, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
-  import { aiBuilder, aiBuilderFromCode } from '$lib/builder/ai.ts';
+  import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, setDirection, codeSides, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
+  import { aiBuilder, aiBuilderFromCode, aiMirrorSide, mirrorSideLocal } from '$lib/builder/ai.ts';
   import { indInfo, allInfos } from '$lib/builder/info';
   import { builderModelOf, checkModel, newModel, toPine, type Model } from '$lib/builder/model.ts';
   import AiStrategyFields from './AiStrategyFields.svelte';
@@ -102,7 +102,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   const toggleMode = () => { if (!aiBusy) { if (inBuilder) leaveBuilder(); else enterBuilder(); } };
 
   // the settings mirror what is open: the model in the builder, the code otherwise (also while typing)
-  $effect(() => {
+  function readSettings() {
     if (kind !== 'strategies') return;
     if (mode === 'builder') {
       const m = model; const s = m.long.on ? m.long : m.short;
@@ -110,31 +110,73 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
       direction = m.long.on && m.short.on ? 'both' : m.short.on ? 'short' : 'long';
     } else {
       const f = extractStrategyForm(code);
-      qtyType = f.qtyType; qty = String(f.qty); sl = f.sl ? String(f.sl) : ''; tp = f.tp ? String(f.tp) : ''; direction = f.direction;
+      qtyType = f.qtyType; qty = String(f.qty); sl = f.sl ? String(f.sl) : ''; tp = f.tp ? String(f.tp) : ''; direction = f.direction === 'auto' ? 'both' : f.direction;
     }
-  });
+  }
+  $effect(() => { readSettings(); });
   // without any stop loss / take profit input the editor adds one; with only one of them present the other cannot be added
   const noSl = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'sl') && hasLimitInput(code, 'tp'));
   const noTp = $derived(kind === 'strategies' && !inBuilder && !hasLimitInput(code, 'tp') && hasLimitInput(code, 'sl'));
-  const dirHint = $derived(inBuilder ? 'Switches the long and short sides on or off' : 'Long only / short only / both: switches the entries of the code (allowLong / allowShort inputs)');
+  const dirHint = $derived(inBuilder ? 'Switches the sides on or off; a side that has no conditions yet is created as the mirror of the other one' : 'Switches the entries of the code (allowLong / allowShort inputs); a side the code does not have yet is added by the AI as the mirror of the other one');
 
-  /** Size, stop loss and take profit change the code (or the builder) directly, no AI needed. */
+  /** The other side as the opposite of the one that exists: by the AI, with a local fallback. */
+  async function fillSide(from: 'long' | 'short') {
+    const to = from === 'long' ? 'short' : 'long';
+    aiBusy = true; status = { ok: true, text: `Creating the ${to} side as the opposite of the ${from} side with the AI…` };
+    const before = snap();
+    try {
+      const m = await aiMirrorSide(snap(), from, allInfos(), aiComplete);
+      model[to] = { ...m[to], on: true };
+      undo = { model: before };
+      status = { ok: true, text: `The ${to} side was created as the opposite of the ${from} side. Check the conditions.` };
+    } catch (e) {
+      model[to] = mirrorSideLocal(model[from]);
+      undo = { model: before };
+      status = { ok: true, text: `The AI was not available (${e instanceof Error ? e.message : e}): the ${to} side was mirrored offline (comparisons flipped, levels mirrored). Check the conditions.` };
+    } finally { aiBusy = false; }
+  }
+
+  /** Add / mirror a side of a code strategy with the AI (only needed when the code has no entries for it). */
+  async function extendCode(base: string, want: StrategyOpts['direction']) {
+    const side = want === 'short' ? 'SHORT-only' : want === 'long' ? 'LONG-only' : 'long and short';
+    const change = want === 'both'
+      ? 'Add the exact opposite side so it trades long and short: keep the existing entries and exits unchanged and add the mirrored ones for the other direction (crosses reversed, comparisons reversed, oscillator levels mirrored such as 30 and 70, stop loss and take profit copied).'
+      : `Turn it into the exact opposite ${side} strategy: mirror every entry and exit (crosses reversed, comparisons reversed, oscillator levels mirrored such as 30 and 70, stop loss and take profit copied).`;
+    aiBusy = true; status = { ok: true, text: `Writing the ${side} version with the AI, this can take up to a minute…` };
+    try {
+      const out = await editStrategy(base, change, { qtyType, qty: num(qty), sl: num(sl) > 0 ? num(sl) : 0, tp: num(tp) > 0 ? num(tp) : 0, direction: want }, aiComplete);
+      undo = { code }; code = out;
+      status = { ok: true, text: 'The other side was added as the mirror of the existing one. Review it, then Save.' };
+    } catch (e) { status = { ok: false, text: e instanceof Error ? e.message : String(e) }; readSettings(); }
+    finally { aiBusy = false; }
+  }
+
+  /** Size, stop loss, take profit and direction change the code (or the builder) directly; only a side that does not exist yet needs the AI. */
   function applyParams() {
+    if (aiBusy) { readSettings(); return; }
     if (!qtyOk) {
       if (inBuilder) { qtyType = model.qtyType; qty = String(model.qty); }
       else { const f = extractStrategyForm(code); qtyType = f.qtyType; qty = String(f.qty); }
       return;
     }
     const slv = num(sl) > 0 ? num(sl) : 0, tpv = num(tp) > 0 ? num(tp) : 0;
+    const wantLong = direction !== 'short', wantShort = direction !== 'long';
     if (inBuilder) {
       model.qtyType = qtyType; model.qty = num(qty);
       for (const sd of [model.long, model.short]) { sd.sl = slv; sd.tp = tpv; }
-      if (direction === 'long') { model.long.on = true; model.short.on = false; }
-      else if (direction === 'short') { model.long.on = false; model.short.on = true; }
-      else if (direction === 'both') { model.long.on = true; model.short.on = true; }
+      const needShort = wantShort && !model.short.entry.items.length && model.long.entry.items.length > 0;
+      const needLong = wantLong && !model.long.entry.items.length && model.short.entry.items.length > 0;
+      model.long.on = wantLong; model.short.on = wantShort;
+      if (needShort) fillSide('long'); else if (needLong) fillSide('short');
       return;
     }
     let next = setStrategyParams(code, { qtyType, qty: num(qty), sl: noSl ? 0 : slv, tp: noTp ? 0 : tpv });
+    const has = codeSides(next);
+    if ((wantShort && !has.short) || (wantLong && !has.long)) {
+      if (next !== code) code = next;
+      extendCode(next, direction);
+      return;
+    }
     next = setDirection(next, direction);
     if (next !== code) { code = next; status = null; }
   }
@@ -350,10 +392,10 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .page { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
   header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
   h1 { margin: 0; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
-  .back { background: none; border: 1px solid var(--line); color: var(--fg); padding: 6px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+  .back { box-sizing: border-box; height: 30px; background: none; border: 1px solid var(--line); color: var(--fg); padding: 0 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .back:hover { border-color: var(--accent); color: var(--accent); }
   .seg { display: flex; border: 1px solid var(--line); }
-  .seg button { background: none; border: 0; color: var(--dim); padding: 6px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+  .seg button { height: 28px; background: none; border: 0; color: var(--dim); padding: 0 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .seg button.on { background: var(--accent); color: #fff; }
   .path { margin-left: auto; color: var(--dim); font: 11.5px ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
   .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px 1fr; }
@@ -369,11 +411,11 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .dim { color: var(--dim); font-size: 13px; padding: 10px 14px; }
   .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
-  .name { width: 280px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 6px 10px; font: 13px ui-monospace, monospace; outline: none; }
+  .name { width: 280px; box-sizing: border-box; height: 30px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 0 10px; font: 13px ui-monospace, monospace; outline: none; }
   .name:focus { border-color: var(--accent); } .name:disabled { opacity: 0.7; }
   .ext { color: var(--dim); font: 13px ui-monospace, monospace; }
   .spacer { flex: 1; }
-  .bar button { background: none; border: 1px solid var(--line); color: var(--fg); padding: 7px 14px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+  .bar button { box-sizing: border-box; height: 30px; background: none; border: 1px solid var(--line); color: var(--fg); padding: 0 14px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .bar button:hover { border-color: var(--accent); }
   .bar .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .bar .danger:hover { border-color: var(--down); color: var(--down); }
@@ -391,7 +433,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .aibox textarea { flex: 1; min-width: 0; min-height: 56px; box-sizing: border-box; resize: vertical; padding: 8px 10px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px/1.45 system-ui, sans-serif; outline: none; }
   .aibox textarea:focus { border-color: var(--accent); }
   .aibtns { display: flex; flex-direction: column; gap: 6px; }
-  .aibtns button { background: none; border: 1px solid var(--line); color: var(--fg); padding: 6px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; white-space: nowrap; } .aibtns button:hover:not(:disabled) { border-color: var(--accent); }
+  .aibtns button { box-sizing: border-box; height: 30px; background: none; border: 1px solid var(--line); color: var(--fg); padding: 0 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; white-space: nowrap; } .aibtns button:hover:not(:disabled) { border-color: var(--accent); }
   .aibtns .primary { background: var(--accent); border-color: var(--accent); color: #fff; } .aibtns button:disabled { opacity: 0.5; cursor: default; }
   .editor.bpane { display: flex; flex-direction: column; background: var(--bg); }
   .status.hint { color: var(--dim); }

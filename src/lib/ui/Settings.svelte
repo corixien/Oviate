@@ -5,14 +5,14 @@
 
   let keyId = $state(''), secret = $state(''), has = $state(false), msg = $state('');
 
-  let ns = $state<NewsStatus>({ finnhub: false, newsapi: false, alpaca: false, liquid: false, groq: false, openrouter: false });
-  let fhKey = $state(''), naKey = $state(''), gqKey = $state(''), orKey = $state(''), liquidBusy = $state(false), newsMsg = $state('');
+  let ns = $state<NewsStatus>({ fmp: false, finnhub: false, newsapi: false, alpaca: false, liquid: false, groq: false, openrouter: false });
+  let fmpKey = $state(''), fhKey = $state(''), naKey = $state(''), gqKey = $state(''), orKey = $state(''), liquidBusy = $state(false), newsMsg = $state('');
   const refreshNews = () => newsStatus().then((v) => (ns = v));
 
   $effect(() => { if (app.settingsOpen) { alpacaKeysSet().then((v) => (has = v)); refreshNews(); } });
 
-  async function saveKey(p: 'finnhub' | 'newsapi' | 'groq' | 'openrouter', v: string) {
-    try { await saveNewsKey(p, v); if (p === 'finnhub') fhKey = ''; else if (p === 'newsapi') naKey = ''; else if (p === 'groq') gqKey = ''; else orKey = ''; newsMsg = ''; await refreshNews(); app.notify(v.trim() ? 'Key saved' : 'Key removed'); }
+  async function saveKey(p: 'finnhub' | 'newsapi' | 'groq' | 'openrouter' | 'fmp', v: string) {
+    try { await saveNewsKey(p, v); if (p === 'fmp') fmpKey = ''; else if (p === 'finnhub') fhKey = ''; else if (p === 'newsapi') naKey = ''; else if (p === 'groq') gqKey = ''; else orKey = ''; newsMsg = ''; await refreshNews(); app.notify(v.trim() ? 'Key saved' : 'Key removed'); }
     catch (e) { newsMsg = String(e); }
   }
   async function connectLiquid() {
@@ -49,6 +49,17 @@
         <div class="btns">
           <button class="primary" onclick={save} disabled={!keyId.trim() || !secret.trim()}>{t('save', app.lang)}</button>
           {#if has}<button onclick={clear}>{t('clear', app.lang)}</button>{/if}
+        </div>
+      </section>
+
+      <section>
+        <h3>Economic calendar</h3>
+        <p class="status">Always on, no key: the Forex Factory weekly calendar (this and next week, forecast and previous). With a free Financial Modeling Prep key the calendar reaches further back and forward and shows actual values.</p>
+        <label>Financial Modeling Prep API key <span class="st" class:ok={ns.fmp}>{ns.fmp ? 'saved' : 'not set'}</span>
+          <input type="password" bind:value={fmpKey} autocomplete="off" placeholder={ns.fmp ? '••••••••' : 'Key from financialmodelingprep.com'} /></label>
+        <div class="btns">
+          <button class="primary" disabled={!fmpKey.trim()} onclick={() => saveKey('fmp', fmpKey)}>{t('save', app.lang)}</button>
+          {#if ns.fmp}<button onclick={() => saveKey('fmp', '')}>{t('clear', app.lang)}</button>{/if}
         </div>
       </section>
 

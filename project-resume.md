@@ -2,50 +2,54 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-23 (builder inside the editor, rewritten chart sync, shared replay, borderless layout drag)
+Last updated: 2026-10-24 (economic calendar, advanced builder, direction mirroring, tester buy & hold lines, control heights)
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
 
 ## 2. Must read before any change
-1. `AGENTS.md` - rules, layout, design constraints, secrets policy, local-install rule
+1. `AGENTS.md` - rules, layout, design constraints, secrets policy, local-install rule (it also documents sync, replay, builder, editor settings in detail)
 2. `README.md` - features, config, dev commands
-3. `src/lib/app.svelte.ts` - global app state, persisted in SQLite `kv` table
+3. `src/lib/app.svelte.ts` - global app state, persisted in SQLite `kv` table (`app.page`, `app.editor`, `app.replay`, calendar flags)
 4. `src-tauri/src/lib.rs` - all Tauri commands (UI to core boundary)
-5. `src/lib/chart/Chart.svelte` + `renderer.ts` - chart rendering
-6. `src/lib/pine/interp.ts`, `strategy.ts` - Pine engine and strategy broker
-7. `src/lib/ai/pine.ts` - AI prompts, checks, repair loop (indicators, strategies, edits)
-8. `src/lib/pine/optimizer.ts` - strategy optimizer
+5. `src/lib/chart/Chart.svelte` + `renderer.ts` - chart rendering, sync, replay, drawings, news / calendar markers
+6. `src/lib/pine/interp.ts`, `strategy.ts`, `indlib.ts` - Pine engine, broker, `oviate.*` natives
+7. `src/lib/ai/pine.ts` - AI prompts, checks, repair loop, algorithmic editor settings
+8. `src/lib/builder/model.ts` - visual builder model, Pine generation
+9. `src/lib/pine/optimizer.ts` - strategy optimizer
 
 ## 3. How to navigate
-- `src-tauri/src/`: `lib.rs` commands (incl. `ai_complete`), `ai.rs` (Groq news summaries + OpenRouter code chat with 429 retry and `CODE_MODELS` fallback), `cache.rs` SQLite (candles, news, kv; file `oviate.db`), `stream.rs`, `news.rs`, `mcp.rs`, `pine_files.rs`, `providers/`.
-- `src/lib/chart/`: `Chart.svelte`, `renderer.ts`, `candleStore.ts` (candles of each chart for the optimizer), `data.ts`, `transforms.ts`, `indicators.ts`.
-- `src/lib/pine/`: engine (`parser`, `interp`, `natives`, `ta`, `strategy`), `panes.ts` (`plot(..., pane="X")` split), `stats.ts` (tester statistics), `optimizer.ts` + `optimizer.worker.ts` + `optimizer-runner.ts`, `runner.ts`, `worker.ts`, `describe.ts`, `types.ts`; tests `*.test.ts`.
-- `src/lib/ai/pine.ts`: `genIndicator`, `genStrategy`, `editIndicator`, `editStrategy`, `extractStrategyForm`, `sanity`, `strategyCheck`, `setPositionSize`, `STRAT_SAMPLE`.
-- `src/lib/optimizer.svelte.ts` (optimizer state), `src/lib/paper/` (paper engine + store), `library.svelte.ts` (script library, reloads on window focus).
-- `src/lib/ui/`: `PaperPanel` (tabs Paper Trading / Strategy Tester / Optimizer), `OptimizerPanel`, `AiDialog` (`/ind add ai`, `/strat add ai`), `AiStrategyFields` (size/SL/TP/direction form, shared), `ScriptEditor` (code editor with search, AI edit, blank state), `Spotlight` (command bar), `Settings`, etc.
-- `cli/oviate.ts` (+ `cli/oviate` wrapper, `cli/oviate.test.ts`): the `oviate` CLI. `skills/oviate/SKILL.md`: the `/oviate` Claude skill. `scripts/install-local.sh`: rebuild + install (also symlinks the CLI to `~/.local/bin` and copies the skill to `~/.claude/skills/oviate`).
-- `indicators/*.pine`: 94 bundled indicators, seeded into `<app data>/indicators` on first start. `strategies/` ships empty. `Syspromptvorschlag.md`: the user's base for the AI indicator system prompt.
+- `src-tauri/src/`: `lib.rs` commands (incl. `ai_complete`, `news_window`, `calendar_window`), `ai.rs` (Groq news summaries + OpenRouter code chat with 429 retry and `CODE_MODELS` fallback), `cache.rs` SQLite (candles, news, kv; file `oviate.db`), `calendar.rs` (economic calendar: Forex Factory weekly JSON + optional FMP), `stream.rs`, `news.rs`, `mcp.rs`, `pine_files.rs`, `providers/`.
+- `src/lib/chart/`: `Chart.svelte`, `renderer.ts` (drawing, drawings incl. `arrowpath`, sync `live`/`chartSync`, news + calendar markers, replay pick), `candleStore.ts`, `data.ts`, `transforms.ts`, `indicators.ts`.
+- `src/lib/pine/`: engine (`parser`, `interp` incl. natives `oviate.ind`, `oviate.hhmm/dow/date`, `natives`, `ta`, `strategy`), `indlib.ts` (library indicator registry for `oviate.ind`), `panes.ts`, `stats.ts` (tester statistics + `buyHoldCurves`), `optimizer.ts` + worker + runner, `runner.ts`, `worker.ts`, `describe.ts`, `types.ts`; tests `*.test.ts`.
+- `src/lib/builder/`: `model.ts` (pure, tested: model, `toPine`, `parseModel`, `builderModelOf`, `checkModel`, `suggest`, `TEMPLATES`), `ai.ts` (`aiBuilder`, `aiBuilderFromCode`, `aiMirrorSide`, `mirrorSideLocal`), `info.ts` (IndInfo of library indicators).
+- `src/lib/ai/pine.ts`: `genIndicator`, `genStrategy`, `editIndicator`, `editStrategy`, `extractStrategyForm`, `setPositionSize`, `setStrategyParams` (size + SL/TP, injects a block when absent), `setDirection` / `readDirection` / `codeSides`, `sanity`, `strategyCheck`, `STRAT_SAMPLE`.
+- `src/lib/ui/`: `ScriptEditor` (code editor + visual builder view; name = script title; settings row + AI row), `BuilderPane` + `OperandPicker` (builder UI), `CalendarPage`, `PaperPanel` (tabs Paper Trading / Strategy Tester / Optimizer), `OptimizerPanel`, `AiDialog`, `AiStrategyFields`, `OrderDialog` (bracket legs accept %), `Spotlight` (command bar), `Settings`, `NewsPage`, `TopBar`, `LeftBar`, etc.
+- `src/lib/optimizer.svelte.ts`, `src/lib/paper/`, `library.svelte.ts` (script library, reloads on window focus; `setIndicatorSource` for `oviate.ind`).
+- `cli/oviate.ts` (+ wrapper, tests): the `oviate` CLI. `skills/oviate/SKILL.md`: the `/oviate` skill. `scripts/install-local.sh`: rebuild + install.
+- `indicators/*.pine`: 94 bundled indicators, seeded into `<app data>/indicators`. `strategies/` ships empty. `Syspromptvorschlag.md`: base of the AI indicator system prompt.
 - App data: `~/.local/share/dev.oviate.app/` (`indicators/`, `strategies/`, `oviate.db`).
 
 ## 4. Commands (run from repo root)
 - `npm install`; `npm run tauri dev` run app; `npm run tauri build -- --no-bundle` release binary
 - `npm run check` svelte-check (read whole output, errors print as `ERROR`)
-- `npm test` node --test (pine, paper, ai, cli) then `cargo test`
+- `npm test` node --test (pine, paper, ai, builder, cli) then `cargo test`
 - `scripts/install-local.sh` after every push to main (about 4 min), then restart Oviate
 - `oviate help` for the CLI
 - Requires Node 22.18+ (type stripping, `node:sqlite`), Rust stable, Tauri Linux deps (webkit2gtk-4.1, libsoup3, gtk3, openssl)
 - CI: `.github/workflows/ci.yml`
-- Visual check without the app: `npm run dev -- --port 1420` (browser mode, synthetic data) and headless `google-chrome` over CDP (see how it was done in the session: seed `localStorage` keys `oviate:workspace`, `oviate:paper`, `oviate:scripts:strategies`).
+- Visual check without the app: `npm run dev -- --port 1420` (browser mode, synthetic data) + headless `google-chrome --remote-debugging-port` driven over CDP (a small node script with `WebSocket`: navigate, `Runtime.evaluate`, `Input.dispatchMouseEvent`, `Page.captureScreenshot`). Open the command bar with an `Enter` keydown on `window`, type `/visual` etc. Never `pkill -f vite` (matches the shell itself: use `pkill -f "[v]ite"`).
 
 ## 5. Invariants and gotchas
-- Rust core owns providers, caches, news, keyring, file storage. UI only renders and sends commands. Keep core free of Tauri types where possible.
+- Rust core owns providers, caches, news, calendar, keyring, file storage. UI only renders and sends commands. Keep core free of Tauri types where possible.
 - Every action reachable via keyboard / command bar (`Enter`, `/commands`).
-- Design: black, hard purple accents, 2px corners, no blur/backdrop-filter (WebKitGTK crash), no native `<select>` (use `ui/Select.svelte`), no number spinners.
-- Keep AT-SPI bridge disable in `src-tauri/src/main.rs` (WebKitGTK crash workaround).
-- Pine: `request.security` passthrough; label/line/box accepted but not rendered. Oviate extension `pane="Name"` on plot/hline = own chart pane.
-- Strategy Tester settings (`app.tester`: capital, commission %, slippage % of price default 0.1, fill on signal-bar close default) override `strategy()` in the engine; position size stays in the strategy. Paper-trading signals run with fillOnClose off.
-- AI keys: OpenRouter (code) and Groq (news) in the OS keyring only. OpenRouter free models are rate limited: one model call per repair round.
+- Design: black, hard purple accents, 2px corners, no blur/backdrop-filter (WebKitGTK crash), no native `<select>` (use `ui/Select.svelte`), no number spinners. Form controls are 30px high (top bar 32px); keep rows of controls equal in height.
+- Keep AT-SPI bridge disable in `src-tauri/src/main.rs`.
+- Pine: `request.security` passthrough; label/line/box accepted but not rendered. Oviate extensions: `pane="Name"` on plot/hline, `oviate.ind(name, plot, "Input=value;...")`, `oviate.hhmm/dow/date(tz)`. `when=` on entries is used by the direction switches (v5 syntax).
+- Strategy Tester settings (`app.tester`) override `strategy()` capital/commission/slippage/fill; position size stays in the strategy declaration. Paper-trading signals run with fillOnClose off.
+- Editor settings (size, SL/TP, direction) are applied to the code algorithmically; only a side the code does not have yet is created by the AI (`extendCode` / `fillSide`, with an offline fallback in the builder).
+- Chart sync: leader pushes view at the end of its draw; do not add reactive round trips. Effects must read reactive state before an early return (a `$effect` that returns before reading anything never re-runs).
+- AI keys: OpenRouter (code) and Groq (news) and FMP (calendar, optional) in the OS keyring only. OpenRouter free models are rate limited: one model call per repair round.
 - Tests run TS via type stripping: no parameter properties, no enums in tested files; use `.ts` import extensions.
 - Secrets never in repo, logs, commits. Liquid OAuth `read` scope only.
 - Git: push directly to `main`, no PRs. Commit ends with the Co-Authored-By line from the session. After every push run `scripts/install-local.sh` and restart the app for the user.
@@ -56,43 +60,39 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
-- [x] Chart sync v3: leader/follower model (`pushView` at the end of the leader's draw: same time window + price range in multiples of the last close, so last-price lines align), mirrors axis drags, resets, replay; loading charts `followLeader()`. Editor settings need no AI (`setStrategyParams` injects SL/TP block, `setDirection` adds allowLong/allowShort), file name = script title, non-builder Pine is read into the builder by the AI (`aiBuilderFromCode`), Builder/Editor toggle no longer highlighted, bracket text inputs styled again.
-- [x] Editor rework: Builder/Editor toggle swaps only the code area (`BuilderPane.svelte`, the standalone builder page is gone); always-visible settings row (size, SL, TP, direction) + AI text field and send button (indicators: AI row only); file name editable (Save renames the file, charts follow); "Save & add to chart" (skips if already on the chart).
-- [x] Chart sync rewritten: renderer-to-renderer in the same frame (`live` set, `followTime`, `setExternal`), unclamped follower, crosshair mirrored; replay shared via `app.replay` (all charts when sync is on); canvas resize repaints synchronously (flicker fix).
-- [x] Layout: panes touch, border lines are the drag handles (no purple hover lines) for chart splits, watchlist/analysis splits; bracket order legs accept `%`; ray / extended line icons (dot at start / in the middle); Replay/Buy/Sell buttons as tall as the ticker pill.
-- [x] Visual strategy builder v2 (`/visual`, Builder button in the strategy editor, "Edit in builder" in a chart strategy menu): any library indicator + plot + inputs, price, fixed value or None on each side, per-indicator "Ideas", within-N-bars, ALL/ANY groups, long/short, SL/TP, "Fill with AI" (`builder/ai.ts`). Generates normal Pine using the new extension `oviate.ind(name, plot, "Input=value;...")` (`pine/indlib.ts`, native in `interp.ts`, `RunOptions.lib` for workers/optimizer, CLI reads indicator files). Tests in `src/lib/builder/model.test.ts` (added to `npm test`).
-- [x] Replay mode (Replay button / `/replay`, scissors pick, step / play / speed, Shift+Left/Right, Space), arrow path drawing tool, Ctrl+scroll zoom out to 0.03 px per bar (time and price clamp independently).
-- [x] `scriptMeta` fixed: titles containing parentheses (e.g. "Relative Strength Index (RSI)") showed as "Untitled" in lists.
-- [x] Strategy editor: size / stop loss / take profit bar always above the code (`setStrategyParams` in `ai/pine.ts`, no AI; mirrors the code, SL/TP disabled when the code has no such input); AI strip keeps Direction only. Pine engine: `.field` on a function result (e.g. `ta.supertrend(..).direction`) is now an error instead of silent na (it made exit conditions never fire -> a strategy with a single open trade). Tester shows a hint when a strategy never exits. Old builder-generated strategies in the user's data (`Supertrend.pine` ai3, `Golden Cross Strategy.pine` without exit) are NOT edited by Claude.
-- [x] Buy & hold "invested time only" now = (1 + whole-period change)^(invested bars / total bars) - 1 (average per-bar growth applied over invested bars, `stats.ts`). Optimizer parameter table wrapper fits its content so the right border shows.
-- [x] Optimizer: category winners ("Best win rate / profit / Lowest drawdown") are the absolute best visible value of their column (raw whole-history figures, with trade-count and profit guards); a point winning several categories carries all tags; scoring of the mixes stays recency weighted. Layout fixed (vertical stack, tables in scroll wrappers).
-- [x] Code editor: `/ind` and `/strat` open with nothing selected; search bar; AI button left of Check opens an AI edit strip (`editIndicator`/`editStrategy`): strategy form prefilled from the code (`extractStrategyForm`), result goes into the editor (not saved), "Undo last AI edit".
-- [x] Strategy Optimizer tab (`pine/optimizer.ts`, worker, `OptimizerPanel`, `oviate optimize`): pattern search with step doubling, 5 recency-weighted segments, 10 variants, Fast<Slow ordering kept, Apply puts a variant on the chart.
-- [x] Fill at signal-bar close (tester default) instead of next bar open.
-- [x] Multi-pane scripts (`pane=`), tester slippage in percent, red equity below start capital, buy & hold over invested time.
-- [x] AI strategies (`/strat add ai`) and indicators (`/ind add ai`) via OpenRouter free models; visual builder removed.
-- [x] `oviate` CLI + `/oviate` skill (list, show, check, add, data, backtest, optimize, guide, examples).
-- [x] Strategy tester: last 20 trades as entry-exit boxes, detailed stats, red/purple equity line.
-- [x] Chart: right-click menu "Reset chart" (Alt+R, `/reset chart`), wheel/drag navigation, 17 drawing tools, app zoom, logo, launcher entry.
+- [x] Economic calendar: `/calendar` page + Calendar button next to News, markers on charts (diamonds above the news markers, impact filter, hover text), Forex Factory weekly feed without key, optional free Financial Modeling Prep key in Settings (wider range, actual values), cached in `kv`, refreshed hourly.
+- [x] Strategy Tester equity chart: faint buy & hold and buy & hold invested-time-only lines (`buyHoldCurves` in `stats.ts`).
+- [x] Visual builder advanced: time of day / weekday, session stats of a daily window (pre-market high/low), highest/lowest of N bars, position fields (entry price, bars in trade, profit %), "bars ago" and +-% on operands, between / at least / at most / equals, max entries per day, time zone, 5 templates (incl. pre-market and opening-range breakout). The pre-market high/low strategy is buildable (test in `model.test.ts`; needs intraday data that contains pre-market bars).
+- [x] Direction dropdown without "As described": builder creates a missing side as the mirror of the other (AI, offline fallback), code strategies get the missing side from the AI; removing a side uses `allowLong`/`allowShort` switches. Size / SL / TP are written into the code directly.
+- [x] Control heights unified (30px) in editor, builder, order dialog, news page, indicator dialog, tester inputs; top bar 32px.
+- [x] Chart sync v3 (leader/follower, aligned last price lines, axis/reset/replay mirrored), shared replay (`app.replay`), borderless pane drag, resize flicker fix, `%` bracket legs.
+- [x] Editor: Builder/Editor toggle swaps only the code area, always-visible settings + AI row, name = script title = file name (Save renames, charts follow), Save & add to chart, non-builder Pine read into the builder by the AI.
+- [x] Earlier: visual builder v2 on the engine extension `oviate.ind`, replay mode, arrow path tool, far zoom-out, `scriptMeta` title fix, stats `buyHoldInvested` redefined, strategy params bar, optimizer fixes, AI edit in the editor, optimizer tab, tester fills at signal-bar close, multi-pane scripts, AI strategies/indicators, `oviate` CLI + skill, strategy tester boxes + detailed stats.
 
 ### In progress
 - none
 
 ### Next steps
 1. No active task. Ask the user what to build next.
-2. Possible follow-ups the user has not asked for yet: optimizer out-of-sample check button, strategy panes for AI indicators of other kinds, more bundled strategies.
+2. Possible follow-ups not asked for yet: calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
 
 ### Open questions / blockers
-- OpenRouter free models are the quality limit of the AI features; `CODE_MODELS` in `src-tauri/src/ai.rs` can be changed to a stronger model.
+- FMP free tier: the economic calendar endpoint may need a paid plan; the Forex Factory feed (no key, this week + next week, no actual values) is the guaranteed baseline. Next-week file is published late in the week (404 before that is normal).
+- Pre-market strategies need candles that include extended hours; whether Alpaca / Yahoo return them for the chosen timeframe was not verified.
+- OpenRouter free models are the quality limit of the AI features; `CODE_MODELS` in `src-tauri/src/ai.rs` can be changed.
 - Visual checks of the real Tauri window are only done by the user (browser-mode screenshots were used in development).
 
 ## 7. Decisions log
 - 2026-10-18 - project-resume.md created; global CLAUDE.md rule added to keep it updated.
-- 2026-10-18 - Ctrl+wheel zoom blocks at first axis limit; price max span = 4x whole-data range, bar width 1.2..80 px.
-- 2026-10-18 - Dialog animations removed entirely instead of tuned (flash suspected from animated fixed layers in WebKitGTK).
-- 2026-10-21 - Visual builder dropped in favor of AI text strategies (conditions were too rigid); CLI + skill added so Claude can build and backtest scripts outside the app.
-- 2026-10-21 - Tester fills at the signal-bar close by default (entries looked one bar late vs the cross); slippage is percent of price because ticks need a per-symbol tick size the app does not have.
-- 2026-10-21 - Optimizer category winners use the visible raw figures, not the recency weighted ones, so "best" is never beaten by another row.
+- 2026-10-18 - Ctrl+wheel zoom blocks at first axis limit; later replaced: time and price clamp independently, `BAR_MIN` 0.03.
+- 2026-10-18 - Dialog animations removed entirely (flash in WebKitGTK).
+- 2026-10-21 - Visual builder dropped for AI text strategies, then brought back in v2 (indicator list based) on 2026-10-22.
+- 2026-10-21 - Tester fills at the signal-bar close by default; slippage is percent of price.
+- 2026-10-21 - Optimizer category winners use the visible raw figures.
+- 2026-10-22 - Builder strategies read library indicators through `oviate.ind` (Oviate extension) so any indicator is usable and tunable; not valid on TradingView.
+- 2026-10-23 - Chart sync is a leader/follower push inside the renderer, not reactive state.
+- 2026-10-23 - Editor settings are algorithmic (no LLM) except creating a missing trade side.
+- 2026-10-24 - Calendar: keyless Forex Factory feed as baseline, FMP key optional (Finnhub / Trading Economics calendars are paid).
 
 ## 8. Resume prompt
 > Read project-resume.md in this project fully. Read every file it lists under "Must read before any change". Then continue from "Current state". Do not change anything before you have understood the project. Keep project-resume.md updated.

@@ -112,7 +112,7 @@
   .x { background: none; border: 0; color: var(--dim); font-size: 22px; cursor: pointer; } .x:hover { color: var(--fg); }
   section { padding: 4px 18px 8px; }
   label { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-  input[type='number'], input[type='text'] { width: 130px; padding: 6px 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px ui-monospace, monospace; outline: none; }
+  input[type='number'], input[type='text'] { width: 130px; height: 30px; box-sizing: border-box; padding: 0 8px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 13px ui-monospace, monospace; outline: none; }
   input[type='number']:focus, input[type='text']:focus { border-color: var(--accent); }
   input[type='color'] { width: 38px; height: 24px; border: 1px solid var(--line); background: none; padding: 0; cursor: pointer; }
   input[type='checkbox'] { accent-color: var(--accent); width: 16px; height: 16px; }

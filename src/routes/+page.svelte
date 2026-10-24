@@ -10,6 +10,7 @@
   import Analysis from '$lib/ui/Analysis.svelte';
   import NewsPage from '$lib/ui/NewsPage.svelte';
   import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
+  import CalendarPage from '$lib/ui/CalendarPage.svelte';
   import { library } from '$lib/library.svelte';
   import PaperPanel from '$lib/ui/PaperPanel.svelte';
   import OrderDialog from '$lib/ui/OrderDialog.svelte';
@@ -94,6 +95,7 @@
   <TopBar />
   {#if app.page === 'news'}<NewsPage />{/if}
   {#if app.page === 'editor'}<ScriptEditor />{/if}
+  {#if app.page === 'calendar'}<CalendarPage />{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
     <div class="center">

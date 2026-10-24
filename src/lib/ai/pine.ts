@@ -338,6 +338,12 @@ function entryCalls(code: string): { from: number; to: number; dir: 'long' | 'sh
   return out;
 }
 
+/** Which sides the code has entries for (guards or not). */
+export function codeSides(code: string): { long: boolean; short: boolean } {
+  const calls = entryCalls(code);
+  return { long: calls.some((c) => c.dir === 'long') || /strategy\.long\b/.test(code), short: calls.some((c) => c.dir === 'short') || /strategy\.short\b/.test(code) };
+}
+
 /** Directions the strategy trades: the switches when the editor added them, else the directions its entries are written with. */
 export function readDirection(code: string): StrategyOpts['direction'] {
   const gl = GUARD_RE.long.exec(code)?.[1], gs = GUARD_RE.short.exec(code)?.[1];

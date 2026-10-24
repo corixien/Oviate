@@ -46,6 +46,8 @@ description: Build, check, install and backtest Pine Script indicators and strat
 
 Strategies made with the app's visual builder (`/visual`) read library indicators through the Oviate extension `oviate.ind("indicator file name", "Plot title", "Input title=value;Other=value")`, which returns that plot's value on the current bar (not valid TradingView Pine). You can write it too: `r = oviate.ind("rsi", "RSI", "Length=" + str.tostring(len))`. Names come from `oviate list indicators`; plot titles from `oviate check <indicator file>`. `ta.crossover(r, 30)` etc. work on the result. The builder's model sits in an `// @oviate-builder {...}` comment; editing such a file by hand is fine, saving it again from the builder regenerates the code.
 
+Time and sessions in builder strategies: `oviate.hhmm("America/New_York")` (9:30 = 930), `oviate.dow(tz)` (1 = Monday), `oviate.date(tz)` (yyyymmdd) return the wall-clock time of the bar; `var` + `:=` work, so a pre-market high is `var pmHigh = na` updated while `hhmm >= 400 and hhmm < 930`.
+
 ## Rules
 
 - Backtests are not predictions. Report numbers honestly, including bad ones, and name the weaknesses (few trades, one regime, huge drawdown). No investment advice.

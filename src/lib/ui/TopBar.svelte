@@ -40,6 +40,7 @@
   <button class="ib" onclick={() => (app.spotlight = { open: true, seed: '/ind add ' })} title="Indicators"><Icons name="ind" /> <span>Indicators</span></button>
   <button class="ib" onclick={() => (app.spotlight = { open: true, seed: '/strat add ' })} title="Strategies"><Icons name="blocks" /> <span>Strategies</span></button>
   <div class="grow"></div>
+  <button class="ib" class:on={app.page === 'calendar'} onclick={() => (app.page = app.page === 'calendar' ? 'chart' : 'calendar')} title="Economic calendar"><Icons name="calendar" /> <span>Calendar</span></button>
   <button class="ib" class:on={app.page === 'news'} onclick={() => (app.page = app.page === 'news' ? 'chart' : 'news')} title="News"><Icons name="news" /> <span>News</span></button>
   <div class="menuwrap">
     <button class="ib" onclick={() => toggle('layout')} title="Layout"><Icons name="layout" /> <span>{app.layout}</span></button>
@@ -58,14 +59,14 @@
   .logo span { color: var(--accent); }
   .sep { width: 1px; height: 20px; background: var(--line); margin: 0 8px; }
   .grow { flex: 1; }
-  button { background: none; border: 1px solid transparent; color: var(--fg); font: 600 13px system-ui, sans-serif; padding: 6px 10px; border-radius: 2px; cursor: pointer; display: inline-flex; gap: 7px; align-items: center; transition: background 0.12s, color 0.12s; }
+  button { box-sizing: border-box; height: 32px; background: none; border: 1px solid transparent; color: var(--fg); font: 600 13px system-ui, sans-serif; padding: 0 10px; border-radius: 2px; cursor: pointer; display: inline-flex; gap: 7px; align-items: center; transition: background 0.12s, color 0.12s; }
   button:hover { background: var(--hover); }
   button.on { color: var(--accent); background: var(--accent-soft); }
-  .sym { border-color: var(--line); padding: 6px 14px; }
+  .sym { border-color: var(--line); padding: 0 14px; }
   .sym:hover { border-color: var(--accent); }
   .tfs { display: flex; gap: 2px; align-items: center; }
   .ib span { text-transform: capitalize; }
-  .sq { padding: 7px; }
+  .sq { padding: 0 7px; }
   .menuwrap { position: relative; }
   .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 150px; padding: 6px; border-radius: 2px; display: flex; flex-direction: column;
     background: var(--glass); border: 1px solid var(--glass-line); 

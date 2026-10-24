@@ -72,7 +72,7 @@
         <p class="dim">{strat
           ? 'Describe the strategy in your own words: entries, exits, filters, which indicators. The AI writes the Pine strategy, it is checked with a test backtest, saved and put on the chart with the Strategy Tester.'
           : 'Describe the indicator in your own words. The AI writes the Pine code, it is saved as a normal indicator and added to the chart.'}</p>
-        {#if strat}<div class="ff"><AiStrategyFields bind:qtyType bind:qty bind:sl bind:tp bind:direction /></div>{/if}
+        {#if strat}<div class="ff"><AiStrategyFields bind:qtyType bind:qty bind:sl bind:tp bind:direction withAuto /></div>{/if}
         <textarea bind:this={ta} bind:value={text} rows={strat ? 5 : 4} spellcheck="false"
           placeholder={strat
             ? 'e.g. Buy when the EMA 20 crosses above the EMA 50 and RSI is above 50. Sell when the EMA 20 crosses back below. Only trade when ADX is above 20.'

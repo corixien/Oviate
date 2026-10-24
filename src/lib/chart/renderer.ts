@@ -28,6 +28,8 @@ export interface TradeMark { t: number; price: number; side: 'buy' | 'sell'; tex
 export interface TradeBox { t0: number; t1: number; p0: number; p1: number; win: boolean; text: string; open: boolean }
 export interface PriceLine { price: number; color: string; label: string; dash?: boolean }
 
+/** Economic calendar events on one bar: titles (with time), strongest impact. */
+export interface CalMark { t: number; titles: string[]; impact: 'high' | 'medium' | 'low' }
 export interface NewsMark { t: number; ids: string[]; titles: string[] }
 
 export interface Drawing { id: string; type: DrawTool; pts: DrawPt[]; color: string; text?: string; sym?: string }
@@ -53,6 +55,7 @@ export interface RenderState {
   magnet: boolean;
   tool: DrawTool;
   news: NewsMark[];
+  calendar: CalMark[];
   trades: TradeMark[];
   boxes: TradeBox[];
   lines: PriceLine[];
@@ -66,6 +69,7 @@ export interface Hooks {
   onToolDone(): void;
   onSelect(id: string | null): void;
   onNewsClick(mark: NewsMark): void;
+  onCalClick(): void;
   /** Open the inline text editor at a screen position (px, relative to the chart). */
   onEditText(id: string, x: number, y: number, text: string): void;
   /** Replay start chosen: time of the bar that stays the last visible one. */
@@ -109,6 +113,7 @@ export class ChartRenderer {
   externalT: number | null = null;
   externalY: number | null = null;
   private hoverNews: NewsMark | null = null;
+  private hoverCal: CalMark | null = null;
   /** Drawing whose text is being edited in the HTML overlay (not painted on the canvas meanwhile). */
   editingId: string | null = null;
   /** Replay start selection: a scissors line follows the cursor, a click picks the bar. */
@@ -427,6 +432,7 @@ export class ChartRenderer {
       this.drawLines();
       this.drawTrades();
       this.drawNews();
+      this.drawCalendar();
       ctx.restore();
       for (const p of this.panes.slice(1)) this.drawSub(p, a, b);
       this.drawLastPrice();
@@ -876,6 +882,31 @@ export class ChartRenderer {
     return null;
   }
 
+  // ---------- economic calendar markers ----------
+  private calPos(m: CalMark) { return { x: this.xOf(this.timeToIdx(m.t)), y: this.panes[0].y1 - 31 }; }
+  private calColor(m: CalMark) { return m.impact === 'high' ? this.s.theme.down : m.impact === 'medium' ? '#ff9800' : this.s.theme.text; }
+
+  private drawCalendar() {
+    const { ctx } = this;
+    for (const m of this.s.calendar) {
+      const { x, y } = this.calPos(m);
+      if (x < -10 || x > this.plotW + 10) continue;
+      const col = this.calColor(m), hot = m === this.hoverCal;
+      ctx.fillStyle = hot ? col : '#000'; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 8); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = hot ? '#000' : col; ctx.font = '700 9px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(m.titles.length > 1 ? String(Math.min(m.titles.length, 9)) : '€', x, y + 0.5); ctx.textAlign = 'left';
+      ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
+    }
+    ctx.lineWidth = 1;
+  }
+
+  private calAt(x: number, y: number): CalMark | null {
+    if (!this.panes.length) return null;
+    for (const m of this.s.calendar) { const p = this.calPos(m); if (Math.abs(x - p.x) <= 9 && Math.abs(y - p.y) <= 10) return m; }
+    return null;
+  }
+
   // ---------- drawings ----------
   private allDrawings(): Drawing[] { return this.draft ? [...this.s.drawings, this.draft] : this.s.drawings; }
 
@@ -1207,6 +1238,15 @@ export class ChartRenderer {
       c.strokeStyle = theme.accent; c.strokeRect(bx + 0.5, by + 0.5, tw - 1, 21);
       c.fillStyle = theme.textStrong; c.textAlign = 'left'; c.save(); c.beginPath(); c.rect(bx, by, tw, 22); c.clip(); c.fillText(txt, bx + 9, by + 11); c.restore();
     }
+    if (this.hoverCal && this.mx >= 0) {
+      const p = this.calPos(this.hoverCal);
+      const txt = this.hoverCal.titles[0].slice(0, 90) + (this.hoverCal.titles.length > 1 ? `  (+${this.hoverCal.titles.length - 1})` : '');
+      const tw = Math.min(c.measureText(txt).width + 18, this.plotW - 8);
+      const bx = Math.min(Math.max(p.x - tw / 2, 4), this.plotW - tw - 4), by = p.y - 36;
+      c.fillStyle = theme.panel; c.fillRect(bx, by, tw, 22);
+      c.strokeStyle = this.calColor(this.hoverCal); c.strokeRect(bx + 0.5, by + 0.5, tw - 1, 21);
+      c.fillStyle = theme.textStrong; c.textAlign = 'left'; c.save(); c.beginPath(); c.rect(bx, by, tw, 22); c.clip(); c.fillText(txt, bx + 9, by + 11); c.restore();
+    }
     if (x < 0) return;
     const i = Math.round(this.idxOf(x));
     // the view may have moved under a resting mouse (replay, wheel animation): keep the other charts' crosshair on this bar
@@ -1269,6 +1309,7 @@ export class ChartRenderer {
       if (reg === 'taxis') { this.drag = { kind: 'taxis', x, y }; return; }
       const nm = this.newsAt(x, y);
       if (nm && this.s.tool === 'cursor') { this.hooks.onNewsClick(nm); return; }
+      if (this.s.tool === 'cursor' && this.calAt(x, y)) { this.hooks.onCalClick(); return; }
       const tool = this.s.tool;
       if (tool !== 'cursor') {
         if (tool === 'brush') {
@@ -1312,7 +1353,9 @@ export class ChartRenderer {
       this.broadcastCross(inPlot && this.s.data.n ? this.s.data.t[i] : null, yf);
       const hn = this.drag ? null : this.newsAt(x, y);
       if (hn !== this.hoverNews) { this.hoverNews = hn; this.invalidate(); }
-      el.style.cursor = hn ? 'pointer' : this.drag ? (this.drag.kind === 'move' || this.drag.kind === 'pan' ? 'grabbing' : el.style.cursor)
+      const hc = this.drag || hn ? null : this.calAt(x, y);
+      if (hc !== this.hoverCal) { this.hoverCal = hc; this.invalidate(); }
+      el.style.cursor = hn || hc ? 'pointer' : this.drag ? (this.drag.kind === 'move' || this.drag.kind === 'pan' ? 'grabbing' : el.style.cursor)
         : this.s.tool === 'cursor' && this.handleAt(x, y) ? 'move'
         : x > this.plotW ? 'ns-resize' : y > this.h - TIME_H ? 'ew-resize' : this.s.tool !== 'cursor' ? 'crosshair' : this.hit(x, y) ? 'pointer' : 'crosshair';
       if (this.draft?.type === 'brush') {
@@ -1354,7 +1397,7 @@ export class ChartRenderer {
         if (dr && (dr.type === 'text' || dr.type === 'callout')) this.startEdit(dr);
       }
     });
-    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hooks.onHover(null, null, null); this.broadcastCross(null, null); this.invalidateOver(); });
+    on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hoverCal = null; this.hooks.onHover(null, null, null); this.broadcastCross(null, null); this.invalidateOver(); });
     on('dblclick', (e) => {
       const { x, y } = pos(e);
       if (this.draft?.type === 'arrowpath') { this.finishPath(); return; }
