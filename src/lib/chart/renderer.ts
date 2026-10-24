@@ -1430,7 +1430,7 @@ export class ChartRenderer {
       const { x, y } = pos(e);
       const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? this.h : 1;
       const dX = e.deltaX * unit, dY = e.deltaY * unit;
-      if (e.ctrlKey) this.wheelZoom(-dY, Math.min(x, this.plotW), y, e.shiftKey);
+      if (e.ctrlKey) this.wheelZoom(-(dY || dX), Math.min(x, this.plotW), y, e.shiftKey);
       else if (e.altKey) this.wheelBars(dY || dX);
       else if (e.shiftKey) this.wheelPrice(dY || dX);
       else this.wheelTime(dX + dY);
@@ -1601,7 +1601,7 @@ export class ChartRenderer {
     this.kick();
   }
 
-  /** Ctrl+scroll: zoom time and price by the same factor (the x / y ratio never changes) around the cursor; with `toStart` (Ctrl+Shift) around the first candle. */
+  /** Ctrl+scroll: zoom time and price by the same factor (the x / y ratio never changes) around the cursor; with `toStart` (Ctrl+Shift) around the newest candle. */
   private wheelZoom(amount: number, cx: number, cy: number, toStart = false) {
     const m = this.panes[0]; if (!m || !this.s.data.n) return;
     const T = this.ensurePrice();
@@ -1619,11 +1619,11 @@ export class ChartRenderer {
     }
     if (Math.abs(ft - 1) < 1e-4 && Math.abs(f - 1) < 1e-4) return;
     let ax = cx, ay = cy, aIdx = this.idxOf(cx);
-    if (toStart) { // anchor on the first candle (or the plot edge when it is off screen)
-      const d = this.s.data, x0 = this.xOf(0);
-      ax = Math.min(Math.max(x0, 0), this.plotW);
-      aIdx = ax === x0 ? 0 : this.idxOf(ax);
-      ay = this.py(d.c[0], m);
+    if (toStart) { // anchor on the newest candle (or the plot edge when it is off screen)
+      const d = this.s.data, last = d.n - 1, x1 = this.xOf(last);
+      ax = Math.min(Math.max(x1, 0), this.plotW);
+      aIdx = ax === x1 ? last : this.idxOf(ax);
+      ay = this.py(d.c[last], m);
     }
     // time: keep the anchor bar fixed
     T.zoomT = true; T.ax = ax; T.aIdx = aIdx;
