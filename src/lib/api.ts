@@ -105,6 +105,9 @@ function previewCalendar(from: number, to: number): CalEvent[] {
   return out.filter((e) => e.ts >= from && e.ts <= to);
 }
 
+/** Calendar currencies of a symbol the bundled table does not know: Nasdaq profile, else the AI (cached by the backend). */
+export const symbolRegions = (symbol: string) => (inTauri ? call<string[]>('symbol_regions', { symbol }) : Promise.reject('needs the desktop app'));
+
 export interface CalSummary { what: string; why: string; above: string; below: string; assets: string[]; volatility: number; model: string }
 export const calendarSummary = (event: CalEvent, lang: string, force = false) =>
   inTauri ? call<CalSummary>('calendar_summary', { event, lang, force }) : Promise.reject('AI summaries need the desktop app');

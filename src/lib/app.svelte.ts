@@ -76,6 +76,8 @@ class App {
   editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean; /** open in the visual builder instead of the code */ builder?: boolean }>({ kind: 'indicators', name: null });
   newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
   showNews = $state(true);
+  /** calendar currencies resolved by the backend for symbols the bundled table does not know (session cache) */
+  symRegions = $state<Record<string, string[]>>({});
   /** calendar event to select when the calendar page opens (from a chart marker) */
   calFocus = $state<{ id: string | null }>({ id: null });
   showParams = $state(false);

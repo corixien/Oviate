@@ -11,7 +11,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
-    "test": "node --test src/lib/pine/*.test.ts src/lib/paper/*.test.ts src/lib/ai/*.test.ts src/lib/builder/*.test.ts cli/*.test.ts && cargo test --manifest-path src-tauri/Cargo.toml"
+    "test": "node --test src/lib/*.test.ts src/lib/pine/*.test.ts src/lib/paper/*.test.ts src/lib/ai/*.test.ts src/lib/builder/*.test.ts cli/*.test.ts && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "license": "MIT",
   "dependencies": {

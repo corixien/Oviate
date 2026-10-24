@@ -5,6 +5,7 @@ mod mcp;
 mod model;
 mod news;
 mod pine_files;
+mod regions;
 mod providers;
 mod stream;
 
@@ -192,6 +193,29 @@ async fn calendar_window(st: State<'_>, from: i64, to: i64, force: Option<bool>)
     calendar::window(st.cache.clone(), st.http.clone(), secret_get("fmp_key"), from, to, force.unwrap_or(false)).await
 }
 
+/// Calendar currencies of a symbol (the regions whose macro events matter for it): cached; else the Nasdaq company profile; else the AI.
+/// The UI knows ~1500 symbols itself (bundled table) and only asks for the rest.
+#[tauri::command]
+async fn symbol_regions(st: State<'_>, symbol: String) -> Result<Vec<String>> {
+    let sym = symbol.trim().to_uppercase();
+    if sym.is_empty() { return Err(Error::Other("empty symbol".into())); }
+    let key = format!("symreg_{sym}");
+    if let Some(v) = st.cache.kv_get(&key)?.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok()).filter(|v| !v.is_empty()) { return Ok(v); }
+    let plain = !sym.contains(['/', '^', '=', '.', '-']);
+    let found = if plain {
+        match regions::nasdaq_country(&st.http, &sym).await { Ok(c) => Some(regions::country_currencies(&c)), Err(_) => None }
+    } else { None };
+    let cur = match found {
+        Some(c) => c,
+        None => {
+            let (content, _) = groq_chat(&st, regions::messages(&sym), 0.0, 120, true).await?;
+            regions::parse_currencies(&content)?
+        }
+    };
+    st.cache.kv_set(&key, &serde_json::to_string(&cur).map_err(|e| Error::Other(e.to_string()))?)?;
+    Ok(cur)
+}
+
 /// AI summary of one calendar event (Groq): what it is, why it matters, what happens above / below the forecast. Cached per event, language and known actual value.
 #[tauri::command]
 async fn calendar_summary(st: State<'_>, event: calendar::CalEvent, lang: String, force: Option<bool>) -> Result<ai::CalSummary> {
@@ -327,6 +351,7 @@ pub fn run() {
             news_window,
             calendar_window,
             calendar_summary,
+            symbol_regions,
             ai_summary,
             ai_complete,
             liquid_unusual,

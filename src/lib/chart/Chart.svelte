@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack, tick } from 'svelte';
   import { app, type ChartCfg } from '$lib/app.svelte';
-  import { getCandles, newsWindow, calendarWindow, type CalEvent, TF_SECONDS, type NewsItem } from '$lib/api';
+  import { getCandles, newsWindow, calendarWindow, symbolRegions, type CalEvent, TF_SECONDS, type NewsItem } from '$lib/api';
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
   import { library } from '$lib/library.svelte';
@@ -9,6 +9,7 @@
   import type { PineResult } from '$lib/pine/types.ts';
   import { splitPanes } from '$lib/pine/panes.ts';
   import { candleStore } from './candleStore';
+import { knownCurrencies, regionMatches } from '$lib/regions.ts';
   import Icons from '$lib/ui/Icons.svelte';
   import { ChartRenderer, setChartSync, fmtPrice, type CalMark, type Theme, type ActiveIndicator, type NewsMark, type TradeMark, type TradeBox, type PriceLine } from './renderer';
   import { paper } from '$lib/paper/paper.svelte';
@@ -84,12 +85,20 @@
   }
   const IMP = { high: 3, medium: 2, low: 1, holiday: 0 } as const;
   // every macro event (the renderer keeps the most important one where markers would overlap, so zooming in shows the minor ones) and the company events of this symbol
+  // macro events of the regions that matter for this symbol (a US stock: USD; EUR/USD: EUR and USD; a Dutch ADR: EUR and USD). Unknown symbols are resolved once
+  // by the backend (Nasdaq profile, else the AI) and remembered; until then USD.
+  const regionOf = $derived.by(() => { const s = cfg.symbol.toUpperCase(); return app.symRegions[s] ?? knownCurrencies(s) ?? ['USD']; });
+  $effect(() => {
+    const s = cfg.symbol.toUpperCase();
+    if (app.symRegions[s] || knownCurrencies(s)) return;
+    untrack(() => { symbolRegions(s).then((c) => { app.symRegions[s] = c; }).catch(() => { /* no key / offline: stay on USD, asked again next start */ }); });
+  });
   const calMarks = $derived.by<CalMark[]>(() => {
     if (!raw.n || !calEvents.length) return [];
     const last = raw.t[raw.n - 1], me = cfg.symbol.replace('/', '').toUpperCase();
     const groups = new Map<number, CalMark>();
     for (const e of [...calEvents].sort((a, b) => IMP[b.impact] - IMP[a.impact])) {
-      if (e.kind === 'macro' ? e.impact === 'holiday' : (e.symbol ?? '').toUpperCase() !== me) continue;
+      if (e.kind === 'macro' ? e.impact === 'holiday' || !regionMatches(e.country, regionOf) : (e.symbol ?? '').toUpperCase() !== me) continue;
       if (e.ts < raw.t[0]) continue;
       let t: number;
       if (e.ts >= last + step) t = Math.floor(e.ts / step) * step;
