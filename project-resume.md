@@ -60,7 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
-- [x] Economic calendar: `/calendar` page + Calendar button next to News, markers on charts (diamonds above the news markers, impact filter, hover text), Forex Factory weekly feed without key, optional free Financial Modeling Prep key in Settings (wider range, actual values), cached in `kv`, refreshed hourly.
+- [x] Calendar (all markets): `/calendar` page + Calendar button next to News. Macro from Forex Factory (no key, 9 currencies) + optional FMP key (Settings); company events from Nasdaq (keyless): quarterly earnings with EPS estimate / last year / market cap, ex-dividends, splits, IPOs. Chart markers: macro by impact filter, company events only on their own symbol. Cached in `kv` per day.
 - [x] Strategy Tester equity chart: faint buy & hold and buy & hold invested-time-only lines (`buyHoldCurves` in `stats.ts`).
 - [x] Visual builder advanced: time of day / weekday, session stats of a daily window (pre-market high/low), highest/lowest of N bars, position fields (entry price, bars in trade, profit %), "bars ago" and +-% on operands, between / at least / at most / equals, max entries per day, time zone, 5 templates (incl. pre-market and opening-range breakout). The pre-market high/low strategy is buildable (test in `model.test.ts`; needs intraday data that contains pre-market bars).
 - [x] Direction dropdown without "As described": builder creates a missing side as the mirror of the other (AI, offline fallback), code strategies get the missing side from the AI; removing a side uses `allowLong`/`allowShort` switches. Size / SL / TP are written into the code directly.
@@ -77,7 +77,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 2. Possible follow-ups not asked for yet: calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
 
 ### Open questions / blockers
-- FMP free tier: the economic calendar endpoint may need a paid plan; the Forex Factory feed (no key, this week + next week, no actual values) is the guaranteed baseline. Next-week file is published late in the week (404 before that is normal).
+- Macro for other countries than the 9 currency areas, and actual values, need the FMP key; its free tier may not include the economic calendar endpoint (unverified). Nasdaq endpoints are unofficial and could change; failures show as a provider error on the calendar page. Next-week file is published late in the week (404 before that is normal).
 - Pre-market strategies need candles that include extended hours; whether Alpaca / Yahoo return them for the chosen timeframe was not verified.
 - OpenRouter free models are the quality limit of the AI features; `CODE_MODELS` in `src-tauri/src/ai.rs` can be changed.
 - Visual checks of the real Tauri window are only done by the user (browser-mode screenshots were used in development).
@@ -92,7 +92,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - 2026-10-22 - Builder strategies read library indicators through `oviate.ind` (Oviate extension) so any indicator is usable and tunable; not valid on TradingView.
 - 2026-10-23 - Chart sync is a leader/follower push inside the renderer, not reactive state.
 - 2026-10-23 - Editor settings are algorithmic (no LLM) except creating a missing trade side.
-- 2026-10-24 - Calendar: keyless Forex Factory feed as baseline, FMP key optional (Finnhub / Trading Economics calendars are paid).
+- 2026-10-24 - Calendar: keyless Forex Factory (macro) + Nasdaq (earnings, dividends, splits, IPOs) as baseline, FMP key optional (Finnhub / Trading Economics economic calendars are paid).
 
 ## 8. Resume prompt
 > Read project-resume.md in this project fully. Read every file it lists under "Must read before any change". Then continue from "Current state". Do not change anything before you have understood the project. Keep project-resume.md updated.

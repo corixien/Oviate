@@ -186,15 +186,27 @@ async fn news_window(st: State<'_>, symbol: Option<String>, from: i64, to: i64, 
     Ok(news::NewsResult { items, errors })
 }
 
-/// Economic calendar events in [from, to] (unix seconds). Cached in the kv table, refreshed hourly (or when `force`): the keyless Forex Factory weekly
-/// feed always, plus Financial Modeling Prep for the window when a key is saved (its rows replace the feed's inside that window).
+static CAL_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CalDay { at: i64, ev: Vec<calendar::CalEvent> }
+
+/// Calendar events in [from, to] (unix seconds): macro (Forex Factory weekly feed always, Financial Modeling Prep with a key) and company events
+/// (earnings, ex-dividends, splits per weekday, IPOs per month; keyless from Nasdaq, fetched for the part of the window within 30 days back and 21 days ahead).
+/// Everything is cached in the kv table: macro refreshed hourly (or when `force`), company days once they are past, else every 6 hours.
 #[tauri::command]
 async fn calendar_window(st: State<'_>, from: i64, to: i64, force: Option<bool>) -> Result<calendar::CalendarResult> {
+    use chrono::Datelike;
+    let _guard = CAL_LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+    let force = force.unwrap_or(false);
     let now = chrono::Utc::now().timestamp();
-    let mut all: Vec<calendar::CalEvent> = st.cache.kv_get("calendar")?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
-    let at: i64 = st.cache.kv_get("calendar_at")?.and_then(|v| v.parse().ok()).unwrap_or(0);
     let mut errors = Vec::new();
-    if force.unwrap_or(false) || now - at > 3600 {
+
+    // ---- macro
+    let mut all: Vec<calendar::CalEvent> = st.cache.kv_get("calendar")?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+    all.retain(|e| e.kind == "macro");
+    let at: i64 = st.cache.kv_get("calendar_at")?.and_then(|v| v.parse().ok()).unwrap_or(0);
+    if force || now - at > 3600 {
         let keep_from = now - 120 * 86400;
         let mut ok = false;
         match calendar::forex_factory(&st.http).await {
@@ -217,7 +229,60 @@ async fn calendar_window(st: State<'_>, from: i64, to: i64, force: Option<bool>)
             st.cache.kv_set("calendar_at", &now.to_string())?;
         }
     }
-    let items = all.into_iter().filter(|e| e.ts >= from && e.ts <= to).collect();
+
+    // ---- companies (Nasdaq)
+    let day_of = |t: i64| chrono::DateTime::<chrono::Utc>::from_timestamp(t, 0).unwrap_or_default().date_naive();
+    let (cf, ct) = (day_of(from.max(now - 30 * 86400)), day_of(to.min(now + 21 * 86400)));
+    let today = day_of(now);
+    let mut days = Vec::new();
+    let mut d = cf;
+    while d <= ct && days.len() < 45 {
+        if d.weekday().number_from_monday() <= 5 { days.push(d); }
+        d = d.succ_opt().unwrap_or(ct + chrono::Duration::days(1));
+    }
+    let mut company: Vec<calendar::CalEvent> = Vec::new();
+    let mut todo = Vec::new();
+    for day in &days {
+        let key = format!("cal_nq_{day}");
+        let cached: Option<CalDay> = st.cache.kv_get(&key)?.and_then(|j| serde_json::from_str(&j).ok());
+        match cached {
+            Some(c) if (*day < today - chrono::Duration::days(1) || now - c.at < 6 * 3600) && !(force && *day >= today - chrono::Duration::days(1)) => company.extend(c.ev),
+            other => todo.push((*day, key, other)),
+        }
+    }
+    for chunk in todo.chunks(6) {
+        let mut handles = Vec::new();
+        for (day, _, _) in chunk {
+            let (http, date) = (st.http.clone(), day.to_string());
+            handles.push(tokio::spawn(async move { calendar::nasdaq_day(&http, &date).await }));
+        }
+        for ((_, key, old), h) in chunk.iter().zip(handles) {
+            match h.await {
+                Ok(Ok(ev)) => {
+                    st.cache.kv_set(key, &serde_json::to_string(&CalDay { at: now, ev: ev.clone() }).map_err(|e| Error::Other(e.to_string()))?)?;
+                    company.extend(ev);
+                }
+                Ok(Err(e)) => { if !errors.iter().any(|x| x.provider == "nasdaq") { errors.push(calendar::ProviderError { provider: "nasdaq".into(), error: e.to_string() }); } if let Some(c) = old { company.extend(c.ev.clone()); } }
+                Err(_) => {}
+            }
+        }
+    }
+    let mut months = Vec::new();
+    let mut m = cf.with_day(1).unwrap_or(cf);
+    while m <= ct && months.len() < 3 { months.push(m.format("%Y-%m").to_string()); m = (m + chrono::Duration::days(32)).with_day(1).unwrap_or(ct + chrono::Duration::days(1)); }
+    for month in months {
+        let key = format!("cal_ipo_{month}");
+        let cached: Option<CalDay> = st.cache.kv_get(&key)?.and_then(|j| serde_json::from_str(&j).ok());
+        if let Some(c) = cached.as_ref().filter(|c| now - c.at < 12 * 3600 && !force) { company.extend(c.ev.clone()); continue; }
+        match calendar::nasdaq_ipos(&st.http, &month).await {
+            Ok(ev) => { st.cache.kv_set(&key, &serde_json::to_string(&CalDay { at: now, ev: ev.clone() }).map_err(|e| Error::Other(e.to_string()))?)?; company.extend(ev); }
+            Err(e) => { if !errors.iter().any(|x| x.provider == "nasdaq") { errors.push(calendar::ProviderError { provider: "nasdaq".into(), error: e.to_string() }); } if let Some(c) = cached { company.extend(c.ev); } }
+        }
+    }
+
+    let mut items: Vec<calendar::CalEvent> = all.into_iter().chain(company).filter(|e| e.ts >= from && e.ts <= to).collect();
+    items.sort_by_key(|e| e.ts);
+    items.dedup_by(|a, b| a.id == b.id);
     Ok(calendar::CalendarResult { items, errors })
 }
 

@@ -74,7 +74,7 @@
   let calEvents = $state<CalEvent[]>([]);
   async function loadCal() {
     const now = Math.floor(Date.now() / 1000);
-    try { calEvents = (await calendarWindow(now - 90 * 86400, now + 30 * 86400)).items; } catch { /* markers are optional */ }
+    try { calEvents = (await calendarWindow(now - 14 * 86400, now + 14 * 86400)).items; } catch { /* markers are optional */ }
   }
   const IMP = { high: 3, medium: 2, low: 1, holiday: 0 } as const;
   const calMarks = $derived.by<CalMark[]>(() => {
@@ -82,13 +82,16 @@
     const min = IMP[app.calImpact], last = raw.t[raw.n - 1];
     const groups = new Map<number, CalMark>();
     for (const e of calEvents) {
-      if (IMP[e.impact] < min || e.impact === 'holiday' || e.ts < raw.t[0]) continue;
+      // macro events follow the impact filter; company events (earnings, dividends, splits, IPOs) only show on the chart of their own symbol
+      const own = e.kind !== 'macro' && !!e.symbol && e.symbol.toUpperCase() === cfg.symbol.replace('/', '').toUpperCase();
+      if (e.kind !== 'macro' ? !own : IMP[e.impact] < min || e.impact === 'holiday') continue;
+      if (e.ts < raw.t[0]) continue;
       let t: number;
       if (e.ts >= last + step) t = Math.floor(e.ts / step) * step;
       else { let lo = 0, hi = raw.n - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (raw.t[m] <= e.ts) lo = m; else hi = m - 1; } t = raw.t[lo]; }
       const when = new Date(e.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const g = groups.get(t) ?? { t, titles: [], impact: 'low' as const };
-      g.titles.push(`${when} ${e.country} ${e.title}`);
+      const g = groups.get(t) ?? { t, titles: [], impact: 'low' as const, kind: e.kind };
+      g.titles.push(e.kind === 'macro' ? `${when} ${e.country} ${e.title}` : e.title);
       if (IMP[e.impact] > IMP[g.impact]) g.impact = e.impact as 'high' | 'medium' | 'low';
       groups.set(t, g);
     }

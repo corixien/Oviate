@@ -29,7 +29,7 @@ export interface TradeBox { t0: number; t1: number; p0: number; p1: number; win:
 export interface PriceLine { price: number; color: string; label: string; dash?: boolean }
 
 /** Economic calendar events on one bar: titles (with time), strongest impact. */
-export interface CalMark { t: number; titles: string[]; impact: 'high' | 'medium' | 'low' }
+export interface CalMark { t: number; titles: string[]; impact: 'high' | 'medium' | 'low'; /** macro | earnings | dividend | split | ipo of the first event */ kind: string }
 export interface NewsMark { t: number; ids: string[]; titles: string[] }
 
 export interface Drawing { id: string; type: DrawTool; pts: DrawPt[]; color: string; text?: string; sym?: string }
@@ -884,7 +884,7 @@ export class ChartRenderer {
 
   // ---------- economic calendar markers ----------
   private calPos(m: CalMark) { return { x: this.xOf(this.timeToIdx(m.t)), y: this.panes[0].y1 - 31 }; }
-  private calColor(m: CalMark) { return m.impact === 'high' ? this.s.theme.down : m.impact === 'medium' ? '#ff9800' : this.s.theme.text; }
+  private calColor(m: CalMark) { return m.kind !== 'macro' ? this.s.theme.accent : m.impact === 'high' ? this.s.theme.down : m.impact === 'medium' ? '#ff9800' : this.s.theme.text; }
 
   private drawCalendar() {
     const { ctx } = this;
@@ -895,7 +895,7 @@ export class ChartRenderer {
       ctx.fillStyle = hot ? col : '#000'; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 8); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle = hot ? '#000' : col; ctx.font = '700 9px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(m.titles.length > 1 ? String(Math.min(m.titles.length, 9)) : '€', x, y + 0.5); ctx.textAlign = 'left';
+      ctx.fillText(m.titles.length > 1 ? String(Math.min(m.titles.length, 9)) : ({ earnings: 'E', dividend: 'D', split: 'S', ipo: 'I' } as Record<string, string>)[m.kind] ?? '€', x, y + 0.5); ctx.textAlign = 'left';
       ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
     }
     ctx.lineWidth = 1;

@@ -83,9 +83,9 @@ export const liquidLogout = () => (inTauri ? call<void>('liquid_logout') : Promi
 export const newsWindow = (symbol: string | null, from: number, to: number) =>
   inTauri ? call<NewsResult>('news_window', { symbol, from, to }) : Promise.resolve({ items: [], errors: [] } as NewsResult);
 
-export interface CalEvent { id: string; ts: number; country: string; title: string; impact: 'high' | 'medium' | 'low' | 'holiday'; actual: string | null; forecast: string | null; previous: string | null; provider: string }
+export interface CalEvent { id: string; ts: number; country: string; title: string; impact: 'high' | 'medium' | 'low' | 'holiday'; actual: string | null; forecast: string | null; previous: string | null; provider: string; kind: 'macro' | 'earnings' | 'dividend' | 'split' | 'ipo'; symbol: string | null; detail: string | null }
 export interface CalendarResult { items: CalEvent[]; errors: { provider: string; error: string }[] }
-/** Economic calendar events in [from, to] (unix seconds). Cached by the backend, refreshed hourly (`force` refreshes now). */
+/** Calendar events in [from, to]: macro and company events (earnings, dividends, splits, IPOs) (unix seconds). Cached by the backend, refreshed hourly (`force` refreshes now). */
 export const calendarWindow = (from: number, to: number, force = false) =>
   inTauri ? call<CalendarResult>('calendar_window', { from, to, force }) : Promise.resolve({ items: [], errors: [] } as CalendarResult);
 
