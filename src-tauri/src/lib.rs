@@ -17,7 +17,7 @@ use tauri::Manager;
 const KEYRING_SERVICE: &str = "oviate";
 
 struct AppState {
-    cache: Cache,
+    cache: Arc<Cache>,
     streams: stream::Streams,
     http: reqwest::Client,
 }
@@ -186,132 +186,26 @@ async fn news_window(st: State<'_>, symbol: Option<String>, from: i64, to: i64, 
     Ok(news::NewsResult { items, errors })
 }
 
-static CAL_BG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct CalDay { at: i64, ev: Vec<calendar::CalEvent> }
-
-fn cal_cached(st: &AppState, key: &str) -> Option<CalDay> {
-    st.cache.kv_get(key).ok().flatten().and_then(|j| serde_json::from_str(&j).ok())
-}
-
-/// Fetch company days and IPO months into the cache, nearest days first, 12 requests at a time. Runs in the background so the calendar opens at once.
-/// Clears the background flag however the refresh ends (also on a panic), so the calendar never reports "pending" forever.
-struct CalBgGuard;
-impl Drop for CalBgGuard { fn drop(&mut self) { CAL_BG.store(false, std::sync::atomic::Ordering::SeqCst); } }
-
-async fn calendar_refresh(st: Arc<AppState>, mut days: Vec<chrono::NaiveDate>, months: Vec<String>) {
-    let _guard = CalBgGuard;
-    let now = chrono::Utc::now().timestamp();
-    let today = chrono::Utc::now().date_naive();
-    days.sort_by_key(|d| (*d - today).num_days().abs());
-    let mut first_error: Option<String> = None;
-    for chunk in days.chunks(12) {
-        let handles: Vec<_> = chunk.iter().map(|d| { let (http, date) = (st.http.clone(), d.to_string()); tokio::spawn(async move { calendar::nasdaq_day(&http, &date).await }) }).collect();
-        for (d, h) in chunk.iter().zip(handles) {
-            match h.await {
-                Ok(Ok(ev)) => { if let Ok(j) = serde_json::to_string(&CalDay { at: now, ev }) { let _ = st.cache.kv_set(&format!("cal_nq_{d}"), &j); } }
-                Ok(Err(e)) => { first_error.get_or_insert(e.to_string()); }
-                Err(_) => {}
-            }
-        }
-    }
-    for month in months {
-        match calendar::nasdaq_ipos(&st.http, &month).await {
-            Ok(ev) => { if let Ok(j) = serde_json::to_string(&CalDay { at: now, ev }) { let _ = st.cache.kv_set(&format!("cal_ipo_{month}"), &j); } }
-            Err(e) => { first_error.get_or_insert(e.to_string()); }
-        }
-    }
-    let _ = st.cache.kv_set("cal_nq_error", &first_error.unwrap_or_default());
-}
-
-/// Calendar events in [from, to] (unix seconds): macro (Forex Factory weekly feed always, Financial Modeling Prep with a key) and company events
-/// (earnings, ex-dividends, splits per weekday, IPOs per month; keyless from Nasdaq, for the part of the window within 30 days back and 21 days ahead).
-/// Returns at once with what is cached; missing or stale company days are fetched in the background (`pending` = ask again shortly).
-/// Macro is refreshed hourly (or when `force`), company days once they are past, else every 6 hours.
+/// Calendar events in [from, to] (unix seconds): see `calendar::window`. Answers at once from the cache; missing company days load in the background (`pending`).
 #[tauri::command]
 async fn calendar_window(st: State<'_>, from: i64, to: i64, force: Option<bool>) -> Result<calendar::CalendarResult> {
-    use chrono::Datelike;
-    let force = force.unwrap_or(false);
-    let now = chrono::Utc::now().timestamp();
-    let mut errors = Vec::new();
-
-    // ---- macro
-    let mut all: Vec<calendar::CalEvent> = st.cache.kv_get("calendar")?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
-    all.retain(|e| e.kind == "macro");
-    let at: i64 = st.cache.kv_get("calendar_at")?.and_then(|v| v.parse().ok()).unwrap_or(0);
-    if force || now - at > 3600 {
-        let keep_from = now - 120 * 86400;
-        let mut ok = false;
-        match calendar::forex_factory(&st.http).await {
-            Ok(rows) => { all = calendar::merge(all, rows, keep_from); ok = true; }
-            Err(e) => errors.push(calendar::ProviderError { provider: "forexfactory".into(), error: e.to_string() }),
-        }
-        if let Some(key) = secret_get("fmp_key") {
-            let (f, t) = (from.max(now - 90 * 86400), to.min(now + 60 * 86400));
-            match calendar::fmp(&st.http, &key, f, t).await {
-                Ok(rows) => {
-                    // FMP covers this window: drop the feed's rows inside it so nothing shows twice
-                    all.retain(|e| !(e.provider == "ff" && e.ts >= f && e.ts <= t + 86400));
-                    all = calendar::merge(all, rows, keep_from); ok = true;
-                }
-                Err(e) => errors.push(calendar::ProviderError { provider: "fmp".into(), error: e.to_string() }),
-            }
-        }
-        if ok {
-            st.cache.kv_set("calendar", &serde_json::to_string(&all).map_err(|e| Error::Other(e.to_string()))?)?;
-            st.cache.kv_set("calendar_at", &now.to_string())?;
-        }
-    }
-
-    // ---- companies (Nasdaq): serve the cache, refresh what is missing in the background
-    let day_of = |t: i64| chrono::DateTime::<chrono::Utc>::from_timestamp(t, 0).unwrap_or_default().date_naive();
-    let (cf, ct) = (day_of(from.max(now - 30 * 86400)), day_of(to.min(now + 21 * 86400)));
-    let today = day_of(now);
-    let mut company: Vec<calendar::CalEvent> = Vec::new();
-    let mut todo = Vec::new();
-    let mut d = cf;
-    let mut n = 0;
-    while d <= ct && n < 45 {
-        if d.weekday().number_from_monday() <= 5 {
-            n += 1;
-            match cal_cached(&st, &format!("cal_nq_{d}")) {
-                Some(c) => {
-                    // today and the next days change often (new estimates, late reports): hourly; further out every 6 hours; past days never
-                    let ttl = if d <= today + chrono::Duration::days(2) { 3600 } else { 6 * 3600 };
-                    let stale = !(d < today - chrono::Duration::days(1) || now - c.at < ttl) || (force && d >= today - chrono::Duration::days(1));
-                    company.extend(c.ev);
-                    if stale { todo.push(d); }
-                }
-                None => todo.push(d),
-            }
-        }
-        d = d.succ_opt().unwrap_or(ct + chrono::Duration::days(1));
-    }
-    let mut months = Vec::new();
-    let mut m = cf.with_day(1).unwrap_or(cf);
-    while m <= ct && months.len() < 3 {
-        let key = month_key(m);
-        match cal_cached(&st, &format!("cal_ipo_{key}")) {
-            Some(c) => { let stale = now - c.at >= 12 * 3600 || force; company.extend(c.ev); if stale { months.push(key); } }
-            None => months.push(key),
-        }
-        m = (m + chrono::Duration::days(32)).with_day(1).unwrap_or(ct + chrono::Duration::days(1));
-    }
-    let mut pending = CAL_BG.load(std::sync::atomic::Ordering::SeqCst);
-    if (!todo.is_empty() || !months.is_empty()) && !CAL_BG.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        pending = true;
-        tokio::spawn(calendar_refresh(st.inner().clone(), todo, months));
-    }
-    if let Some(e) = st.cache.kv_get("cal_nq_error")?.filter(|e| !e.is_empty()) { errors.push(calendar::ProviderError { provider: "nasdaq".into(), error: e }); }
-
-    let mut items: Vec<calendar::CalEvent> = all.into_iter().chain(company).filter(|e| e.ts >= from && e.ts <= to).collect();
-    items.sort_by_key(|e| e.ts);
-    items.dedup_by(|a, b| a.id == b.id);
-    Ok(calendar::CalendarResult { items, errors, pending })
+    calendar::window(st.cache.clone(), st.http.clone(), secret_get("fmp_key"), from, to, force.unwrap_or(false)).await
 }
 
-fn month_key(d: chrono::NaiveDate) -> String { d.format("%Y-%m").to_string() }
+/// AI summary of one calendar event (Groq): what it is, why it matters, what happens above / below the forecast. Cached per event, language and known actual value.
+#[tauri::command]
+async fn calendar_summary(st: State<'_>, event: calendar::CalEvent, lang: String, force: Option<bool>) -> Result<ai::CalSummary> {
+    let ck = format!("cal:{}:{lang}:{}", event.id, event.actual.clone().unwrap_or_default());
+    if !force.unwrap_or(false) {
+        if let Some(body) = st.cache.ai_get(&ck)? {
+            if let Ok(s) = serde_json::from_str::<ai::CalSummary>(&body) { return Ok(s); }
+        }
+    }
+    let (content, model) = groq_chat(&st, ai::cal_messages(&event, &lang), 0.2, 600, true).await?;
+    let summary = ai::parse_cal_summary(&content, &model)?;
+    st.cache.ai_put(&ck, &serde_json::to_string(&summary).map_err(|e| Error::Other(e.to_string()))?, chrono::Utc::now().timestamp())?;
+    Ok(summary)
+}
 
 /// Groq chat with the saved key and model; re-picks the model once if the saved one fails (it may have been retired).
 async fn groq_chat(st: &State<'_>, messages: serde_json::Value, temperature: f64, max_tokens: u32, json_mode: bool) -> Result<(String, String)> {
@@ -416,7 +310,7 @@ pub fn run() {
                 .timeout(std::time::Duration::from_secs(30))
                 .build()?;
             let streams = stream::Streams::start(app.handle().clone());
-            app.manage(Arc::new(AppState { cache, http, streams }));
+            app.manage(Arc::new(AppState { cache: Arc::new(cache), http, streams }));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -432,6 +326,7 @@ pub fn run() {
             liquid_logout,
             news_window,
             calendar_window,
+            calendar_summary,
             ai_summary,
             ai_complete,
             liquid_unusual,

@@ -23,6 +23,57 @@ pub struct AiSummary {
     pub model: String,
 }
 
+/// AI reading of a calendar event.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CalSummary {
+    /// what the figure / event is
+    pub what: String,
+    /// why traders care
+    pub why: String,
+    /// typical reaction when the result beats the forecast
+    pub above: String,
+    /// typical reaction when it misses
+    pub below: String,
+    pub assets: Vec<String>,
+    /// expected volatility 1 (quiet) .. 5 (market mover)
+    pub volatility: u8,
+    pub model: String,
+}
+
+pub fn cal_messages(ev: &crate::calendar::CalEvent, lang: &str) -> Value {
+    let language = if lang == "de" { "German" } else { "English" };
+    let system = format!(
+        "You are a concise markets analyst. Given a calendar event (economic release, company earnings, dividend, split or IPO), answer ONLY with one JSON object with these keys: \
+         \"what\" (1-2 sentences: what this figure or event is), \"why\" (1-2 sentences: why traders care and what it moves), \
+         \"above\" (1 sentence: the typical market reaction if the result comes in above the forecast / better than expected), \
+         \"below\" (1 sentence: the typical reaction if below / worse), \"assets\" (array of up to 4 affected assets, pairs, indices or tickers), \
+         \"volatility\" (integer 1-5, expected volatility around the event, 5 = major market mover). \
+         For a dividend, split or IPO use \"above\" / \"below\" for the typical reaction around the date and keep it short. If a result is already known, mention how it compares to the forecast. \
+         Be factual and brief, no investment advice. Write in {language}."
+    );
+    let when = chrono::DateTime::<chrono::Utc>::from_timestamp(ev.ts, 0).map(|d| d.to_rfc3339()).unwrap_or_default();
+    let user = format!(
+        "Event: {}\nType: {}\nRegion / currency: {}\nSymbol: {}\nTime: {}\nImpact rating: {}\nActual: {}\nForecast: {}\nPrevious: {}\nDetails: {}",
+        ev.title, ev.kind, ev.country, ev.symbol.clone().unwrap_or_default(), when, ev.impact,
+        ev.actual.clone().unwrap_or_else(|| "(not released yet)".into()), ev.forecast.clone().unwrap_or_else(|| "(none)".into()),
+        ev.previous.clone().unwrap_or_else(|| "(none)".into()), ev.detail.clone().unwrap_or_default()
+    );
+    json!([{"role": "system", "content": system}, {"role": "user", "content": user}])
+}
+
+pub fn parse_cal_summary(content: &str, model: &str) -> Result<CalSummary> {
+    let start = content.find('{').ok_or_else(|| Error::Other("model returned no JSON".into()))?;
+    let end = content.rfind('}').ok_or_else(|| Error::Other("model returned no JSON".into()))?;
+    let v: Value = serde_json::from_str(&content[start..=end]).map_err(|e| Error::Other(format!("bad model JSON: {e}")))?;
+    let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_string();
+    Ok(CalSummary {
+        what: s("what"), why: s("why"), above: s("above"), below: s("below"),
+        assets: v["assets"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).take(4).collect()).unwrap_or_default(),
+        volatility: v["volatility"].as_f64().map(|x| x.round().clamp(1.0, 5.0) as u8).unwrap_or(1),
+        model: model.to_string(),
+    })
+}
+
 pub fn build_messages(item: &NewsItem, lang: &str) -> Value {
     let language = if lang == "de" { "German" } else { "English" };
     let system = format!(
@@ -108,6 +159,13 @@ pub async fn chat(http: &reqwest::Client, base: &str, key: &str, model: &str, me
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parses_calendar_summary() {
+        let c = parse_cal_summary("```json\n{\"what\":\"CPI\",\"why\":\"Inflation\",\"above\":\"USD up\",\"below\":\"USD down\",\"assets\":[\"EURUSD\",\"SPX\"],\"volatility\":9}\n```", "m").unwrap();
+        assert_eq!((c.what.as_str(), c.volatility, c.assets.len()), ("CPI", 5, 2));
+        assert!(parse_cal_summary("no json", "m").is_err());
+    }
+
     use super::*;
 
     #[test]

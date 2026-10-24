@@ -87,7 +87,27 @@ export interface CalEvent { id: string; ts: number; country: string; title: stri
 export interface CalendarResult { items: CalEvent[]; errors: { provider: string; error: string }[]; /** company data is still being fetched: ask again shortly */ pending: boolean }
 /** Calendar events in [from, to]: macro and company events (earnings, dividends, splits, IPOs) (unix seconds). Cached by the backend, refreshed hourly (`force` refreshes now). */
 export const calendarWindow = (from: number, to: number, force = false) =>
-  inTauri ? call<CalendarResult>('calendar_window', { from, to, force }) : Promise.resolve({ items: [], errors: [], pending: false } as CalendarResult);
+  inTauri ? call<CalendarResult>('calendar_window', { from, to, force }) : Promise.resolve({ items: previewCalendar(from, to), errors: [], pending: false } as CalendarResult);
+
+/** Browser preview (no backend): a few synthetic events so the calendar page and the chart markers can be checked. */
+function previewCalendar(from: number, to: number): CalEvent[] {
+  const out: CalEvent[] = [];
+  const base = Math.floor(from / 86400) * 86400;
+  const mk = (ts: number, kind: CalEvent['kind'], country: string, title: string, impact: CalEvent['impact'], extra: Partial<CalEvent> = {}): CalEvent =>
+    ({ id: `${kind}:${ts}:${country}:${title}`, ts, country, title, impact, actual: null, forecast: null, previous: null, provider: 'preview', kind, symbol: null, detail: null, ...extra });
+  for (let d = base; d < to; d += 86400) {
+    out.push(mk(d + 12 * 3600 + 30 * 60, 'macro', 'USD', 'CPI y/y', 'high', { forecast: '2.9%', previous: '2.8%', actual: d < Date.now() / 1000 ? '3.1%' : null }));
+    out.push(mk(d + 14 * 3600, 'macro', 'EUR', 'ECB Speaks', 'medium', { forecast: '', previous: '' }));
+    out.push(mk(d + 9 * 3600, 'macro', 'GBP', 'Retail Sales m/m', 'low', { forecast: '0.3%', previous: '0.1%' }));
+    out.push(mk(d + 21 * 3600, 'earnings', 'US', 'Apple Inc. earnings', 'high', { symbol: 'AAPL', forecast: '$1.62', previous: '$1.46', detail: 'quarter Sep/2026 · market cap $3.20T · 38 estimates' }));
+    out.push(mk(d + 21 * 3600, 'earnings', 'US', 'Small Co earnings', 'low', { symbol: 'SMLL', forecast: '$0.12', previous: '$0.10' }));
+  }
+  return out.filter((e) => e.ts >= from && e.ts <= to);
+}
+
+export interface CalSummary { what: string; why: string; above: string; below: string; assets: string[]; volatility: number; model: string }
+export const calendarSummary = (event: CalEvent, lang: string, force = false) =>
+  inTauri ? call<CalSummary>('calendar_summary', { event, lang, force }) : Promise.reject('AI summaries need the desktop app');
 
 export interface AiSummary { what: string; impact: string; direction: 'bullish' | 'bearish' | 'neutral' | 'mixed'; intensity: number; assets: string[]; horizon: string; model: string }
 export const aiSummary = (id: string, lang: string, force = false) =>

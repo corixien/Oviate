@@ -29,7 +29,7 @@ export interface TradeBox { t0: number; t1: number; p0: number; p1: number; win:
 export interface PriceLine { price: number; color: string; label: string; dash?: boolean }
 
 /** Economic calendar events on one bar: titles (with time), strongest impact. */
-export interface CalMark { t: number; titles: string[]; impact: 'high' | 'medium' | 'low'; /** macro | earnings | dividend | split | ipo of the first event */ kind: string }
+export interface CalMark { t: number; ids: string[]; titles: string[]; impact: 'high' | 'medium' | 'low'; /** macro | earnings | dividend | split | ipo of the first event */ kind: string }
 export interface NewsMark { t: number; ids: string[]; titles: string[] }
 
 export interface Drawing { id: string; type: DrawTool; pts: DrawPt[]; color: string; text?: string; sym?: string }
@@ -69,7 +69,7 @@ export interface Hooks {
   onToolDone(): void;
   onSelect(id: string | null): void;
   onNewsClick(mark: NewsMark): void;
-  onCalClick(): void;
+  onCalClick(mark: CalMark): void;
   /** Open the inline text editor at a screen position (px, relative to the chart). */
   onEditText(id: string, x: number, y: number, text: string): void;
   /** Replay start chosen: time of the bar that stays the last visible one. */
@@ -1328,7 +1328,8 @@ export class ChartRenderer {
       if (reg === 'taxis') { this.drag = { kind: 'taxis', x, y }; return; }
       const nm = this.newsAt(x, y);
       if (nm && this.s.tool === 'cursor') { this.hooks.onNewsClick(nm); return; }
-      if (this.s.tool === 'cursor' && this.calAt(x, y)) { this.hooks.onCalClick(); return; }
+      const cm = this.s.tool === 'cursor' ? this.calAt(x, y) : null;
+      if (cm) { this.hooks.onCalClick(cm); return; }
       const tool = this.s.tool;
       if (tool !== 'cursor') {
         if (tool === 'brush') {

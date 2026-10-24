@@ -67,7 +67,6 @@
     { key: 'news open page headlines', title: 'Open news', sub: 'All markets, last weeks', tag: 'news', run: () => { app.openNews(null, null); } },
     { key: `news symbol ${app.chart.symbol}`, title: `News for ${app.chart.symbol}`, tag: 'news', run: () => { app.openNews(app.chart.symbol, null); } },
     { key: 'calendar economic events macro open page', title: 'Economic calendar', sub: 'Upcoming and past macro events', tag: 'calendar', run: () => { app.page = 'calendar'; } },
-    { key: 'calendar markers toggle chart economic', title: 'Toggle economic calendar markers on charts', tag: 'calendar', run: () => { app.showCalendar = !app.showCalendar; } },
     { key: 'news markers toggle chart', title: 'Toggle news markers on charts', tag: 'news', run: () => { app.showNews = !app.showNews; } },
     { key: 'charts back close news', title: 'Back to charts', tag: 'news', run: () => { app.page = 'chart'; } },
     { key: 'reset chart view', title: 'Reset chart', tag: 'chart', run: () => { const c = newChart(app.chart.symbol, app.chart.tf); Object.assign(app.chart, { indicators: [], drawings: [], type: 'candles', log: false, volume: true, id: c.id }); } }

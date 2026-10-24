@@ -1,10 +1,12 @@
 //! Calendar of market events. Macro: the public Forex Factory weekly feed (USD, EUR, GBP, JPY, CAD, AUD, NZD, CHF, CNY; no key), plus Financial
 //! Modeling Prep with a key (Settings: more countries, a wider window, actual values). Companies, keyless from Nasdaq: earnings (quarter, EPS estimate,
 //! last year's EPS), ex-dividend dates, stock splits and IPOs.
+use crate::cache::Cache;
 use crate::model::{Error, Result};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 const UA: &str = "Mozilla/5.0 (X11; Linux x86_64) Oviate/0.1";
 const FF_URLS: [&str; 2] = ["https://nfs.faireconomy.media/ff_calendar_thisweek.json", "https://nfs.faireconomy.media/ff_calendar_nextweek.json"];
@@ -210,6 +212,134 @@ pub async fn nasdaq_ipos(http: &reqwest::Client, month: &str) -> Result<Vec<CalE
     Ok(parse_nq_ipos(&nq_json(http, "/ipo/calendar", month).await?))
 }
 
+// ---------------------------------------------------------------- the window
+
+static BG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[derive(Serialize, Deserialize)]
+struct Day { at: i64, ev: Vec<CalEvent> }
+
+fn cached(cache: &Cache, key: &str) -> Option<Day> {
+    cache.kv_get(key).ok().flatten().and_then(|j| serde_json::from_str(&j).ok())
+}
+
+fn store(cache: &Cache, key: &str, at: i64, ev: Vec<CalEvent>) {
+    if let Ok(j) = serde_json::to_string(&Day { at, ev }) { let _ = cache.kv_set(key, &j); }
+}
+
+/// Clears the background flag however the refresh ends (also on a panic), so the calendar never reports "pending" forever.
+struct BgGuard;
+impl Drop for BgGuard { fn drop(&mut self) { BG.store(false, std::sync::atomic::Ordering::SeqCst); } }
+
+/// Fetch company days and IPO months into the cache, nearest days first, 12 requests at a time.
+async fn refresh(cache: Arc<Cache>, http: reqwest::Client, mut days: Vec<chrono::NaiveDate>, months: Vec<String>) {
+    let _guard = BgGuard;
+    let now = chrono::Utc::now().timestamp();
+    let today = chrono::Utc::now().date_naive();
+    days.sort_by_key(|d| (*d - today).num_days().abs());
+    let mut first_error: Option<String> = None;
+    for chunk in days.chunks(12) {
+        let handles: Vec<_> = chunk.iter().map(|d| { let (http, date) = (http.clone(), d.to_string()); tokio::spawn(async move { nasdaq_day(&http, &date).await }) }).collect();
+        for (d, h) in chunk.iter().zip(handles) {
+            match h.await {
+                Ok(Ok(ev)) => store(&cache, &format!("cal_nq_{d}"), now, ev),
+                Ok(Err(e)) => { first_error.get_or_insert(e.to_string()); }
+                Err(_) => {}
+            }
+        }
+    }
+    for month in months {
+        match nasdaq_ipos(&http, &month).await {
+            Ok(ev) => store(&cache, &format!("cal_ipo_{month}"), now, ev),
+            Err(e) => { first_error.get_or_insert(e.to_string()); }
+        }
+    }
+    let _ = cache.kv_set("cal_nq_error", &first_error.unwrap_or_default());
+}
+
+/// Events in [from, to] (unix seconds): macro (Forex Factory weekly feed always, Financial Modeling Prep with a key) and company events (earnings, ex-dividends,
+/// splits per weekday, IPOs per month; keyless from Nasdaq, for the part of the window within 30 days back and 21 days ahead).
+/// Answers at once with what is cached; missing or stale company days are fetched in the background (`pending` = ask again shortly).
+/// Macro is refreshed hourly (or when `force`); company days: today and the next 2 days hourly, further out every 6 hours, past days once.
+pub async fn window(cache: Arc<Cache>, http: reqwest::Client, fmp_key: Option<String>, from: i64, to: i64, force: bool) -> Result<CalendarResult> {
+    use chrono::Datelike;
+    let now = Utc::now().timestamp();
+    let mut errors = Vec::new();
+
+    // ---- macro
+    let mut all: Vec<CalEvent> = cache.kv_get("calendar")?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+    all.retain(|e| e.kind == "macro");
+    let at: i64 = cache.kv_get("calendar_at")?.and_then(|v| v.parse().ok()).unwrap_or(0);
+    if force || now - at > 3600 {
+        let keep_from = now - 120 * 86400;
+        let mut ok = false;
+        match forex_factory(&http).await {
+            Ok(rows) => { all = merge(all, rows, keep_from); ok = true; }
+            Err(e) => errors.push(ProviderError { provider: "forexfactory".into(), error: e.to_string() }),
+        }
+        if let Some(key) = fmp_key {
+            let (f, t) = (from.max(now - 90 * 86400), to.min(now + 60 * 86400));
+            match fmp(&http, &key, f, t).await {
+                Ok(rows) => {
+                    // FMP covers this window: drop the feed's rows inside it so nothing shows twice
+                    all.retain(|e| !(e.provider == "ff" && e.ts >= f && e.ts <= t + 86400));
+                    all = merge(all, rows, keep_from); ok = true;
+                }
+                Err(e) => errors.push(ProviderError { provider: "fmp".into(), error: e.to_string() }),
+            }
+        }
+        if ok {
+            cache.kv_set("calendar", &serde_json::to_string(&all).map_err(|e| Error::Other(e.to_string()))?)?;
+            cache.kv_set("calendar_at", &now.to_string())?;
+        }
+    }
+
+    // ---- companies: serve the cache, refresh what is missing in the background
+    let day_of = |t: i64| DateTime::<Utc>::from_timestamp(t, 0).unwrap_or_default().date_naive();
+    let (cf, ct) = (day_of(from.max(now - 30 * 86400)), day_of(to.min(now + 21 * 86400)));
+    let today = day_of(now);
+    let mut company: Vec<CalEvent> = Vec::new();
+    let mut todo = Vec::new();
+    let mut d = cf;
+    let mut n = 0;
+    while d <= ct && n < 45 {
+        if d.weekday().number_from_monday() <= 5 {
+            n += 1;
+            match cached(&cache, &format!("cal_nq_{d}")) {
+                Some(c) => {
+                    let ttl = if d <= today + chrono::Duration::days(2) { 3600 } else { 6 * 3600 };
+                    let stale = !(d < today - chrono::Duration::days(1) || now - c.at < ttl) || (force && d >= today - chrono::Duration::days(1));
+                    company.extend(c.ev);
+                    if stale { todo.push(d); }
+                }
+                None => todo.push(d),
+            }
+        }
+        d = d.succ_opt().unwrap_or(ct + chrono::Duration::days(1));
+    }
+    let mut months = Vec::new();
+    let mut m = cf.with_day(1).unwrap_or(cf);
+    while m <= ct && months.len() < 3 {
+        let key = m.format("%Y-%m").to_string();
+        match cached(&cache, &format!("cal_ipo_{key}")) {
+            Some(c) => { let stale = now - c.at >= 12 * 3600 || force; company.extend(c.ev); if stale { months.push(key); } }
+            None => months.push(key),
+        }
+        m = (m + chrono::Duration::days(32)).with_day(1).unwrap_or(ct + chrono::Duration::days(1));
+    }
+    let mut pending = BG.load(std::sync::atomic::Ordering::SeqCst);
+    if (!todo.is_empty() || !months.is_empty()) && !BG.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        pending = true;
+        tokio::spawn(refresh(cache.clone(), http.clone(), todo, months));
+    }
+    if let Some(e) = cache.kv_get("cal_nq_error")?.filter(|e| !e.is_empty()) { errors.push(ProviderError { provider: "nasdaq".into(), error: e }); }
+
+    let mut seen = std::collections::HashSet::new();
+    let mut items: Vec<CalEvent> = all.into_iter().chain(company).filter(|e| e.ts >= from && e.ts <= to && seen.insert(e.id.clone())).collect();
+    items.sort_by(|a, b| a.ts.cmp(&b.ts).then_with(|| b.impact.cmp(&a.impact)).then_with(|| a.title.cmp(&b.title)));
+    Ok(CalendarResult { items, errors, pending })
+}
+
 /// Merge fresh rows into the cached ones (same id replaces, older than `keep_from` is dropped), sorted by time.
 pub fn merge(mut old: Vec<CalEvent>, fresh: Vec<CalEvent>, keep_from: i64) -> Vec<CalEvent> {
     let ids: std::collections::HashSet<String> = fresh.iter().map(|e| e.id.clone()).collect();
@@ -277,5 +407,27 @@ mod tests {
         assert!(ev.iter().any(|e| e.kind == "earnings"), "no earnings on {d}");
         assert!(!forex_factory(&http).await.unwrap().is_empty());
         assert!(!nasdaq_ipos(&http, &d.format("%Y-%m").to_string()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore] // network
+    async fn live_window_returns_this_week_and_company_days() {
+        let cache = Arc::new(Cache::memory().unwrap());
+        let http = reqwest::Client::new();
+        let now = Utc::now().timestamp();
+        let (from, to) = (now - 2 * 86400, now + 5 * 86400);
+        let first = window(cache.clone(), http.clone(), None, from, to, false).await.unwrap();
+        assert!(first.items.iter().any(|e| e.kind == "macro"), "no macro events: {:?}", first.errors.iter().map(|e| &e.error).collect::<Vec<_>>());
+        for _ in 0..40 {
+            let r = window(cache.clone(), http.clone(), None, from, to, false).await.unwrap();
+            if !r.pending {
+                assert!(r.items.iter().any(|e| e.kind == "earnings"), "no earnings");
+                let ids: std::collections::HashSet<_> = r.items.iter().map(|e| &e.id).collect();
+                assert_eq!(ids.len(), r.items.len(), "duplicate ids");
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        panic!("still pending after 20 s");
     }
 }

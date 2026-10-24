@@ -83,20 +83,20 @@
     } catch { /* markers are optional */ }
   }
   const IMP = { high: 3, medium: 2, low: 1, holiday: 0 } as const;
+  // every macro event (the renderer keeps the most important one where markers would overlap, so zooming in shows the minor ones) and the company events of this symbol
   const calMarks = $derived.by<CalMark[]>(() => {
-    if (!app.showCalendar || !raw.n || !calEvents.length) return [];
-    const min = IMP[app.calImpact], last = raw.t[raw.n - 1];
+    if (!raw.n || !calEvents.length) return [];
+    const last = raw.t[raw.n - 1], me = cfg.symbol.replace('/', '').toUpperCase();
     const groups = new Map<number, CalMark>();
-    for (const e of calEvents) {
-      // macro events follow the impact filter; company events (earnings, dividends, splits, IPOs) only show on the chart of their own symbol
-      const own = e.kind !== 'macro' && !!e.symbol && e.symbol.toUpperCase() === cfg.symbol.replace('/', '').toUpperCase();
-      if (e.kind !== 'macro' ? !own : IMP[e.impact] < min || e.impact === 'holiday') continue;
+    for (const e of [...calEvents].sort((a, b) => IMP[b.impact] - IMP[a.impact])) {
+      if (e.kind === 'macro' ? e.impact === 'holiday' : (e.symbol ?? '').toUpperCase() !== me) continue;
       if (e.ts < raw.t[0]) continue;
       let t: number;
       if (e.ts >= last + step) t = Math.floor(e.ts / step) * step;
       else { let lo = 0, hi = raw.n - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (raw.t[m] <= e.ts) lo = m; else hi = m - 1; } t = raw.t[lo]; }
       const when = new Date(e.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const g = groups.get(t) ?? { t, titles: [], impact: 'low' as const, kind: e.kind };
+      const g = groups.get(t) ?? { t, ids: [], titles: [], impact: 'low' as const, kind: e.kind };
+      g.ids.push(e.id);
       g.titles.push(e.kind === 'macro' ? `${when} ${e.country} ${e.title}` : e.title);
       if (IMP[e.impact] > IMP[g.impact]) g.impact = e.impact as 'high' | 'medium' | 'low';
       groups.set(t, g);
@@ -376,7 +376,7 @@
       onToolDone: () => { app.tool = 'cursor'; },
       onSelect: (id) => { selectedId = id; },
       onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0]),
-      onCalClick: () => { app.page = 'calendar'; },
+      onCalClick: (m) => app.openCalendar(m.ids[0]),
       onEditText: (id, x, y, text) => openEditor(id, x, y, text),
       onReplayPick: (t) => { if (app.replay) app.replay.t = t; }
     }, {

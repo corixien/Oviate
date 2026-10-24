@@ -1,165 +1,324 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { app } from '$lib/app.svelte';
-  import { calendarWindow, type CalEvent } from '$lib/api';
+  import { calendarWindow, calendarSummary, newsStatus, type CalEvent, type CalSummary } from '$lib/api';
   import Select from './Select.svelte';
 
   const DAY = 86400;
+  const day0 = (d: Date) => Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000);
+  const monday = (d: Date) => day0(d) - ((d.getDay() + 6) % 7) * DAY;
   const RANGES: { id: string; label: string; from: (d: Date) => number; to: (d: Date) => number }[] = [
     { id: 'today', label: 'Today', from: (d) => day0(d), to: (d) => day0(d) + DAY },
-    { id: 'week', label: 'This week', from: (d) => day0(d) - ((d.getDay() + 6) % 7) * DAY, to: (d) => day0(d) - ((d.getDay() + 6) % 7) * DAY + 7 * DAY },
-    { id: 'next', label: 'Next week', from: (d) => day0(d) - ((d.getDay() + 6) % 7) * DAY + 7 * DAY, to: (d) => day0(d) - ((d.getDay() + 6) % 7) * DAY + 14 * DAY },
+    { id: 'tomorrow', label: 'Tomorrow', from: (d) => day0(d) + DAY, to: (d) => day0(d) + 2 * DAY },
+    { id: 'week', label: 'This week', from: (d) => monday(d), to: (d) => monday(d) + 7 * DAY },
+    { id: 'next', label: 'Next week', from: (d) => monday(d) + 7 * DAY, to: (d) => monday(d) + 14 * DAY },
     { id: 'past', label: 'Past 7 days', from: (d) => day0(d) - 7 * DAY, to: (d) => day0(d) },
-    { id: 'month', label: 'Past 30 days', from: (d) => day0(d) - 30 * DAY, to: (d) => day0(d) + DAY },
   ];
-  const day0 = (d: Date) => Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000);
+
+  const KINDS: ['all' | CalEvent['kind'], string][] = [['all', 'All'], ['macro', 'Macro'], ['earnings', 'Earnings'], ['dividend', 'Dividends'], ['split', 'Splits'], ['ipo', 'IPOs']];
+  const IMP = { high: 3, medium: 2, low: 1, holiday: 0 } as const;
+  const KIND_NAME: Record<string, string> = { macro: 'Economic release', earnings: 'Earnings', dividend: 'Ex-dividend', split: 'Stock split', ipo: 'IPO' };
+  const LABELS: Record<string, [string, string, string]> = { macro: ['Actual', 'Forecast', 'Previous'], earnings: ['', 'EPS estimate', 'Last year EPS'], dividend: ['Dividend', '', ''], split: ['', '', ''], ipo: ['', '', ''] };
 
   let range = $state('week');
-  let impact = $state<'all' | 'medium' | 'high'>('medium');
-  let country = $state('all');
   let kind = $state<'all' | CalEvent['kind']>('all');
+  let impact = $state<'all' | 'medium' | 'high'>('all');
+  let region = $state('all');
+  let mine = $state(false);
   let query = $state('');
+
   let items = $state<CalEvent[]>([]);
   let errors = $state<{ provider: string; error: string }[]>([]);
   let loading = $state(false);
+  let pending = $state(false);
+  let loaded = $state(false);
+  let sel = $state<string | null>(app.calFocus.id);
+  let listEl = $state<HTMLDivElement>();
+  let hasGroq = $state(false);
+  let nowS = $state(Math.floor(Date.now() / 1000));
 
-  const IMP = { high: 3, medium: 2, low: 1, holiday: 0 } as const;
-  const minImp = $derived(impact === 'high' ? 3 : impact === 'medium' ? 2 : 0);
-  const countries = $derived([...new Set(items.map((e) => e.country))].filter(Boolean).sort());
   const q = $derived(query.trim().toLowerCase());
-  // searching a company ignores the impact filter (small caps are "low")
-  const shown = $derived(items.filter((e) => (kind === 'all' || e.kind === kind)
-    && (q ? (e.symbol ?? '').toLowerCase().includes(q) || e.title.toLowerCase().includes(q) : e.kind === 'macro' || e.kind === 'earnings' ? IMP[e.impact] >= minImp : true)
-    && (country === 'all' || e.country === country)));
-  const KINDS: [typeof kind, string][] = [['all', 'All'], ['macro', 'Macro'], ['earnings', 'Earnings'], ['dividend', 'Dividends'], ['split', 'Splits'], ['ipo', 'IPOs']];
-  const LABELS: Record<string, [string, string, string]> = { macro: ['Actual', 'Forecast', 'Previous'], earnings: ['', 'EPS estimate', 'Last year'], dividend: ['Dividend', '', ''], split: ['', '', ''], ipo: ['', '', ''] };
-  const now = $derived(Math.floor(Date.now() / 1000));
+  /** symbols the user follows: watchlists and the symbols of the open charts */
+  const mySymbols = $derived(new Set([...app.watchlists.flatMap((l) => l.symbols), ...app.charts.map((c) => c.symbol)].map((s) => s.replace('/', '').toUpperCase())));
+  const regions = $derived([...new Set(items.filter((e) => e.kind === 'macro').map((e) => e.country))].filter(Boolean).sort());
+
+  /** Impact applies to macro events and earnings (company size); everything else is shown. A search ignores it, so small companies can be found. */
+  function visible(e: CalEvent): boolean {
+    if (kind !== 'all' && e.kind !== kind) return false;
+    if (q) return (e.symbol ?? '').toLowerCase().includes(q) || e.title.toLowerCase().includes(q) || e.country.toLowerCase().includes(q);
+    if ((e.kind === 'macro' || e.kind === 'earnings') && impact !== 'all' && IMP[e.impact] < (impact === 'high' ? 3 : 2)) return false;
+    if (region !== 'all' && e.kind === 'macro' && e.country !== region) return false;
+    if (mine && e.kind !== 'macro' && !mySymbols.has((e.symbol ?? '').toUpperCase())) return false;
+    return true;
+  }
+  const shown = $derived(items.filter(visible));
+  const hidden = $derived(items.length - shown.length);
   const groups = $derived.by(() => {
-    const out: { day: string; rows: CalEvent[] }[] = [];
+    const out: { key: string; day: string; today: boolean; rows: CalEvent[] }[] = [];
+    const t0 = day0(new Date(nowS * 1000));
     for (const e of shown) {
-      const day = new Date(e.ts * 1000).toLocaleDateString(app.lang === 'de' ? 'de-DE' : 'en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+      const d = new Date(e.ts * 1000);
+      const key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
       const last = out[out.length - 1];
-      if (last && last.day === day) last.rows.push(e); else out.push({ day, rows: [e] });
+      if (last && last.key === key) last.rows.push(e);
+      else out.push({ key, day: d.toLocaleDateString(app.lang === 'de' ? 'de-DE' : 'en-GB', { weekday: 'long', day: '2-digit', month: 'long' }), today: day0(d) === t0, rows: [e] });
     }
     return out;
   });
-  const nextId = $derived(shown.find((e) => e.ts >= now)?.id);
+  const current = $derived(items.find((e) => e.id === sel) ?? null);
+  /** the next upcoming event that passes the filters, preferring the important ones */
+  const next = $derived(shown.filter((e) => e.ts >= nowS && e.kind === 'macro').sort((a, b) => IMP[b.impact] - IMP[a.impact] || a.ts - b.ts).find((e) => e.ts - nowS < 2 * DAY) ?? shown.find((e) => e.ts >= nowS));
 
-  let pending = $state(false);
+  // ---------------------------------------------------------------- data
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let run = 0;
   /** Shows what is cached at once; while the backend still fetches company days in the background, ask again every 2 s. */
   async function load(force = false, tries = 0) {
     clearTimeout(timer);
+    const my = ++run;
     const r = RANGES.find((x) => x.id === range)!, d = new Date();
-    const mine = range;
     loading = true;
     try {
       const res = await calendarWindow(r.from(d), r.to(d), force);
-      if (mine !== range) return;
-      items = res.items; errors = res.errors; pending = res.pending;
+      if (my !== run) return;
+      items = res.items; errors = res.errors; pending = res.pending; loaded = true;
       if (res.pending && tries < 60) timer = setTimeout(() => load(false, tries + 1), 2000);
-    } catch (e) { errors = [{ provider: 'calendar', error: String(e) }]; pending = false; }
-    finally { loading = false; }
+    } catch (e) { if (my === run) { errors = [{ provider: 'calendar', error: String(e) }]; pending = false; loaded = true; } }
+    finally { if (my === run) loading = false; }
   }
-  onMount(() => {
-    load();
-    // keep checking for the latest events: every 5 minutes and when the window gets focus (the backend decides what is stale)
-    const iv = setInterval(() => load(), 5 * 60 * 1000), onFocus = () => load();
-    window.addEventListener('focus', onFocus);
-    return () => { clearTimeout(timer); clearInterval(iv); window.removeEventListener('focus', onFocus); };
-  });
-  $effect(() => { void range; load(); });
+  $effect(() => { void range; untrack(() => load()); });
 
-  const time = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  onMount(() => {
+    newsStatus().then((s) => (hasGroq = s.groq));
+    // keep checking for the latest events: every 5 minutes and when the window gets focus (the backend decides what is stale)
+    const iv = setInterval(() => load(), 5 * 60 * 1000), clock = setInterval(() => (nowS = Math.floor(Date.now() / 1000)), 30000), onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => { clearTimeout(timer); clearInterval(iv); clearInterval(clock); window.removeEventListener('focus', onFocus); };
+  });
+
+  // a chart marker opened the page on one event: find its day and select it
+  $effect(() => {
+    const want = app.calFocus.id;
+    if (!want || !items.length) return;
+    const e = items.find((x) => x.id === want);
+    if (e) { sel = want; app.calFocus = { id: null }; tick().then(() => document.querySelector('.row.on')?.scrollIntoView({ block: 'center' })); }
+  });
+  // nothing selected yet: the next upcoming event (or the first one)
+  $effect(() => { if (!sel && shown.length) sel = (next ?? shown[0]).id; });
+
+  // ---------------------------------------------------------------- AI summary
+  let ai = $state<CalSummary | null>(null);
+  let aiState = $state<'idle' | 'loading' | 'error'>('idle');
+  let aiErr = $state('');
+  let aiFor = '';
+  async function summarize(force = false) {
+    const ev = current;
+    if (!ev) return;
+    aiFor = ev.id; aiState = 'loading'; aiErr = ''; if (force) ai = null;
+    try {
+      const r = await calendarSummary($state.snapshot(ev) as CalEvent, app.lang, force);
+      if (aiFor === ev.id) { ai = r; aiState = 'idle'; }
+    } catch (e) { if (aiFor === ev.id) { aiState = 'error'; aiErr = String(e); ai = null; } }
+  }
+  $effect(() => {
+    const id = current?.id, actual = current?.actual;
+    void actual;
+    ai = null; aiErr = '';
+    if (!id) { aiState = 'idle'; return; }
+    if (hasGroq) untrack(() => summarize(false)); else aiState = 'idle';
+  });
+
+  // ---------------------------------------------------------------- formatting
+  const hhmm = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const fmtTime = (ts: number) => new Date(ts * 1000).toLocaleString(app.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'full', timeStyle: 'short' });
+  function rel(ts: number): string {
+    const d = ts - nowS, a = Math.abs(d);
+    const t = a < 3600 ? `${Math.max(1, Math.round(a / 60))} min` : a < DAY ? `${Math.floor(a / 3600)} h ${Math.round((a % 3600) / 60)} min` : `${Math.round(a / DAY)} d`;
+    return d >= 0 ? `in ${t}` : `${t} ago`;
+  }
+  /** "3.1%" / "$2.98" / "1.2M" -> number, for comparing actual with forecast */
+  function num(v: string | null): number | null {
+    if (!v) return null;
+    const m = /^[^\d-]*(-?[\d.,]+)\s*([KMBT%]?)/i.exec(v.replace(/[()]/g, '-').replace(/--/g, ''));
+    if (!m) return null;
+    const n = parseFloat(m[1].replace(/,/g, ''));
+    return Number.isFinite(n) ? n * ({ K: 1e3, M: 1e6, B: 1e9, T: 1e12 } as Record<string, number>)[m[2].toUpperCase()] || n : null;
+  }
+  function surprise(e: CalEvent): 'above' | 'below' | 'inline' | null {
+    const a = num(e.actual), f = num(e.forecast);
+    if (a === null || f === null) return null;
+    return a > f ? 'above' : a < f ? 'below' : 'inline';
+  }
+  const impactColor = (i: string) => (i === 'high' ? 'var(--down)' : i === 'medium' ? '#ff9800' : 'var(--dim)');
+  function goChart(sym: string) { app.chart.symbol = sym; app.persist(); app.page = 'chart'; }
   const back = () => (app.page = 'chart');
 </script>
 
-<svelte:window onkeydown={(e) => { if (app.page === 'calendar' && e.key === 'Escape' && !app.spotlight.open) back(); }} />
+<svelte:window onkeydown={(e) => { if (app.page === 'calendar' && e.key === 'Escape' && !app.spotlight.open && !(e.target as HTMLElement)?.closest('input')) back(); }} />
 
 <div class="page">
   <header>
     <button class="back" onclick={back}>← Charts</button>
-    <h1>Economic calendar</h1>
+    <h1>Calendar</h1>
     <div class="seg">
       {#each RANGES as r (r.id)}<button class:on={range === r.id} onclick={() => (range = r.id)}>{r.label}</button>{/each}
     </div>
+    {#if next}
+      <button class="next" onclick={() => (sel = next.id)} title="Jump to the next event">
+        <i style:background={impactColor(next.impact)}></i><span>Next: {next.symbol ?? next.country} {next.title}</span><b>{rel(next.ts)}</b>
+      </button>
+    {/if}
     <div class="spacer"></div>
-    {#if pending}<span class="dim">Loading company data in the background…</span>{/if}
+    {#if pending}<span class="dim">Loading company data…</span>{/if}
     <button class="ghost" onclick={() => load(true)} disabled={loading}>Refresh</button>
   </header>
 
   <div class="filters">
+    <div class="seg">{#each KINDS as [id, label] (id)}<button class:on={kind === id} onclick={() => (kind = id)}>{label}</button>{/each}</div>
     <span class="dim">Impact</span>
-    <div class="seg">
-      {#each [['all', 'All'], ['medium', 'Medium +'], ['high', 'High']] as [id, label] (id)}<button class:on={impact === id} onclick={() => (impact = id as typeof impact)}>{label}</button>{/each}
-    </div>
-    <span class="dim">Type</span>
-    <div class="seg">
-      {#each KINDS as [id, label] (id)}<button class:on={kind === id} onclick={() => (kind = id)}>{label}</button>{/each}
-    </div>
-    <input class="q" bind:value={query} placeholder="Symbol or company…" spellcheck="false" autocomplete="off" aria-label="Search symbol or company" />
-    <span class="dim">Currency</span>
-    <Select value={country} options={[{ value: 'all', label: 'All' }, ...countries.map((c) => ({ value: c, label: c }))]} onchange={(v) => (country = v)} width="110px" />
-    <div class="spacer"></div>
-    <label class="tg"><input type="checkbox" bind:checked={app.showCalendar} onchange={() => app.persist()} /><span>Show on charts</span></label>
-    <Select value={app.calImpact} options={[{ value: 'high', label: 'High impact only' }, { value: 'medium', label: 'Medium + High' }, { value: 'low', label: 'All events' }]} onchange={(v) => { app.calImpact = v as typeof app.calImpact; app.persist(); }} width="160px" />
+    <div class="seg">{#each [['all', 'All'], ['medium', 'Medium +'], ['high', 'High']] as [id, label] (id)}<button class:on={impact === id} onclick={() => (impact = id as typeof impact)}>{label}</button>{/each}</div>
+    <Select value={region} options={[{ value: 'all', label: 'All regions' }, ...regions.map((c) => ({ value: c, label: c }))]} onchange={(v) => (region = v)} width="130px" />
+    <label class="tg" title="Show company events only for your watchlist and the symbols of your charts"><input type="checkbox" bind:checked={mine} /><span>My symbols only</span></label>
+    <input class="q" bind:value={query} placeholder="Symbol, company or region…" spellcheck="false" autocomplete="off" aria-label="Search" />
   </div>
 
-  <div class="list">
-    {#each groups as g (g.day)}
-      <h3>{g.day}</h3>
-      {#each g.rows as e (e.id)}
-        {@const lab = LABELS[e.kind] ?? LABELS.macro}
-        <div class="row" class:past={e.ts < now} class:next={e.id === nextId}>
-          <span class="t">{time(e.ts)}</span>
-          <span class="c" class:co={e.kind !== 'macro'}>{e.symbol ?? e.country}</span>
-          <span class="i {e.impact}" title={e.impact}><i></i><i></i><i></i></span>
-          <span class="n">{e.title}{#if e.detail}<small class="det">{e.detail}</small>{/if}</span>
-          <span class="v"><small>{lab[0]}</small><b class:has={e.actual}>{lab[0] ? (e.actual ?? '—') : ''}</b></span>
-          <span class="v"><small>{lab[1]}</small><b>{lab[1] ? (e.forecast ?? '—') : ''}</b></span>
-          <span class="v"><small>{lab[2]}</small><b>{lab[2] ? (e.previous ?? '—') : ''}</b></span>
-        </div>
+  <div class="cols">
+    <div class="list" bind:this={listEl}>
+      {#each groups as g (g.key)}
+        <div class="day" class:today={g.today}>{g.day}{#if g.today}<i>today</i>{/if}</div>
+        {#each g.rows as e, i (e.id + ':' + i)}
+          {@const lab = LABELS[e.kind] ?? LABELS.macro}
+          {@const sp = surprise(e)}
+          <button class="row" class:on={e.id === sel} class:past={e.ts < nowS} onclick={() => (sel = e.id)}>
+            <span class="t">{hhmm(e.ts)}</span>
+            <span class="c" class:co={e.kind !== 'macro'}>{e.symbol ?? e.country}</span>
+            <span class="i" style:--c={impactColor(e.impact)} title={e.impact}><u class:f={IMP[e.impact] >= 1}></u><u class:f={IMP[e.impact] >= 2}></u><u class:f={IMP[e.impact] >= 3}></u></span>
+            <span class="n">{e.title}{#if e.detail}<small>{e.detail}</small>{/if}</span>
+            <span class="v">
+              {#if lab[0] && e.actual}<b class={sp ?? ''}>{e.actual}</b>{/if}
+              {#if lab[1] && e.forecast}<em title={lab[1]}>{e.forecast}</em>{/if}
+              {#if lab[2] && e.previous}<small title={lab[2]}>{e.previous}</small>{/if}
+            </span>
+          </button>
+        {/each}
       {/each}
-    {:else}
-      <p class="empty">{items.length === 0 && (loading || pending) ? 'Loading…' : 'No events for this filter. Widen the impact filter, the type or the range.'}</p>
-    {/each}
-    {#each errors as er}<p class="err">{er.provider}: {er.error}</p>{/each}
-    <p class="note">Macro: Forex Factory weekly calendar (USD, EUR, GBP, JPY, CAD, AUD, NZD, CHF, CNY; no key){items.some((e) => e.provider === 'fmp') ? ' and Financial Modeling Prep' : '. A free Financial Modeling Prep key in Settings adds more countries, a wider range and actual values'}. Companies (earnings, ex-dividends, splits, IPOs): Nasdaq, no key, 30 days back to 21 days ahead; earnings of the symbol on a chart appear on that chart. Times are shown in your local time zone.</p>
+      {#if !shown.length}
+        <div class="note">
+          {#if !loaded || (pending && !items.length)}Loading…
+          {:else if items.length}{hidden} event{hidden === 1 ? '' : 's'} hidden by the filters. <button class="lnk" onclick={() => { kind = 'all'; impact = 'all'; region = 'all'; mine = false; query = ''; }}>Clear filters</button>
+          {:else}No events in this range.{/if}
+        </div>
+      {:else if hidden}<div class="note small">{hidden} more hidden by the filters.</div>{/if}
+      {#each errors as er}<div class="err">{er.provider}: {er.error}</div>{/each}
+      <div class="note small">Macro: Forex Factory (USD, EUR, GBP, JPY, CAD, AUD, NZD, CHF, CNY){items.some((e) => e.provider === 'fmp') ? ' and Financial Modeling Prep' : '; a free Financial Modeling Prep key in Settings adds more countries and actual values'}. Companies: Nasdaq, 30 days back to 21 ahead. Times in your time zone.</div>
+    </div>
+
+    <div class="detail">
+      {#if current}
+        {@const lab = LABELS[current.kind] ?? LABELS.macro}
+        {@const sp = surprise(current)}
+        <div class="kind"><span class="c" class:co={current.kind !== 'macro'}>{current.symbol ?? current.country}</span><span>{KIND_NAME[current.kind] ?? current.kind}</span>
+          <span class="imp" style:--c={impactColor(current.impact)}>{current.impact} impact</span></div>
+        <h2>{current.title}</h2>
+        <div class="meta"><span>{fmtTime(current.ts)}</span><span class="rel">{rel(current.ts)}</span></div>
+        {#if current.detail}<p class="det">{current.detail}</p>{/if}
+
+        {#if lab.some(Boolean)}
+          <div class="vals">
+            {#if lab[0]}<div><small>{lab[0]}</small><b class={sp ?? ''}>{current.actual ?? (current.ts > nowS ? 'pending' : '—')}</b>{#if sp}<span class="sp {sp}">{sp === 'above' ? 'above forecast' : sp === 'below' ? 'below forecast' : 'in line'}</span>{/if}</div>{/if}
+            {#if lab[1]}<div><small>{lab[1]}</small><b>{current.forecast ?? '—'}</b></div>{/if}
+            {#if lab[2]}<div><small>{lab[2]}</small><b>{current.previous ?? '—'}</b></div>{/if}
+          </div>
+        {/if}
+
+        <section class="ai">
+          <div class="aih"><span>AI reading</span><small>{ai ? ai.model : 'Groq'}</small>{#if hasGroq}<button onclick={() => summarize(true)} disabled={aiState === 'loading'}>Regenerate</button>{/if}</div>
+          {#if !hasGroq}
+            <p class="dim">Add a Groq API key in Settings to get a short explanation for every event: what it is, why it matters and how markets usually react.</p>
+            <button class="primary" onclick={() => (app.settingsOpen = true)}>Open settings</button>
+          {:else if aiState === 'loading'}
+            <div class="skel"></div><div class="skel s2"></div>
+          {:else if aiState === 'error'}
+            <p class="errt">{aiErr}</p>
+          {:else if ai}
+            <div class="badges">
+              <span class="int" title="Expected volatility {ai.volatility}/5">{#each [1, 2, 3, 4, 5] as n}<i class:f={n <= ai.volatility}></i>{/each}</span><span class="dim">expected volatility</span>
+              {#each ai.assets as a}<span class="asset">{a}</span>{/each}
+            </div>
+            <p><b>What it is</b> {ai.what}</p>
+            <p><b>Why it matters</b> {ai.why}</p>
+            <p><b class="up">If better than forecast</b> {ai.above}</p>
+            <p><b class="dn">If worse than forecast</b> {ai.below}</p>
+            <small class="dim">AI estimate, not investment advice.</small>
+          {/if}
+        </section>
+
+        <div class="acts">
+          {#if current.symbol}<button class="primary" onclick={() => goChart(current.symbol!)}>Open {current.symbol} chart</button>
+            <button class="ghost" onclick={() => app.openNews(current.symbol!)}>News for {current.symbol}</button>{/if}
+        </div>
+      {:else}
+        <p class="dim pad">Select an event.</p>
+      {/if}
+    </div>
   </div>
 </div>
 
 <style>
   .page { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
-  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   h1 { margin: 0; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
-  .back, .ghost { height: 30px; box-sizing: border-box; background: none; border: 1px solid var(--line); color: var(--fg); padding: 0 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+  .back, .ghost { box-sizing: border-box; height: 30px; background: none; border: 1px solid var(--line); color: var(--fg); padding: 0 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
   .back:hover, .ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); } .ghost:disabled { opacity: 0.5; cursor: default; }
   .seg { display: flex; border: 1px solid var(--line); }
   .seg button { height: 28px; background: none; border: 0; color: var(--dim); padding: 0 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
-  .seg button.on { background: var(--accent); color: #fff; }
+  .seg button:hover { color: var(--fg); } .seg button.on { background: var(--accent); color: #fff; }
+  .next { display: inline-flex; align-items: center; gap: 8px; box-sizing: border-box; height: 30px; padding: 0 12px; background: none; border: 1px solid var(--line); color: var(--fg); font: 12px system-ui, sans-serif; cursor: pointer; max-width: 460px; }
+  .next:hover { border-color: var(--accent); } .next i { width: 6px; height: 14px; flex: none; } .next span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .next b { color: var(--accent); font: 700 12px ui-monospace, monospace; flex: none; }
   .spacer { flex: 1; }
   .filters { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  .dim { color: var(--dim); font-size: 12px; }
+  .dim { color: var(--dim); font-size: 12.5px; }
   .tg { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; } .tg input { accent-color: var(--accent); }
-  .list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 20px; }
-  h3 { margin: 18px 0 6px; font: 700 12px system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
-  .row { display: grid; grid-template-columns: 56px 64px 40px 1fr 100px 110px 100px; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
-  .row:hover { background: var(--hover); }
-  .row.past { opacity: 0.62; }
-  .row.next { border-left: 2px solid var(--accent); background: var(--accent-soft); opacity: 1; }
-  .t { font-family: ui-monospace, monospace; color: var(--dim); }
-  .c { font: 700 11px ui-monospace, monospace; padding: 2px 6px; border: 1px solid var(--line); text-align: center; }
-  .i { display: inline-flex; gap: 2px; } .i i { width: 5px; height: 12px; background: var(--line); }
-  .i.high i { background: var(--down); }
-  .i.medium i:nth-child(-n + 2) { background: #ff9800; }
-  .i.low i:first-child { background: var(--dim); }
-  .i.holiday i { background: var(--line); opacity: 0.5; }
-  .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; flex-direction: column; }
-  .det { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+  .q { box-sizing: border-box; height: 30px; width: 230px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 0 10px; font: 12.5px system-ui, sans-serif; outline: none; margin-left: auto; } .q:focus { border-color: var(--accent); }
+  .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(420px, 52%) 1fr; }
+  .list { overflow-y: auto; border-right: 1px solid var(--line); }
+  .day { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 10px 16px 6px; font: 700 11px system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); border-bottom: 1px solid var(--line); }
+  .day i { font-style: normal; margin-left: 10px; background: var(--accent); color: #fff; padding: 1px 7px; font-size: 10px; }
+  .row { display: grid; grid-template-columns: 44px 58px 34px 1fr auto; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 8px 16px; background: none; border: 0; border-bottom: 1px solid var(--line); border-left: 2px solid transparent; color: var(--fg); font: 13px system-ui, sans-serif; cursor: pointer; }
+  .row:hover { background: var(--hover); } .row.on { background: var(--accent-soft); border-left-color: var(--accent); } .row.past { opacity: 0.6; } .row.on.past { opacity: 1; }
+  .t { font: 11.5px ui-monospace, monospace; color: var(--dim); }
+  .c { font: 700 10.5px ui-monospace, monospace; padding: 2px 5px; border: 1px solid var(--line); text-align: center; overflow: hidden; text-overflow: ellipsis; }
   .c.co { color: var(--accent); border-color: var(--accent); }
-  .q { box-sizing: border-box; height: 30px; width: 200px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 0 10px; font: 12.5px system-ui, sans-serif; outline: none; } .q:focus { border-color: var(--accent); }
-  .v { display: flex; flex-direction: column; font-family: ui-monospace, monospace; font-size: 12.5px; } .v small { font: 10px system-ui, sans-serif; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
-  .v b { font-weight: 500; } .v b.has { color: var(--up); font-weight: 700; }
-  .empty, .note { color: var(--dim); font-size: 12.5px; } .note { margin-top: 20px; max-width: 800px; }
-  .err { color: var(--down); font-size: 12.5px; }
+  .i { display: inline-flex; gap: 2px; } .i u { width: 5px; height: 12px; background: var(--line); text-decoration: none; } .i u.f { background: var(--c); }
+  .n { display: flex; flex-direction: column; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; } .n small { color: var(--dim); font: 400 11px system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; }
+  .v { display: flex; gap: 10px; align-items: baseline; font: 12px ui-monospace, monospace; white-space: nowrap; }
+  .v b { font-weight: 700; } .v b.above { color: var(--up); } .v b.below { color: var(--down); } .v em { font-style: normal; color: var(--fg); } .v small { color: var(--dim); }
+  .note { padding: 16px; color: var(--dim); font-size: 13px; text-align: center; } .note.small { font-size: 11.5px; text-align: left; }
+  .lnk { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
+  .err { padding: 6px 16px; color: var(--down); font-size: 11.5px; }
+  .detail { overflow-y: auto; padding: 18px 26px 40px; }
+  .kind { display: flex; align-items: center; gap: 10px; color: var(--dim); font: 12px system-ui, sans-serif; margin-bottom: 8px; }
+  .imp { margin-left: auto; color: var(--c); text-transform: uppercase; font: 700 10.5px system-ui, sans-serif; letter-spacing: 0.08em; border: 1px solid var(--c); padding: 1px 8px; }
+  h2 { margin: 0 0 8px; font: 700 20px/1.3 system-ui, sans-serif; }
+  .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); font: 12px system-ui, sans-serif; margin-bottom: 12px; } .rel { color: var(--accent); }
+  .det { margin: 0 0 14px; color: var(--dim); font-size: 13px; }
+  .vals { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .vals > div { border: 1px solid var(--line); padding: 10px 16px; min-width: 120px; display: flex; flex-direction: column; gap: 4px; }
+  .vals small { color: var(--dim); font: 10px system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.06em; } .vals b { font: 700 20px ui-monospace, monospace; }
+  .vals b.above { color: var(--up); } .vals b.below { color: var(--down); }
+  .sp { font: 600 11px system-ui, sans-serif; } .sp.above { color: var(--up); } .sp.below { color: var(--down); } .sp.inline { color: var(--dim); }
+  .ai { border: 1px solid var(--accent); background: #0a0614; padding: 14px 16px 12px; margin-bottom: 20px; }
+  .aih { display: flex; align-items: center; gap: 10px; font: 700 11px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+  .aih small { color: var(--dim); text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .aih button { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--fg); padding: 3px 9px; font: 600 11px system-ui, sans-serif; cursor: pointer; } .aih button:hover:not(:disabled) { border-color: var(--accent); } .aih button:disabled { opacity: 0.5; }
+  .ai p { margin: 8px 0; font: 14px/1.5 system-ui, sans-serif; } .ai p b { color: var(--accent); margin-right: 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; } .ai p b.up { color: var(--up); } .ai p b.dn { color: var(--down); }
+  .badges { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .int { display: inline-flex; gap: 3px; } .int i { width: 14px; height: 6px; background: var(--line); } .int i.f { background: var(--accent); }
+  .asset { border: 1px solid var(--line); padding: 1px 8px; font: 11px ui-monospace, monospace; }
+  .skel { height: 12px; background: linear-gradient(90deg, var(--line), #2a1250, var(--line)); background-size: 200% 100%; animation: sk 1.2s linear infinite; margin: 10px 0; } .skel.s2 { width: 70%; }
+  @keyframes sk { to { background-position: -200% 0; } }
+  .errt { color: var(--down); font-size: 13px; }
+  .acts { display: flex; gap: 10px; }
+  .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 0 16px; height: 30px; font: 700 12px system-ui, sans-serif; cursor: pointer; } .primary:hover { filter: brightness(1.12); }
+  .pad { padding: 20px 0; }
 </style>
