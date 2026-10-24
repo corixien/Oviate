@@ -98,7 +98,7 @@
   {#if app.page === 'calendar'}<CalendarPage />{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
     <LeftBar />
-    <div class="center">
+    <div class="center" class:noright={!app.showWatchlist}>
      <div class="chartarea" bind:this={center}>
       <main class="grid l{app.layout}" class:flush={app.showWatchlist} style:grid-template-columns={cols} style:grid-template-rows={rows}>
         {#each app.charts.slice(0, app.count) as c, i (c.id)}
@@ -162,8 +162,9 @@
   .body { flex: 1; display: flex; min-height: 0; }
   .body.hid { display: none; }
   .center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .center.noright :global(.panel) { margin-right: 12px; }
   .chartarea { flex: 1; position: relative; min-width: 0; min-height: 0; display: flex; }
-  .grid { flex: 1; display: grid; gap: 0; padding: 12px; background: var(--bg); min-width: 0; min-height: 0; }
+  .grid { flex: 1; display: grid; gap: 0; padding: 12px 12px 0; background: var(--bg); min-width: 0; min-height: 0; }
   .grid.flush { padding-right: 0; }
   /* sections touch: their own border lines are the drag handles (invisible hit zones straddle them) */
   .rcol { flex: none; display: grid; margin: 12px 12px 12px -1px; min-height: 0; min-width: 0; }

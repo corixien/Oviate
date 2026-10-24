@@ -55,9 +55,13 @@
     const eq = sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : [];
     const c = curve(eq, 800, 150, sres?.initialCapital);
     if (eq.length < 2) return { ...c, full: '', invested: '' };
-    // one scale for the equity and the two faint buy & hold lines
-    const all = [...eq, ...bhCurves.full, ...bhCurves.invested, sres!.initialCapital].filter((v) => Number.isFinite(v));
-    const lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1;
+    // The equity keeps its own scale (as before). The faint buy & hold lines share it and widen it by at most one equity span on each side,
+    // so a runaway buy & hold cannot flatten the equity curve: where it leaves the chart it is simply cut off.
+    const bh = [...bhCurves.full, ...bhCurves.invested].filter((v) => Number.isFinite(v));
+    const eLo = Math.min(...eq, sres!.initialCapital), eHi = Math.max(...eq, sres!.initialCapital), eSpan = eHi - eLo || 1;
+    const lo = bh.length ? Math.min(eLo, Math.max(Math.min(...bh), eLo - eSpan * 0.6)) : eLo;
+    const hi = bh.length ? Math.max(eHi, Math.min(Math.max(...bh), eHi + eSpan * 0.6)) : eHi;
+    const span = hi - lo || 1;
     const line = (pts: number[]) => pts.map((v, i) => `${i ? 'L' : 'M'}${((i / (pts.length - 1)) * 800).toFixed(1)},${(144 - ((v - lo) / span) * 138).toFixed(1)}`).join('');
     return { path: line(eq), lo, hi, y0: 144 - ((sres!.initialCapital - lo) / span) * 138, full: bhCurves.full.length > 1 ? line(bhCurves.full) : '', invested: bhCurves.invested.length > 1 ? line(bhCurves.invested) : '' };
   });
@@ -254,7 +258,8 @@
 </div>
 
 <style>
-  .panel { flex: none; position: relative; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bar); min-height: 0; overflow: hidden; }
+  /* outlined like the chart panes: touches the charts above (borders collapse) and lines up with the right column */
+  .panel { flex: none; position: relative; display: flex; flex-direction: column; border: 1px solid var(--line); margin: -1px 0 12px 12px; box-sizing: border-box; background: var(--bar); min-height: 0; overflow: hidden; }
   .grip { position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; z-index: 5; }
   .grip:hover { background: var(--accent); opacity: 0.6; }
   .bar { display: flex; align-items: center; gap: 14px; padding: 0 12px; height: 38px; flex: none; border-bottom: 1px solid var(--line); }

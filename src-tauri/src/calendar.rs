@@ -265,27 +265,45 @@ pub async fn window(cache: Arc<Cache>, http: reqwest::Client, fmp_key: Option<St
     use chrono::Datelike;
     let now = Utc::now().timestamp();
     let mut errors = Vec::new();
+    let fmp_key_present = fmp_key.is_some();
 
     // ---- macro
     let mut all: Vec<CalEvent> = cache.kv_get("calendar")?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
     all.retain(|e| e.kind == "macro");
     let at: i64 = cache.kv_get("calendar_at")?.and_then(|v| v.parse().ok()).unwrap_or(0);
-    if force || now - at > 3600 {
+    let kv_i64 = |k: &str| cache.kv_get(k).ok().flatten().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+    // a manual refresh may not hammer the providers: at most every 5 minutes
+    if (force && now - at > 300) || now - at > 3600 {
         let keep_from = now - 120 * 86400;
         let mut ok = false;
-        match forex_factory(&http).await {
-            Ok(rows) => { all = merge(all, rows, keep_from); ok = true; }
-            Err(e) => errors.push(ProviderError { provider: "forexfactory".into(), error: e.to_string() }),
-        }
-        if let Some(key) = fmp_key {
-            let (f, t) = (from.max(now - 90 * 86400), to.min(now + 60 * 86400));
-            match fmp(&http, &key, f, t).await {
-                Ok(rows) => {
-                    // FMP covers this window: drop the feed's rows inside it so nothing shows twice
-                    all.retain(|e| !(e.provider == "ff" && e.ts >= f && e.ts <= t + 86400));
-                    all = merge(all, rows, keep_from); ok = true;
+        // Forex Factory rate-limits (HTTP 429): after a failure wait before asking again and keep showing the cached events
+        if now >= kv_i64("cal_ff_until") {
+            match forex_factory(&http).await {
+                Ok(rows) => { all = merge(all, rows, keep_from); ok = true; }
+                Err(e) => {
+                    let msg = e.to_string();
+                    let _ = cache.kv_set("cal_ff_until", &(now + if msg.contains("429") { 3600 } else { 300 }).to_string());
+                    if all.is_empty() { errors.push(ProviderError { provider: "forexfactory".into(), error: msg }); }
                 }
-                Err(e) => errors.push(ProviderError { provider: "fmp".into(), error: e.to_string() }),
+            }
+        }
+        if let Some(key) = fmp_key.clone() {
+            if now >= kv_i64("fmp_until") {
+                let (f, t) = (from.max(now - 90 * 86400), to.min(now + 60 * 86400));
+                match fmp(&http, &key, f, t).await {
+                    Ok(rows) => {
+                        // FMP covers this window: drop the feed's rows inside it so nothing shows twice
+                        all.retain(|e| !(e.provider == "ff" && e.ts >= f && e.ts <= t + 86400));
+                        all = merge(all, rows, keep_from); ok = true;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        // 401 / 402 / 403: the plan or key does not include the calendar. Do not ask again for a day.
+                        let denied = ["401", "402", "403"].iter().any(|c| msg.contains(c));
+                        let _ = cache.kv_set("fmp_until", &(now + if denied { 86400 } else { 600 }).to_string());
+                        if !denied { errors.push(ProviderError { provider: "fmp".into(), error: msg }); }
+                    }
+                }
             }
         }
         if ok {
@@ -331,6 +349,9 @@ pub async fn window(cache: Arc<Cache>, http: reqwest::Client, fmp_key: Option<St
     if (!todo.is_empty() || !months.is_empty()) && !BG.swap(true, std::sync::atomic::Ordering::SeqCst) {
         pending = true;
         tokio::spawn(refresh(cache.clone(), http.clone(), todo, months));
+    }
+    if fmp_key_present && now < kv_i64("fmp_until") && kv_i64("fmp_until") - now > 3600 {
+        errors.push(ProviderError { provider: "fmp".into(), error: "your Financial Modeling Prep plan does not include the economic calendar (HTTP 402), so the key is ignored for now. Clear the key in Settings or upgrade the plan.".into() });
     }
     if let Some(e) = cache.kv_get("cal_nq_error")?.filter(|e| !e.is_empty()) { errors.push(ProviderError { provider: "nasdaq".into(), error: e }); }
 

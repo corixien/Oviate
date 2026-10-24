@@ -9,10 +9,10 @@
   const monday = (d: Date) => day0(d) - ((d.getDay() + 6) % 7) * DAY;
   const RANGES: { id: string; label: string; from: (d: Date) => number; to: (d: Date) => number }[] = [
     { id: 'today', label: 'Today', from: (d) => day0(d), to: (d) => day0(d) + DAY },
-    { id: 'tomorrow', label: 'Tomorrow', from: (d) => day0(d) + DAY, to: (d) => day0(d) + 2 * DAY },
     { id: 'week', label: 'This week', from: (d) => monday(d), to: (d) => monday(d) + 7 * DAY },
     { id: 'next', label: 'Next week', from: (d) => monday(d) + 7 * DAY, to: (d) => monday(d) + 14 * DAY },
-    { id: 'past', label: 'Past 7 days', from: (d) => day0(d) - 7 * DAY, to: (d) => day0(d) },
+    { id: 'pm7', label: '±7 days', from: (d) => day0(d) - 7 * DAY, to: (d) => day0(d) + 8 * DAY },
+    { id: 'pm14', label: '±14 days', from: (d) => day0(d) - 14 * DAY, to: (d) => day0(d) + 15 * DAY },
   ];
 
   const KINDS: ['all' | CalEvent['kind'], string][] = [['all', 'All'], ['macro', 'Macro'], ['earnings', 'Earnings'], ['dividend', 'Dividends'], ['split', 'Splits'], ['ipo', 'IPOs']];
@@ -21,6 +21,8 @@
   const LABELS: Record<string, [string, string, string]> = { macro: ['Actual', 'Forecast', 'Previous'], earnings: ['', 'EPS estimate', 'Last year EPS'], dividend: ['Dividend', '', ''], split: ['', '', ''], ipo: ['', '', ''] };
 
   let range = $state('week');
+  /** the range whose list was scrolled to today already */
+  let scrolledFor = '';
   let kind = $state<'all' | CalEvent['kind']>('all');
   let impact = $state<'all' | 'medium' | 'high'>('all');
   let region = $state('all');
@@ -86,7 +88,7 @@
     } catch (e) { if (my === run) { errors = [{ provider: 'calendar', error: String(e) }]; pending = false; loaded = true; } }
     finally { if (my === run) loading = false; }
   }
-  $effect(() => { void range; untrack(() => load()); });
+  $effect(() => { void range; untrack(() => { scrolledFor = ''; load(); }); });
 
   onMount(() => {
     newsStatus().then((s) => (hasGroq = s.groq));
@@ -102,6 +104,13 @@
     if (!want || !items.length) return;
     const e = items.find((x) => x.id === want);
     if (e) { sel = want; app.calFocus = { id: null }; tick().then(() => document.querySelector('.row.on')?.scrollIntoView({ block: 'center' })); }
+  });
+  // the list starts at today: events before it are above (scroll up), the coming ones below
+  $effect(() => {
+    if (!groups.length || !listEl || scrolledFor === range) return;
+    scrolledFor = range;
+    const gi = Math.max(0, groups.findIndex((g) => g.today || g.rows[0].ts >= nowS));
+    tick().then(() => { const el = listEl?.querySelectorAll<HTMLElement>('.day')[gi]; if (el && listEl) listEl.scrollTop = el.offsetTop; });
   });
   // nothing selected yet: the next upcoming event (or the first one)
   $effect(() => { if (!sel && shown.length) sel = (next ?? shown[0]).id; });
@@ -209,7 +218,7 @@
           {:else}No events in this range.{/if}
         </div>
       {:else if hidden}<div class="note small">{hidden} more hidden by the filters.</div>{/if}
-      {#each errors as er}<div class="err">{er.provider}: {er.error}</div>{/each}
+      {#each errors as er}<div class={er.provider === 'fmp' ? 'note small' : 'err'}>{er.provider}: {er.error}</div>{/each}
       <div class="note small">Macro: Forex Factory (USD, EUR, GBP, JPY, CAD, AUD, NZD, CHF, CNY){items.some((e) => e.provider === 'fmp') ? ' and Financial Modeling Prep' : '; a free Financial Modeling Prep key in Settings adds more countries and actual values'}. Companies: Nasdaq, 30 days back to 21 ahead. Times in your time zone.</div>
     </div>
 
@@ -224,11 +233,14 @@
         {#if current.detail}<p class="det">{current.detail}</p>{/if}
 
         {#if lab.some(Boolean)}
-          <div class="vals">
-            {#if lab[0]}<div><small>{lab[0]}</small><b class={sp ?? ''}>{current.actual ?? (current.ts > nowS ? 'pending' : '—')}</b>{#if sp}<span class="sp {sp}">{sp === 'above' ? 'above forecast' : sp === 'below' ? 'below forecast' : 'in line'}</span>{/if}</div>{/if}
-            {#if lab[1]}<div><small>{lab[1]}</small><b>{current.forecast ?? '—'}</b></div>{/if}
-            {#if lab[2]}<div><small>{lab[2]}</small><b>{current.previous ?? '—'}</b></div>{/if}
-          </div>
+          {@const boxes = [[lab[0], current.actual], [lab[1], current.forecast], [lab[2], current.previous]].filter(([l, v]) => l && v)}
+          {#if boxes.length}
+            <div class="vals">
+              {#each boxes as [l, v], i (l)}<div><small>{l}</small><b class={l === lab[0] ? sp ?? '' : ''}>{v}</b>{#if l === lab[0] && sp}<span class="sp {sp}">{sp === 'above' ? 'above forecast' : sp === 'below' ? 'below forecast' : 'in line'}</span>{/if}</div>{/each}
+            </div>
+          {:else}
+            <p class="det">No figures for this event: announcements, speeches and holidays have none.{current.kind === 'macro' ? ' Actual values are not part of the free Forex Factory feed.' : ''}</p>
+          {/if}
         {/if}
 
         <section class="ai">
@@ -281,7 +293,7 @@
   .tg { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; } .tg input { accent-color: var(--accent); }
   .q { box-sizing: border-box; height: 30px; width: 230px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 0 10px; font: 12.5px system-ui, sans-serif; outline: none; margin-left: auto; } .q:focus { border-color: var(--accent); }
   .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(420px, 52%) 1fr; }
-  .list { overflow-y: auto; border-right: 1px solid var(--line); }
+  .list { position: relative; overflow-y: auto; border-right: 1px solid var(--line); }
   .day { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 10px 16px 6px; font: 700 11px system-ui, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); border-bottom: 1px solid var(--line); }
   .day i { font-style: normal; margin-left: 10px; background: var(--accent); color: #fff; padding: 1px 7px; font-size: 10px; }
   .row { display: grid; grid-template-columns: 44px 58px 34px 1fr auto; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 8px 16px; background: none; border: 0; border-bottom: 1px solid var(--line); border-left: 2px solid transparent; color: var(--fg); font: 13px system-ui, sans-serif; cursor: pointer; }

@@ -54,7 +54,7 @@
 
       <section>
         <h3>Economic calendar</h3>
-        <p class="status">Always on, no key: the Forex Factory weekly calendar (this and next week, forecast and previous). With a free Financial Modeling Prep key the calendar reaches further back and forward and shows actual values.</p>
+        <p class="status">Always on, no key: the Forex Factory weekly calendar (this and next week, forecast and previous). A Financial Modeling Prep key adds more countries, a wider range and actual values, but only if your FMP plan includes the economic calendar (many free plans answer HTTP 402; the app then ignores the key for a day and keeps the Forex Factory data).</p>
         <label>Financial Modeling Prep API key <span class="st" class:ok={ns.fmp}>{ns.fmp ? 'saved' : 'not set'}</span>
           <input type="password" bind:value={fmpKey} autocomplete="off" placeholder={ns.fmp ? '••••••••' : 'Key from financialmodelingprep.com'} /></label>
         <div class="btns">
