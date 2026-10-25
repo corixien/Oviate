@@ -134,6 +134,10 @@
           </div>
         </div>
         <div>
+          <h3>Keybinds</h3>
+          <button onclick={() => { app.settingsOpen = false; app.keybindsOpen = true; }}>Edit shortcuts and command-bar commands…</button>
+        </div>
+        <div>
           <h3>Candles</h3>
           <div class="seg">
             {#each ['neon', 'mono', 'classic', 'custom'] as pl}

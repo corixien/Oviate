@@ -2,6 +2,7 @@
   import { onMount, untrack, tick } from 'svelte';
   import { app, type ChartCfg } from '$lib/app.svelte';
   import { history } from '$lib/history.ts';
+  import { comboOf, hasCombo } from '$lib/keybinds.ts';
   import { getCandles, newsWindow, calendarWindow, symbolRegions, type CalEvent, TF_SECONDS, type NewsItem } from '$lib/api';
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
@@ -463,22 +464,25 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
     if (app.active !== index || !r) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.isContentEditable) return;
-      if (e.ctrlKey || e.metaKey) return;
-      if (replay && (e.key === ' ' || (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')))) {
+      if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.isContentEditable || app.keybindsOpen) return;
+      const combo = comboOf(e);
+      const hit = (id: string) => hasCombo(id, combo, app.keybinds);
+      if (replay && (hit('replay.toggle') || hit('replay.next') || hit('replay.prev'))) {
         e.preventDefault();
-        if (e.key === ' ') { if (app.replay && app.replay.t !== null) app.replay.playing = !app.replay.playing; } else replayStep(e.key === 'ArrowRight' ? 1 : -1);
+        if (hit('replay.toggle')) { if (app.replay && app.replay.t !== null) app.replay.playing = !app.replay.playing; } else replayStep(hit('replay.next') ? 1 : -1);
         return;
       }
-      if (e.key === 'Delete' || e.key === 'Backspace') { if (r!.deleteSelected()) e.preventDefault(); }
-      else if (e.key === 'Escape') { if (app.replay && app.replay.t === null) exitReplay(); r!.cancelDraft(); app.tool = 'cursor'; }
-      else if (e.key === 'Enter') { if (r!.finishPath()) e.preventDefault(); } // keeps the command bar from opening
-      else if (e.key === 'ArrowLeft') r!.panBars(e.shiftKey ? -20 : -3);
-      else if (e.key === 'ArrowRight') r!.panBars(e.shiftKey ? 20 : 3);
-      else if (e.key === '+' || e.key === '=') r!.zoomBars(1.2, (box.clientWidth - 66) / 2);
-      else if (e.key === '-') r!.zoomBars(1 / 1.2, (box.clientWidth - 66) / 2);
-      else if (e.altKey && e.key.toLowerCase() === 'r') r!.resetView();
-      else if (e.key === 'End') r!.scrollToEnd();
+      if (hit('chart.delete')) { if (r!.deleteSelected()) e.preventDefault(); }
+      else if (hit('chart.cancel')) { if (app.replay && app.replay.t === null) exitReplay(); r!.cancelDraft(); app.tool = 'cursor'; }
+      else if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { if (r!.finishPath()) e.preventDefault(); } // keeps the command bar from opening
+      else if (hit('chart.pan_left')) r!.panBars(-3);
+      else if (hit('chart.pan_right')) r!.panBars(3);
+      else if (hit('chart.pan_left_big')) r!.panBars(-20);
+      else if (hit('chart.pan_right_big')) r!.panBars(20);
+      else if (hit('chart.zoom_in')) r!.zoomBars(1.2, (box.clientWidth - 66) / 2);
+      else if (hit('chart.zoom_out')) r!.zoomBars(1 / 1.2, (box.clientWidth - 66) / 2);
+      else if (hit('chart.reset')) r!.resetView();
+      else if (hit('chart.end')) r!.scrollToEnd();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);

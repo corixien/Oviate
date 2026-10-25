@@ -59,6 +59,10 @@ class App {
   tool = $state<DrawTool>('cursor');
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
+  keybindsOpen = $state(false);
+  /** shortcut overrides by action id ('' = unbound; see keybinds.ts) and renamed command-bar commands by command id */
+  keybinds = $state<Record<string, string>>({});
+  cmdAlias = $state<Record<string, string>>({});
   /** Latest backtest per chart (for the Strategy Tester panel). */
   strategyResults = $state<Record<string, { uid: string; name: string; symbol: string; tf: string; result: PineResult; stepSec: number; firstClose: number; lastClose: number; closes: Float64Array }>>({});
   /** Strategy Tester settings (simulation only: not stored in strategies, not shown in chart drawings). */
@@ -76,6 +80,8 @@ class App {
   /** Script editor target: an existing script or a new one (name null). */
   /** name null = a new script; blank = nothing selected yet (opened with /ind or /strat) */
   editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean; /** open in the visual builder instead of the code */ builder?: boolean }>({ kind: 'indicators', name: null });
+  /** Strategy editor view that stays when another script is picked */
+  editorMode = $state<'code' | 'builder'>('code');
   newsFocus = $state<{ symbol: string | null; id: string | null }>({ symbol: null, id: null });
   showNews = $state(true);
   /** calendar currencies resolved by the backend for symbols the bundled table does not know (session cache) */
@@ -184,6 +190,8 @@ class App {
         if (s.split) this.split = { ...this.split, ...s.split };
         this.showWatchlist = s.showWatchlist ?? true;
         this.uiZoom = s.uiZoom ?? 1;
+        if (s.keybinds) this.keybinds = s.keybinds;
+        if (s.cmdAlias) this.cmdAlias = s.cmdAlias;
         if (s.eqView) this.eqView = { ...this.eqView, ...s.eqView };
         if (s.tester) this.tester = { ...this.tester, initialCapital: s.tester.initialCapital ?? this.tester.initialCapital, commissionValue: s.tester.commissionValue ?? this.tester.commissionValue, slippagePct: s.tester.slippagePct ?? this.tester.slippagePct, fillOnClose: s.tester.fillOnClose ?? this.tester.fillOnClose }; // slippagePct is new: older saves (tick based) get the 0.1 default
         if (this.uiZoom !== 1) this.applyZoom();
@@ -199,7 +207,7 @@ class App {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
         lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
-        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, eqView: $state.snapshot(this.eqView), uiZoom: this.uiZoom, tester: $state.snapshot(this.tester)
+        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, eqView: $state.snapshot(this.eqView), uiZoom: this.uiZoom, tester: $state.snapshot(this.tester), keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias)
       }));
     }, 400);
   }

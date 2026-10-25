@@ -6,7 +6,8 @@
   import { tick, untrack } from 'svelte';
   import { aiComplete } from '$lib/api';
   import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, setDirection, codeSides, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
-  import { aiBuilder, aiBuilderFromCode, aiMirrorSide, mirrorSideLocal } from '$lib/builder/ai.ts';
+  import { aiBuilder, aiMirrorSide, mirrorSideLocal } from '$lib/builder/ai.ts';
+  import { convertCode, cachedModel } from '$lib/builder/cache';
   import { indInfo, allInfos } from '$lib/builder/info';
   import { builderModelOf, checkModel, newModel, toPine, type Model } from '$lib/builder/model.ts';
   import AiStrategyFields from './AiStrategyFields.svelte';
@@ -79,9 +80,11 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     const parsed = builderModelOf(code, indInfo);
     const foreign = !parsed && code.trim() !== '' && code.trim() !== TEMPLATES.strategies.trim();
     if (foreign) {
+      const stored = await cachedModel(code); // converted before (also by the background job) and the code is unchanged: no AI call
+      if (stored) { model = stored; enterSnap = JSON.stringify($state.snapshot(model)); mode = 'builder'; status = null; return; }
       aiBusy = true; status = { ok: true, text: 'Reading your code into the builder with the AI, this can take up to a minute…' };
       try {
-        model = await aiBuilderFromCode(code, allInfos(), aiComplete);
+        model = await convertCode(code);
         status = { ok: true, text: 'Your code was read into the builder (closest indicators of your list). Check the conditions; the code stays as it is until you change something here and save.' };
       } catch (e) {
         model = newModel();
@@ -99,7 +102,18 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     }
     mode = 'code';
   }
-  const toggleMode = () => { if (!aiBusy) { if (inBuilder) leaveBuilder(); else enterBuilder(); } };
+  const toggleMode = () => { if (!aiBusy) app.editorMode = inBuilder ? 'code' : 'builder'; };
+  // the remembered view changes (toggle button, back / forward): open or leave the builder
+  let prefSeen = app.editorMode;
+  $effect(() => {
+    const want = app.editorMode;
+    untrack(() => {
+      if (want === prefSeen) return;
+      prefSeen = want;
+      if (kind !== 'strategies' || app.editor.blank || aiBusy) return;
+      if (want === 'builder' && mode !== 'builder') enterBuilder(); else if (want === 'code' && mode === 'builder') leaveBuilder();
+    });
+  });
 
   // the settings mirror what is open: the model in the builder, the code otherwise (also while typing)
   function readSettings() {
@@ -232,7 +246,6 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     const key = kind + '|' + (app.editor.name ?? '') + (app.editor.blank ? '|blank' : '') + (app.editor.builder ? '|builder' : '');
     if (key === loadedKey) return;
     loadedKey = key;
-    const wasBuilder = untrack(() => mode === 'builder');
     status = null; undo = null; mode = 'code';
     if (app.editor.blank) { name = ''; code = ''; }
     else if (app.editor.name === null) { name = ''; code = TEMPLATES[kind]; }
@@ -243,9 +256,9 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     }
     lastTitle = scriptMeta(code).title;
     if (kind !== 'strategies' || app.editor.blank) return;
-    // the view stays: another strategy opens in the builder too when the builder made it (other code would need the AI, so that one opens as code)
-    if (app.editor.builder || (wasBuilder && untrack(() => builderModelOf(code, indInfo)))) untrack(() => enterBuilder());
-    else if (wasBuilder) status = { ok: true, text: 'This strategy was not made by the builder: press Builder to read it into the builder with the AI.' };
+    // the view (code / builder) stays when another strategy is picked; a library script converted before opens at once, other code goes through the AI
+    if (app.editor.builder) { app.editorMode = 'builder'; prefSeen = 'builder'; }
+    if (app.editorMode === 'builder') untrack(() => enterBuilder());
   });
 
   function check(c = code): boolean {

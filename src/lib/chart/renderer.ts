@@ -166,6 +166,12 @@ export class ChartRenderer {
 
   resize(w: number, h: number) {
     this.dpr = window.devicePixelRatio || 1;
+    // a narrower / wider chart keeps the bar width and the newest bars at the right edge (the left side gives or gains room)
+    if (this.w > 100 && w > 100 && w !== this.w && !this.pendingReset) {
+      this.start += (this.w - w) / this.barW;
+      if (this.tgt) { this.tgt.start += (this.w - w) / this.barW; this.tgt.zoomT = false; }
+      this.clampStart();
+    }
     this.w = w; this.h = h;
     // assigning a canvas size clears it: only when it changed, and repaint in the same task so no blank frame is shown (that was the flicker while resizing)
     for (const c of [this.main, this.over]) {
@@ -174,6 +180,7 @@ export class ChartRenderer {
       if (c.height !== ch) c.height = ch;
     }
     if (this.pendingReset && w > 100) { this.pendingReset = false; if (!this.followLeader()) { this.resetView(); if (!chartSync.leader) chartSync.leader = this; } }
+    else if (chartSync.on && chartSync.last && chartSync.leader && chartSync.leader !== this && live.has(this)) this.applyView(chartSync.last); // synced charts of a new size show the leader's time window again
     this.drawNow();
   }
 
@@ -1630,7 +1637,7 @@ export class ChartRenderer {
     this.kick();
   }
 
-  /** Ctrl+scroll: zoom time and price by the same factor (the x / y ratio never changes) around the cursor; with `toStart` (Ctrl+Shift) around the newest candle. */
+  /** Ctrl+scroll: zoom time and price by the same factor (the x / y ratio never changes) around the cursor; with `toStart` (Ctrl+Shift) with the hard right stop pinned to the right edge (the Reset chart framing). */
   private wheelZoom(amount: number, cx: number, cy: number, toStart = false) {
     const m = this.panes[0]; if (!m || !this.s.data.n) return;
     const T = this.ensurePrice();
@@ -1648,11 +1655,11 @@ export class ChartRenderer {
     }
     if (Math.abs(ft - 1) < 1e-4 && Math.abs(f - 1) < 1e-4) return;
     let ax = cx, ay = cy, aIdx = this.idxOf(cx);
-    if (toStart) { // anchor on the newest candle (or the plot edge when it is off screen)
-      const d = this.s.data, last = d.n - 1, x1 = this.xOf(last);
-      ax = Math.min(Math.max(x1, 0), this.plotW);
-      aIdx = ax === x1 ? last : this.idxOf(ax);
-      ay = this.py(d.c[last], m);
+    if (toStart) { // like Reset chart: the newest candles at the hard right stop, which stays pinned to the right edge while zooming
+      const d = this.s.data;
+      ax = this.plotW;
+      aIdx = d.n + RIGHT_PAD;
+      ay = this.py(d.c[d.n - 1], m);
     }
     // time: keep the anchor bar fixed
     T.zoomT = true; T.ax = ax; T.aIdx = aIdx;

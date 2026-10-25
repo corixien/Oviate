@@ -24,7 +24,8 @@
 
   const SUBS: [PaperSub, string][] = [['positions', 'Positions'], ['orders', 'Orders'], ['history', 'History'], ['stats', 'Statistics'], ['equity', 'Equity']];
 
-  function setTab(t: 'paper' | 'tester' | 'optimizer' | 'journal') { paper.panelTab = t; paper.panelOpen = true; paper.persist(); }
+  // a second click on the open tab folds the panel again
+  function setTab(t: 'paper' | 'tester' | 'optimizer' | 'journal') { paper.panelOpen = paper.panelOpen && paper.panelTab === t ? false : true; paper.panelTab = t; paper.persist(); }
   function toggle() { paper.panelOpen = !paper.panelOpen; paper.persist(); }
 
   // ----- drag to resize -----
@@ -55,7 +56,8 @@
   // equity chart: which lines are shown and which scale they share
   // remembered choice: app.eqView is persisted with the app state
   const toggleLine = (k: 'eq' | 'bh' | 'bhi') => { app.eqView[k] = !app.eqView[k]; app.persist(); };
-  const setScale = (v: 'equity' | 'all') => { app.eqView.scale = v; app.persist(); };
+  // Equity hides the buy & hold lines, All lines shows both (single lines can still be toggled afterwards)
+  const setScale = (v: 'equity' | 'all') => { app.eqView.scale = v; app.eqView.bh = app.eqView.bhi = v === 'all'; app.persist(); };
   const sCurve = $derived.by(() => {
     const eq = sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : [];
     const c = curve(eq, 800, 150, sres?.initialCapital);
@@ -84,7 +86,6 @@
     app.tester[k] = v; app.persist();
   }
   const dur = (bars: number) => (Number.isFinite(bars) ? bars.toFixed(1) : '—');
-  let testerSub = $state<'overview' | 'trades' | 'settings'>('overview');
   const sTrades = $derived([...(sres?.trades ?? [])].reverse());
 
   const deleteAcc = () => { if (acc && confirm(`Delete paper account "${acc.name}"?`)) paper.remove(acc.id); };
@@ -202,12 +203,12 @@
           {#if dstats.trades === 0 && sres.trades.length > 0}<span class="m">Only one open trade: the strategy never exits (no <b>strategy.close</b> / <b>strategy.exit</b> fires).</span>{/if}
         </div>
         <div class="subs">
-          <button class:on={testerSub === 'overview'} onclick={() => (testerSub = 'overview')}>Overview</button>
-          <button class:on={testerSub === 'trades'} onclick={() => (testerSub = 'trades')}>Trades<i>{sres.trades.length}</i></button>
-          <button class:on={testerSub === 'settings'} onclick={() => (testerSub = 'settings')}>Settings</button>
+          <button class:on={paper.testerSub === 'overview'} onclick={() => (paper.testerSub = 'overview')}>Overview</button>
+          <button class:on={paper.testerSub === 'trades'} onclick={() => (paper.testerSub = 'trades')}>Trades<i>{sres.trades.length}</i></button>
+          <button class:on={paper.testerSub === 'settings'} onclick={() => (paper.testerSub = 'settings')}>Settings</button>
         </div>
         <div class="body">
-          {#if testerSub === 'overview'}
+          {#if paper.testerSub === 'overview'}
             <h5>Equity <span class="dim">red = negative result</span></h5>
             <div class="legend">
               <button class:off={!app.eqView.eq} onclick={() => toggleLine('eq')} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
@@ -252,7 +253,7 @@
                 {/each}
               </tbody>
             </table>
-          {:else if testerSub === 'settings'}
+          {:else if paper.testerSub === 'settings'}
             <div class="tset">
               <p class="dim">Capital, fees and slippage only change the simulation in the Strategy Tester. They are not saved in the strategy and do not change the entry and exit boxes on the chart.</p>
               <label><span>Initial capital</span><input class="in" type="number" min="0" step="any" value={app.tester.initialCapital} oninput={(e) => setT('initialCapital', e)} /></label>

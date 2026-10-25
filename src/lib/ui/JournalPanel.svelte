@@ -7,7 +7,6 @@
   let accountId = $state('');
   const acc = $derived(paper.accounts.find((a) => a.id === accountId) ?? paper.active);
   let filter = $state<J.JournalFilter>(J.defaultFilter());
-  let sub = $state<'trades' | 'calendar'>('trades');
   let month = $state(J.monthKey(Math.floor(Date.now() / 1000)));
   let editing = $state('');
 
@@ -37,7 +36,7 @@
   const filtered = $derived(filter.range !== 'all' || filter.symbol || filter.side !== 'all' || filter.result !== 'all' || filter.source || filter.day);
 
   const tint = (pnl: number, max: number) => (pnl === 0 ? '' : `background: rgba(${pnl > 0 ? '34,197,94' : '239,68,68'}, ${(0.1 + 0.4 * Math.min(1, Math.abs(pnl) / max)).toFixed(2)})`);
-  const openDay = (date: string) => { filter.day = date; sub = 'trades'; };
+  const openDay = (date: string) => { filter.day = date; paper.journalSub = 'trades'; };
   const saveNote = (id: string, v: string) => { if (acc) paper.setTradeNote(acc.id, id, v); editing = ''; };
   function focusIt(el: HTMLInputElement) { el.focus(); }
 </script>
@@ -71,11 +70,11 @@
     <span class="m">Fees <b>{money(sum.fees)}</b></span>
   </div>
   <div class="subs">
-    <button class:on={sub === 'trades'} onclick={() => (sub = 'trades')}>Trades<i>{rows.length}</i></button>
-    <button class:on={sub === 'calendar'} onclick={() => (sub = 'calendar')}>Calendar</button>
+    <button class:on={paper.journalSub === 'trades'} onclick={() => (paper.journalSub = 'trades')}>Trades<i>{rows.length}</i></button>
+    <button class:on={paper.journalSub === 'calendar'} onclick={() => (paper.journalSub = 'calendar')}>Calendar</button>
   </div>
   <div class="body">
-    {#if sub === 'trades'}
+    {#if paper.journalSub === 'trades'}
       <table>
         <thead><tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>P&L</th><th>P&L %</th><th>Held</th><th>Fees</th><th>Exit reason</th><th>Source</th><th>Note</th></tr></thead>
         <tbody>

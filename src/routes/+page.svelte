@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { history } from '$lib/history.ts';
+  import { comboOf, combosOf, hasCombo, isBuiltin } from '$lib/keybinds.ts';
+  import { buildCommands } from '$lib/commands.svelte';
+  import KeybindsDialog from '$lib/ui/KeybindsDialog.svelte';
   import { app } from '$lib/app.svelte';
   import { onTick, streamSymbols } from '$lib/api';
   import Chart from '$lib/chart/Chart.svelte';
@@ -74,20 +77,37 @@
   $effect(() => { if (app.ready) { void [app.layout, app.active, app.theme, app.lang, app.grid, app.magnet, app.sync, app.showWatchlist, app.charts.map((c) => [c.symbol, c.tf, c.type, c.log, c.volume, c.indicators.length])]; app.persist(); } });
 
   // back / forward: page and bottom panel tab changes are recorded as steps (drawing edits are recorded by the charts)
-  type Nav = { page: typeof app.page; tab: string };
-  const navNow = (): Nav => ({ page: app.page, tab: paper.panelOpen ? paper.panelTab : '' });
+  // every view the user can navigate to is part of one snapshot; a change of any part is one step
+  type Nav = { page: typeof app.page; tab: string; psub: string; tsub: string; jsub: string; ed: string; mode: string; syms: string[] };
+  const navNow = (): Nav => ({
+    page: app.page, tab: paper.panelOpen ? paper.panelTab : '', psub: paper.sub, tsub: paper.testerSub, jsub: paper.journalSub,
+    ed: JSON.stringify([app.editor.kind, app.editor.name, !!app.editor.blank]), mode: app.editorMode,
+    syms: app.charts.slice(0, app.count).map((c) => `${c.id}|${c.symbol}|${c.tf}`)
+  });
+  const navKey = (n: Nav) => JSON.stringify(n);
   let navPrev = navNow();
   function goNav(n: Nav) {
     navPrev = n;
     app.page = n.page;
+    paper.sub = n.psub as typeof paper.sub; paper.testerSub = n.tsub as typeof paper.testerSub; paper.journalSub = n.jsub as typeof paper.journalSub;
     if (n.tab) { paper.panelTab = n.tab as typeof paper.panelTab; paper.panelOpen = true; } else paper.panelOpen = false;
-    paper.persist();
+    const [kind, name, blank] = JSON.parse(n.ed);
+    app.editor = { kind, name, blank: blank || undefined };
+    app.editorMode = n.mode as typeof app.editorMode;
+    for (const s of n.syms) {
+      const [id, symbol, tf] = s.split('|');
+      const c = app.charts.find((x) => x.id === id);
+      if (c && (c.symbol !== symbol || c.tf !== tf)) { c.symbol = symbol; c.tf = tf as typeof c.tf; }
+    }
+    paper.persist(); app.persist();
   }
   $effect(() => {
     const cur = navNow();
     untrack(() => {
       const from = navPrev;
-      if (cur.page === from.page && cur.tab === from.tab) return;
+      if (navKey(cur) === navKey(from)) return;
+      // saving a new script gives it a name: that is not a place to go back to
+      if (JSON.parse(from.ed)[1] === null && navKey({ ...cur, ed: from.ed }) === navKey(from)) { navPrev = cur; return; }
       navPrev = cur;
       history.push({ undo: () => goNav(from), redo: () => goNav(cur) });
     });
@@ -99,22 +119,25 @@
   const mouseUp = (e: MouseEvent) => { if (e.button === 3) { e.preventDefault(); stepBack(); } else if (e.button === 4) { e.preventDefault(); stepForward(); } };
 
   function key(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-      if (e.key === '+' || e.key === '=') { e.preventDefault(); app.zoomBy(1); return; }
-      if (e.key === '-' || e.key === '_') { e.preventDefault(); app.zoomBy(-1); return; }
-      if (e.key === '0') { e.preventDefault(); app.setZoom(1); return; }
-    }
+    if (app.keybindsOpen) return; // the Keybinds dialog is recording a shortcut
+    const combo = comboOf(e);
+    const hit = (id: string) => hasCombo(id, combo, app.keybinds);
+    if (hit('app.zoom_in')) { e.preventDefault(); app.zoomBy(1); return; }
+    if (hit('app.zoom_out')) { e.preventDefault(); app.zoomBy(-1); return; }
+    if (hit('app.zoom_reset')) { e.preventDefault(); app.setZoom(1); return; }
     const el = e.target as HTMLElement;
     const typing = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
     if (typing || e.defaultPrevented || app.spotlight.open || app.settingsOpen) return;
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
-      e.preventDefault();
-      if (e.key.toLowerCase() === 'y' || e.shiftKey) stepForward(); else stepBack();
-      return;
+    if (hit('app.back')) { e.preventDefault(); stepBack(); return; }
+    if (hit('app.forward')) { e.preventDefault(); stepForward(); return; }
+    if (hit('app.cmdbar')) { e.preventDefault(); app.spotlight = { open: true, seed: '' }; return; }
+    // a shortcut the user gave to a command-bar command
+    const cmdId = combo ? Object.keys(app.keybinds).find((id) => !isBuiltin(id) && combosOf(app.keybinds[id]).includes(combo)) : undefined;
+    if (cmdId) {
+      const c = buildCommands().find((x) => x.id === cmdId);
+      if (c) { e.preventDefault(); c.run(); app.persist(); return; }
     }
-    if (e.key === 'Enter') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
-    else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && /[a-z0-9/]/i.test(e.key)) {
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && /[a-z0-9/]/i.test(e.key)) {
       e.preventDefault(); app.spotlight = { open: true, seed: e.key };
     }
   }
@@ -167,6 +190,7 @@
 <Spotlight />
 <AiDialog />
 <Settings />
+<KeybindsDialog />
 <IndicatorDialog />
 <OrderDialog />
 <AccountDialog />

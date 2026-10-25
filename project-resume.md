@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Keybinds dialog (shortcuts + command-bar command names editable, `/keybinds`, Settings button), fine-grained back / forward (sub views, editor script + view, symbol / tf), builder conversion cache + 30 min background pass + persistent builder / code view, equity scale toggles buy & hold lines, bottom tab click folds the panel, Ctrl+Shift+wheel uses the reset framing, multi-chart resize keeps the newest bars and synced followers re-apply the leader window, destructive duplicate `Reset chart` command renamed `Clear chart`.
 - [x] Back / forward history (Ctrl+Z, Ctrl+Shift+Z, mouse buttons), Journal tab moved next to Paper Trading, wallet button on the strategy pill for paper trading, chart performance (`$state.raw`, dense zoom-out drawing, no trade-arrow glow), builder: template + time zone controls removed and the builder view stays when another strategy is picked, light-purple text selection.
 - [x] Trading journal tab (bottom panel, after Optimizer): account dropdown, newest-first trades table with green / red rows, filters, summary, per-trade notes, day / week / month P&L calendar (`JournalPanel.svelte`, `paper/journal.ts` + tests).
 - [x] Wheel navigation: Ctrl zoom keeps the x / y ratio (joint factor), Ctrl+Shift zooms around the newest candle, Alt+scroll stretches time, plain scroll re-enables the auto price scale; tester equity line is fully red when the result is negative, else fully purple.

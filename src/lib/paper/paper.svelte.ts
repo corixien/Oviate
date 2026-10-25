@@ -16,6 +16,9 @@ class Paper {
   panelOpen = $state(false);
   panelTab = $state<PanelTab>('paper');
   sub = $state<PaperSub>('positions');
+  /** sub views of the Strategy Tester and Journal tabs (not persisted, but part of the back / forward history) */
+  testerSub = $state<'overview' | 'trades' | 'settings'>('overview');
+  journalSub = $state<'trades' | 'calendar'>('trades');
   panelHeight = $state(300);
   live = $state<LiveStrategy[]>([]);
   /** Latest known price per symbol, independent of any account. */
