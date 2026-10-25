@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Sync is date exact again (left / right edge dates identical, measured in the follower's bars) with the follower's own limits as the only clamp; the newest-bar alignment was dropped because the dates no longer matched. Verified in the browser with 1h / 1d charts.
 - [x] Sync alignment: followers align at their own newest bar with the leader's time offset (replaces absolute-time alignment + cap, which glued a follower with older data to the right edge); verified in the browser with 1h / 1d charts.
 - [x] Sync followers: time window of the leader again (moves with it), only capped so the empty space at the right is not larger than the leader's (replaces the right-stop snap).
 - [x] Sync with different timeframes: a follower snapping to its right stop uses the leader's empty space in time (not 10 of its own bars), so reset on an hourly chart no longer leaves a daily chart with a screen of empty space.

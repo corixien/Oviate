@@ -208,17 +208,17 @@ export class ChartRenderer {
     this.invalidate();
   }
 
-  /** Take over the leader's view: same time window (clamped to this chart's own scroll limits) and its price range in multiples of the last close. */
+  /** Take over the leader's view: same dates at the left and right edge (clamped to this chart's own scroll limits) and its price range in multiples of the last close. */
   private applyView(v: SyncView) {
     const d = this.s.data;
     if (this.w < 100 || !d.n || v.r <= v.l) return;
     const plot = this.w - AXIS_W;
     this.tgt = null;
-    this.barW = Math.min(Math.max(plot / ((v.r - v.l) / this.s.step), BAR_MIN), BAR_MAX);
-    // same time span as the leader, aligned at the newest bar: the right edge sits as far (in time) beyond / before this chart's own newest bar as the leader's
-    // right edge is beyond / before its newest bar. Charts with different end times thus move together, and the empty space at the right never exceeds RIGHT_PAD bars.
-    const rightIdx = d.n + Math.min(RIGHT_PAD, v.gap / this.s.step);
-    this.start = this.clampStartV(rightIdx - plot / this.barW, this.barW);
+    // exactly the leader's dates at the left and right edge (the span is measured in this chart's own bars, so gaps such as weekends do not skew it);
+    // only if that would leave more empty space at the right than RIGHT_PAD bars (this chart's data ends much earlier) it is pulled back, and the chart's own scroll limits always hold
+    const l = this.timeToIdx(v.l), r = this.timeToIdx(v.r);
+    this.barW = Math.min(Math.max(plot / Math.max(r - l, 1e-6), BAR_MIN), BAR_MAX);
+    this.start = this.clampStartV(l + 0.5, this.barW);
     const c = d.c[d.n - 1];
     if (c > 0 && Number.isFinite(v.rlo) && Number.isFinite(v.rhi) && v.rhi > v.rlo) {
       this.manual = { lo: v.rlo * c, hi: v.rhi * c };
