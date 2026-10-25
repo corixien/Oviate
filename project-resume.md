@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Chart sync: followers clamp the leader's window to their own scroll limits (no scrolling past the data on synced charts).
 - [x] Sync reset fix (followers snap to their own right stop), faster candle loading (4 s cap on tail refresh, shorter Yahoo retries), builder background conversion actually started (was never wired) with retries + save trigger, builder AI tasks on Groq first, back / forward covers dropdowns and text fields.
 - [x] Smaller layouts keep the marked chart and the last touched ones; candle loading no longer fails when the network does (per symbol/tf fetch lock, Yahoo retries, cache fallback on a failed refresh).
 - [x] Keybinds dialog (shortcuts + command-bar command names editable, `/keybinds`, Settings button), fine-grained back / forward (sub views, editor script + view, symbol / tf), builder conversion cache + 30 min background pass + persistent builder / code view, equity scale toggles buy & hold lines, bottom tab click folds the panel, Ctrl+Shift+wheel uses the reset framing, multi-chart resize keeps the newest bars and synced followers re-apply the leader window, destructive duplicate `Reset chart` command renamed `Clear chart`.

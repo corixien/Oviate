@@ -207,14 +207,15 @@ export class ChartRenderer {
     this.invalidate();
   }
 
-  /** Take over the leader's view: same time window (unclamped, a follower may show empty space where its data ends) and its price range in multiples of the last close. */
+  /** Take over the leader's view: same time window (clamped to this chart's own scroll limits) and its price range in multiples of the last close. */
   private applyView(v: SyncView) {
     const d = this.s.data;
     if (this.w < 100 || !d.n || v.r <= v.l) return;
     const plot = this.w - AXIS_W;
     this.tgt = null;
     this.barW = Math.min(Math.max(plot / ((v.r - v.l) / this.s.step), BAR_MIN), BAR_MAX);
-    this.start = v.end ? d.n + RIGHT_PAD - plot / this.barW : this.timeToIdx(v.l) + 0.5;
+    // the leader's window, but never beyond this chart's own scroll limits (shorter history, other bar step)
+    this.start = this.clampStartV(v.end ? d.n + RIGHT_PAD - plot / this.barW : this.timeToIdx(v.l) + 0.5, this.barW);
     const c = d.c[d.n - 1];
     if (c > 0 && Number.isFinite(v.rlo) && Number.isFinite(v.rhi) && v.rhi > v.rlo) {
       this.manual = { lo: v.rlo * c, hi: v.rhi * c };
