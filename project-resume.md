@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-24 (economic calendar, advanced builder, direction mirroring, tester buy & hold lines, control heights)
+Last updated: 2026-10-26 (journal, back / forward, keybinds, builder cache, chart sync and navigation rework)
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
@@ -17,6 +17,8 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 7. `src/lib/ai/pine.ts` - AI prompts, checks, repair loop, algorithmic editor settings
 8. `src/lib/builder/model.ts` - visual builder model, Pine generation
 9. `src/lib/pine/optimizer.ts` - strategy optimizer
+10. `src/lib/history.ts`, `keybinds.ts`, `commands.svelte.ts`, `src/routes/+page.svelte` - back / forward history (view snapshot `Nav`), shortcuts and command-bar commands
+11. `src/lib/builder/cache.ts` - stored builder conversions + background pass; `src/lib/paper/journal.ts` + `ui/JournalPanel.svelte` - trading journal
 
 ## 3. How to navigate
 - `src-tauri/src/`: `lib.rs` commands (incl. `ai_complete`, `news_window`, `calendar_window`), `ai.rs` (Groq news summaries + OpenRouter code chat with 429 retry and `CODE_MODELS` fallback), `cache.rs` SQLite (candles, news, kv; file `oviate.db`), `calendar.rs` (economic calendar: Forex Factory weekly JSON + optional FMP), `stream.rs`, `news.rs`, `mcp.rs`, `pine_files.rs`, `providers/`.
@@ -60,17 +62,13 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
-- [x] Sync is date exact again (left / right edge dates identical, measured in the follower's bars) with the follower's own limits as the only clamp; the newest-bar alignment was dropped because the dates no longer matched. Verified in the browser with 1h / 1d charts.
-- [x] Sync alignment: followers align at their own newest bar with the leader's time offset (replaces absolute-time alignment + cap, which glued a follower with older data to the right edge); verified in the browser with 1h / 1d charts.
-- [x] Sync followers: time window of the leader again (moves with it), only capped so the empty space at the right is not larger than the leader's (replaces the right-stop snap).
-- [x] Sync with different timeframes: a follower snapping to its right stop uses the leader's empty space in time (not 10 of its own bars), so reset on an hourly chart no longer leaves a daily chart with a screen of empty space.
-- [x] Chart sync: followers clamp the leader's window to their own scroll limits (no scrolling past the data on synced charts).
-- [x] Sync reset fix (followers snap to their own right stop), faster candle loading (4 s cap on tail refresh, shorter Yahoo retries), builder background conversion actually started (was never wired) with retries + save trigger, builder AI tasks on Groq first, back / forward covers dropdowns and text fields.
-- [x] Smaller layouts keep the marked chart and the last touched ones; candle loading no longer fails when the network does (per symbol/tf fetch lock, Yahoo retries, cache fallback on a failed refresh).
-- [x] Keybinds dialog (shortcuts + command-bar command names editable, `/keybinds`, Settings button), fine-grained back / forward (sub views, editor script + view, symbol / tf), builder conversion cache + 30 min background pass + persistent builder / code view, equity scale toggles buy & hold lines, bottom tab click folds the panel, Ctrl+Shift+wheel uses the reset framing, multi-chart resize keeps the newest bars and synced followers re-apply the leader window, destructive duplicate `Reset chart` command renamed `Clear chart`.
-- [x] Back / forward history (Ctrl+Z, Ctrl+Shift+Z, mouse buttons), Journal tab moved next to Paper Trading, wallet button on the strategy pill for paper trading, chart performance (`$state.raw`, dense zoom-out drawing, no trade-arrow glow), builder: template + time zone controls removed and the builder view stays when another strategy is picked, light-purple text selection.
-- [x] Trading journal tab (bottom panel, after Optimizer): account dropdown, newest-first trades table with green / red rows, filters, summary, per-trade notes, day / week / month P&L calendar (`JournalPanel.svelte`, `paper/journal.ts` + tests).
-- [x] Wheel navigation: Ctrl zoom keeps the x / y ratio (joint factor), Ctrl+Shift zooms around the newest candle, Alt+scroll stretches time, plain scroll re-enables the auto price scale; tester equity line is fully red when the result is negative, else fully purple.
+- [x] Chart sync (final): followers show exactly the leader's dates at the left and right edge (span measured in their own bars), clamped only by their own scroll limits (`applyView`, `clampStartV`; max RIGHT_PAD empty bars right). Alignment at the newest bar and right-stop snapping were tried and dropped (dates no longer matched / follower stuck). Multi-chart resize keeps the newest bars at the right edge; smaller layouts keep the marked chart and the last touched ones. Dev builds expose `globalThis.__ovLive` for browser tests (CDP script pattern in section 4).
+- [x] Candle loading: one fetch per symbol + timeframe at a time, Yahoo retries (transport / 429 / 5xx), 4 s cap on the tail refresh then the cache is shown, failed refresh serves cached candles.
+- [x] Builder: conversions of foreign Pine code stored by code hash (`builder/cache.ts`), background pass 15 s after start / 20 s after a save / every 30 min with 3 min retries on rate limits; the builder / code view (`app.editorMode`) stays when another strategy is picked; template and time zone selectors removed from the UI. Light builder AI tasks go Groq first, OpenRouter fallback (`ai_complete_light`); Pine code stays on OpenRouter.
+- [x] Keybinds dialog (Settings button, `/keybinds`): every shortcut and command-bar command editable (`app.keybinds`, `app.cmdAlias`), conflict handling by `assign`. Duplicate destructive `Reset chart` command renamed `Clear chart`.
+- [x] Back / forward (Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y, mouse buttons 3 / 4): one `Nav` snapshot (page, bottom tab + sub views, editor script + view, symbol / tf per chart), drawing edits, `Select` picks and committed field changes; text fields in focus keep native undo. Not recorded: plain toggle buttons, News / Calendar page filters.
+- [x] Trading journal tab (next to Paper Trading): per account newest-first trades with green / red rows, filters, summary, notes, day / week / month P&L calendar. Wallet button on the strategy pill (paper trading of a strategy, one account). Clicking the open bottom tab folds the panel.
+- [x] Chart: Ctrl zoom keeps the x / y ratio, Ctrl+Shift zoom uses the Reset chart framing, Alt+scroll stretches time, plain scroll re-enables the auto price scale; performance work (`$state.raw` for candles and Pine results, per-pixel candles when zoomed far out); tester equity line single colour by result, Equity scale hides buy & hold lines; light-purple text selection; Yahoo / chart fixes above.
 - [x] Tester equity view (lines + scale) remembered in `app.eqView`, buy & hold lines off by default. Note: with tiny trades the equity hugs the starting capital, so on the "All lines" scale it looks flat and its red / purple split (below / above start) flips along the baseline; that is correct, not a bug.
 - [x] Calendar list anchored on the next upcoming event / the clicked chart event (ranges only ±7 and ±14 days); tester equity legend with final values, per-line toggles and an Equity / All lines scale switch (the buy & hold lines were invisible when far off the equity scale).
 - [x] Chart calendar markers filtered by symbol region: bundled table of the 1500 largest US-listed stocks (country -> currencies), rules for pairs / crypto / indices / exchange suffixes, backend `symbol_regions` for unknown symbols (Nasdaq profile, else Groq, cached forever). A TSLA chart no longer shows GBP events.
@@ -91,7 +89,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 
 ### Next steps
 1. No active task. Ask the user what to build next.
-2. Possible follow-ups not asked for yet: calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
+2. Possible follow-ups not asked for yet: plain toggle buttons in the back / forward history, News / Calendar page filters in the history, calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
 
 ### Open questions / blockers
 - Macro for other countries than the 9 currency areas, and actual values, need the FMP key; its free tier may not include the economic calendar endpoint (unverified). Nasdaq endpoints are unofficial and could change; failures show as a provider error on the calendar page. Next-week file is published late in the week (404 before that is normal).
@@ -108,6 +106,9 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - 2026-10-21 - Optimizer category winners use the visible raw figures.
 - 2026-10-22 - Builder strategies read library indicators through `oviate.ind` (Oviate extension) so any indicator is usable and tunable; not valid on TradingView.
 - 2026-10-23 - Chart sync is a leader/follower push inside the renderer, not reactive state.
+- 2026-10-25 - Sync is date exact (follower edges = leader dates) with only the follower's own limits as clamp; other alignments were tried and rejected.
+- 2026-10-25 - Builder AI tasks on Groq first (structured, light), Pine code generation on OpenRouter; conversions cached by code hash.
+- 2026-10-25 - Shortcuts live in `keybinds.ts` `BUILTIN` and are checked with `hasCombo`, never raw `e.key`.
 - 2026-10-23 - Editor settings are algorithmic (no LLM) except creating a missing trade side.
 - 2026-10-24 - Calendar: keyless Forex Factory (macro) + Nasdaq (earnings, dividends, splits, IPOs) as baseline, FMP key optional (Finnhub / Trading Economics economic calendars are paid).
 
