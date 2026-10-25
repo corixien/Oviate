@@ -90,13 +90,14 @@ export function fmtPrice(p: number): string {
 
 /** Charts that are on screen: with sync on they follow each other's time window and crosshair in the same frame (no reactive round trip). */
 const live = new Set<ChartRenderer>();
+if (import.meta.env?.DEV) (globalThis as Record<string, unknown>).__ovLive = live; // dev only: lets browser tests read the charts
 /**
  * With sync on, one chart leads (the one the user touched last) and the others take over its view every frame:
  * the same time window, and a price range scaled to their own last close so the last-price line sits at the same height everywhere.
  */
 export const chartSync: { on: boolean; leader: ChartRenderer | null; last: SyncView | null } = { on: true, leader: null, last: null };
 /** `end`: the leader shows its newest bars at the right stop, so followers do the same (their own right padding, whatever their bar step) */
-interface SyncView { l: number; r: number; rlo: number; rhi: number; end: boolean }
+interface SyncView { l: number; r: number; rlo: number; rhi: number; end: boolean; /** seconds of empty space right of the leader's newest bar */ gap: number }
 export function setChartSync(on: boolean) {
   chartSync.on = on;
   if (on) return;
@@ -215,7 +216,7 @@ export class ChartRenderer {
     this.tgt = null;
     this.barW = Math.min(Math.max(plot / ((v.r - v.l) / this.s.step), BAR_MIN), BAR_MAX);
     // the leader's window, but never beyond this chart's own scroll limits (shorter history, other bar step)
-    this.start = this.clampStartV(v.end ? d.n + RIGHT_PAD - plot / this.barW : this.timeToIdx(v.l) + 0.5, this.barW);
+    this.start = this.clampStartV(v.end ? d.n + Math.min(RIGHT_PAD, Math.max(0.5, v.gap / this.s.step)) - plot / this.barW : this.timeToIdx(v.l) + 0.5, this.barW);
     const c = d.c[d.n - 1];
     if (c > 0 && Number.isFinite(v.rlo) && Number.isFinite(v.rhi) && v.rhi > v.rlo) {
       this.manual = { lo: v.rlo * c, hi: v.rhi * c };
@@ -232,7 +233,7 @@ export class ChartRenderer {
     const c = d.c[d.n - 1];
     const [l, r] = this.getTimeRange();
     const end = this.start + (this.w - AXIS_W) / this.barW >= d.n + RIGHT_PAD - 0.5;
-    const view: SyncView = { l, r, rlo: c > 0 ? m.lo / c : NaN, rhi: c > 0 ? m.hi / c : NaN, end };
+    const view: SyncView = { l, r, rlo: c > 0 ? m.lo / c : NaN, rhi: c > 0 ? m.hi / c : NaN, end, gap: (this.start + (this.w - AXIS_W) / this.barW - d.n) * this.s.step };
     chartSync.last = view;
     for (const p of live) if (p !== this) p.applyView(view);
   }
