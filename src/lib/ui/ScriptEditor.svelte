@@ -4,10 +4,10 @@
   import { paper } from '$lib/paper/paper.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick, untrack } from 'svelte';
-  import { aiComplete } from '$lib/api';
+  import { aiComplete, aiLight } from '$lib/api';
   import { editIndicator, editStrategy, extractStrategyForm, setStrategyParams, setDirection, codeSides, hasLimitInput, type StrategyOpts } from '$lib/ai/pine.ts';
   import { aiBuilder, aiMirrorSide, mirrorSideLocal } from '$lib/builder/ai.ts';
-  import { convertCode, cachedModel } from '$lib/builder/cache';
+  import { convertCode, cachedModel, convertSoon } from '$lib/builder/cache';
   import { indInfo, allInfos } from '$lib/builder/info';
   import { builderModelOf, checkModel, newModel, toPine, type Model } from '$lib/builder/model.ts';
   import AiStrategyFields from './AiStrategyFields.svelte';
@@ -139,7 +139,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     aiBusy = true; status = { ok: true, text: `Creating the ${to} side as the opposite of the ${from} side with the AI…` };
     const before = snap();
     try {
-      const m = await aiMirrorSide(snap(), from, allInfos(), aiComplete);
+      const m = await aiMirrorSide(snap(), from, allInfos(), aiLight);
       model[to] = { ...m[to], on: true };
       undo = { model: before };
       status = { ok: true, text: `The ${to} side was created as the opposite of the ${from} side. Check the conditions.` };
@@ -202,7 +202,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     try {
       if (inBuilder) {
         const before = snap();
-        const m = await aiBuilder(aiText, allInfos(), aiComplete);
+        const m = await aiBuilder(aiText, allInfos(), aiLight);
         undo = { model: before }; model = m; aiText = '';
         status = { ok: true, text: 'The AI filled in the builder. Check the conditions, then save.' };
       } else {
@@ -303,6 +303,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
       app.editor = { kind, name: saved };
       status = { ok: true, text: old && saved !== old ? `Renamed to ${saved}.pine` : `Saved as ${saved}.pine` };
       app.notify(`${label} saved`);
+      if (kind === 'strategies') convertSoon(); // the builder version of the new code is prepared in the background
       if (addToChart) {
         const on = app.chart.indicators.some((i) => i.id === saved && !!i.strategy === (kind === 'strategies'));
         if (on) app.notify(`${saved} is already on the chart`);
@@ -395,7 +396,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
           <BuilderPane bind:model />
         {:else}
           <div class="gutter" bind:this={gutter}>{#each Array(lines) as _, i}<div>{i + 1}</div>{/each}</div>
-          <textarea bind:this={ta} bind:value={code} onscroll={sync} spellcheck="false" autocomplete="off" wrap="off" placeholder={`Paste your Pine Script v5 ${label.toLowerCase()} here`}></textarea>
+          <textarea data-nohist bind:this={ta} bind:value={code} onscroll={sync} spellcheck="false" autocomplete="off" wrap="off" placeholder={`Paste your Pine Script v5 ${label.toLowerCase()} here`}></textarea>
         {/if}
       </div>
       {#if aiBusy}<div class="status hint">Writing and test-running the change, this can take up to a minute…</div>

@@ -3,6 +3,7 @@
   import { history } from '$lib/history.ts';
   import { comboOf, combosOf, hasCombo, isBuiltin } from '$lib/keybinds.ts';
   import { buildCommands } from '$lib/commands.svelte';
+  import { startBuilderBackground } from '$lib/builder/cache';
   import KeybindsDialog from '$lib/ui/KeybindsDialog.svelte';
   import { app } from '$lib/app.svelte';
   import { onTick, streamSymbols } from '$lib/api';
@@ -59,7 +60,7 @@
 
   onMount(() => {
     app.load();
-    library.load();
+    library.load().then(() => startBuilderBackground());
     paper.load();
     // scripts added from outside (the oviate CLI) show up when the window gets focus again
     const refresh = () => library.load();
@@ -114,6 +115,35 @@
       navPrev = cur;
       history.push({ undo: () => goNav(from), redo: () => goNav(cur) });
     });
+  });
+  // text fields, numbers, checkboxes: a committed change (the `change` event) is a step that Ctrl+Z / back undoes while the field is not focused
+  type Field = HTMLInputElement | HTMLTextAreaElement;
+  const SKIP = new Set(['password', 'file', 'button', 'submit', 'radio', 'search', 'hidden']);
+  const isField = (t: EventTarget | null): t is Field =>
+    (t instanceof HTMLInputElement && !SKIP.has(t.type) || t instanceof HTMLTextAreaElement) && !t.hasAttribute('data-nohist') && !t.readOnly;
+  const fieldVal = (el: Field) => (el instanceof HTMLInputElement && el.type === 'checkbox' ? String(el.checked) : el.value);
+  const startVal = new WeakMap<Field, string>();
+  function setField(el: Field, v: string) {
+    if (!el.isConnected) return false;
+    if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = v === 'true'; else el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    startVal.set(el, v);
+  }
+  const fieldFocus = (e: FocusEvent) => { if (isField(e.target)) startVal.set(e.target, fieldVal(e.target)); };
+  function fieldChange(e: Event) {
+    const el = e.target;
+    if (!isField(el)) return;
+    const now = fieldVal(el);
+    const old = el instanceof HTMLInputElement && el.type === 'checkbox' ? String(!el.checked) : startVal.get(el);
+    startVal.set(el, now);
+    if (old === undefined || old === now) return;
+    history.push({ undo: () => setField(el, old), redo: () => setField(el, now) });
+  }
+  onMount(() => {
+    window.addEventListener('focusin', fieldFocus, true);
+    window.addEventListener('change', fieldChange, true);
+    return () => { window.removeEventListener('focusin', fieldFocus, true); window.removeEventListener('change', fieldChange, true); };
   });
   const stepBack = () => { if (!app.spotlight.open && !app.settingsOpen) history.back(); };
   const stepForward = () => { if (!app.spotlight.open && !app.settingsOpen) history.forward(); };

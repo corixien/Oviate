@@ -59,7 +59,7 @@
     <div class="card" onpointerdown={(e) => e.stopPropagation()} role="dialog" aria-label="Keybinds">
       <header>
         <h2>Keybinds</h2>
-        <input class="find" bind:value={q} placeholder="Search actions, commands, shortcuts" spellcheck="false" autocomplete="off" />
+        <input data-nohist class="find" bind:value={q} placeholder="Search actions, commands, shortcuts" spellcheck="false" autocomplete="off" />
         {#if changed}<button class="mini" onclick={resetAll}>Reset all</button>{/if}
         <button class="x" onclick={close} aria-label="Close">×</button>
       </header>

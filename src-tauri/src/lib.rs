@@ -72,9 +72,11 @@ async fn get_candles(st: State<'_>, symbol: String, tf: Timeframe, from: i64, to
             if to_eff > ct - 2 * step {
                 // Re-fetch the tail including the last (possibly partial) bars; when that fails (offline, rate limit) the cached candles are still shown.
                 let start = (ct - 2 * step).max(from);
-                match fetch(&st, &symbol, tf, start, to_eff).await {
-                    Ok(c) => st.cache.store(&symbol, key, &c, start, to_eff)?,
-                    Err(e) => eprintln!("candle refresh failed for {symbol} {key}, using the cache: {e}"),
+                // a slow network must not hold the chart back: after 4 s the cached candles are shown and the next poll tries again
+                match tokio::time::timeout(std::time::Duration::from_secs(4), fetch(&st, &symbol, tf, start, to_eff)).await {
+                    Ok(Ok(c)) => st.cache.store(&symbol, key, &c, start, to_eff)?,
+                    Ok(Err(e)) => eprintln!("candle refresh failed for {symbol} {key}, using the cache: {e}"),
+                    Err(_) => eprintln!("candle refresh for {symbol} {key} timed out, using the cache"),
                 }
             }
         }
@@ -260,6 +262,20 @@ async fn ai_complete(st: State<'_>, messages: serde_json::Value) -> Result<Strin
     ai::code_chat(&st.http, &key, messages).await
 }
 
+/// Light structured tasks (code -> builder model, text -> builder model, mirrored side): Groq first (fast, own rate limits), OpenRouter when Groq is not set up or fails.
+#[tauri::command]
+async fn ai_complete_light(st: State<'_>, messages: serde_json::Value) -> Result<String> {
+    if !messages.is_array() { return Err(Error::Other("messages must be an array".into())); }
+    if secret_get("groq_key").is_some() {
+        match groq_chat(&st, messages.clone(), 0.2, 6000, false).await {
+            Ok((c, _)) if !c.trim().is_empty() => return Ok(c),
+            Ok(_) => {}
+            Err(e) => eprintln!("groq failed, falling back to OpenRouter: {e}"),
+        }
+    }
+    ai_complete(st, messages).await
+}
+
 /// Short AI summary of a cached news item (Groq). Cached per item and language.
 #[tauri::command]
 async fn ai_summary(st: State<'_>, id: String, lang: String, force: Option<bool>) -> Result<ai::AiSummary> {
@@ -362,6 +378,7 @@ pub fn run() {
             symbol_regions,
             ai_summary,
             ai_complete,
+            ai_complete_light,
             liquid_unusual,
             pine_list,
             pine_save,

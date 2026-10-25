@@ -120,6 +120,10 @@ export type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string }
 export const aiComplete = (messages: ChatMsg[]) =>
   inTauri ? call<string>('ai_complete', { messages }) : Promise.reject('AI needs the desktop app');
 
+/** Light structured tasks (builder conversions): Groq first, OpenRouter as fallback. */
+export const aiLight = (messages: ChatMsg[]) =>
+  inTauri ? call<string>('ai_complete_light', { messages }) : Promise.reject('AI needs the desktop app');
+
 export async function openUrl(url: string) {
   if (!inTauri) { window.open(url, '_blank'); return; }
   const m = await import('@tauri-apps/plugin-opener');

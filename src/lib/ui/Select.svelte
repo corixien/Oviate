@@ -1,18 +1,25 @@
 <script lang="ts">
+  import { history } from '$lib/history.ts';
   interface Opt { value: string; label: string }
   let { value, options, onchange, width = '' }: { value: string; options: Opt[]; onchange: (v: string) => void; width?: string } = $props();
   let open = $state(false);
   let root = $state<HTMLDivElement>();
   const current = $derived(options.find((o) => o.value === value)?.label ?? value);
 
-  function pick(v: string) { open = false; if (v !== value) onchange(v); }
+  // a change made by the user is a back / forward step
+  function change(v: string) {
+    const prev = value;
+    onchange(v);
+    history.push({ undo: () => { onchange(prev); }, redo: () => { onchange(v); } });
+  }
+  function pick(v: string) { open = false; if (v !== value) change(v); }
   function key(e: KeyboardEvent) {
     if (e.key === 'Escape') { open = false; return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const i = options.findIndex((o) => o.value === value);
       const n = Math.min(options.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)));
-      onchange(options[n].value);
+      if (options[n].value !== value) change(options[n].value);
     }
   }
 </script>

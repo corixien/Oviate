@@ -30,3 +30,18 @@ test('same-key pushes in quick succession merge', () => {
   h.push({ key: 'd', undo: () => (v = 3), redo: () => (v = 4) }, 5000); // too late: separate step
   h.back(); assert.equal(v, 3);
 });
+
+test('a step that cannot be applied is skipped', () => {
+  const h = new History(); let v = 0;
+  h.push({ undo: () => (v = 1), redo: () => (v = 2) });
+  h.push({ undo: () => false, redo: () => false });
+  assert.equal(h.back(), true); assert.equal(v, 1);
+});
+
+test('pushes while a step is applied are ignored', () => {
+  const h = new History(); let v = 0;
+  h.push({ undo: () => { h.push({ undo: () => (v = 9), redo: () => (v = 9) }); v = 1; }, redo: () => (v = 2) });
+  h.back();
+  assert.equal(h.forward(), true); assert.equal(v, 2);
+  assert.equal(h.canForward, false);
+});

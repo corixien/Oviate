@@ -1,6 +1,6 @@
 // Pine code -> builder model conversions done by the AI are stored (by a hash of the code), so the same code is never converted twice.
 // A background job converts strategies whose code changed, so opening the visual builder is instant.
-import { kvGet, kvSet, aiComplete } from '../api';
+import { kvGet, kvSet, aiLight, inTauri } from '../api';
 import { library } from '../library.svelte';
 import { aiBuilderFromCode } from './ai.ts';
 import { builderModelOf, type Model } from './model.ts';
@@ -47,7 +47,7 @@ export function convertCode(code: string): Promise<Model> {
   const run = inflight.get(h) ?? (async () => {
     const hit = await cachedModel(code);
     if (hit) return hit;
-    const model = await aiBuilderFromCode(code, allInfos(), aiComplete);
+    const model = await aiBuilderFromCode(code, allInfos(), aiLight);
     await remember(code, model);
     return model;
   })().finally(() => inflight.delete(h));
@@ -55,23 +55,40 @@ export function convertCode(code: string): Promise<Model> {
   return run;
 }
 
-/** One pass: convert every strategy that has no builder model yet (not made by the builder, not stored for this exact code). Stops at the first failure. */
+/** One pass: convert every strategy that has no builder model yet (not made by the builder, not stored for this exact code). Returns how many are still open (failed or not tried). */
 export async function convertChanged(): Promise<number> {
   if (!library.loaded) return 0;
-  let done = 0;
-  for (const f of [...library.strategies]) {
-    if (!f.code.trim() || /strategy\.entry|strategy\.order/.test(f.code) === false) continue;
-    if (builderModelOf(f.code, indInfo)) continue;
-    if (await cachedModel(f.code)) continue;
-    try { await convertCode(f.code); done++; } catch { break; }
+  const todo: string[] = [];
+  for (const f of library.strategies) {
+    if (!f.code.trim() || !/strategy\.(entry|order)/.test(f.code)) continue;
+    if (builderModelOf(f.code, indInfo) || (await cachedModel(f.code))) continue;
+    todo.push(f.code);
   }
-  return done;
+  for (let i = 0; i < todo.length; i++) {
+    try { await convertCode(todo[i]); } catch { return todo.length - i; } // rate limit / no key: stop, the caller retries later
+  }
+  return 0;
 }
 
-let started = false;
-/** First pass shortly after start, then every 30 minutes. */
+let running = false;
+/** A pass that retries a few minutes later while something is still open (rate limits clear up). */
+async function pass(retriesLeft = 6) {
+  if (running) return;
+  running = true;
+  let open = 0;
+  try { open = await convertChanged(); } finally { running = false; }
+  if (open > 0 && retriesLeft > 0) setTimeout(() => void pass(retriesLeft - 1), 3 * 60 * 1000);
+}
+
+let started = false, soon: ReturnType<typeof setTimeout> | undefined;
+/** First pass shortly after the library loaded, then every 30 minutes. */
 export function startBuilderBackground() {
-  if (started) return;
+  if (started || !inTauri) return;
   started = true;
-  setTimeout(() => { void convertChanged(); setInterval(() => void convertChanged(), CHECK_EVERY_MS); }, 30_000);
+  setTimeout(() => { void pass(); setInterval(() => void pass(), CHECK_EVERY_MS); }, 15_000);
+}
+/** A strategy was saved: convert it in the background after a short pause (further saves restart the pause). */
+export function convertSoon() {
+  clearTimeout(soon);
+  soon = setTimeout(() => void pass(), 20_000);
 }

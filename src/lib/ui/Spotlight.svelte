@@ -68,7 +68,7 @@
     <div class="panel" class:out={closing} onpointerdown={(e) => e.stopPropagation()} role="dialog" aria-label="Command bar">
       <div class="field">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input bind:this={input} bind:value={q} onkeydown={key} placeholder={t('search', app.lang)} spellcheck="false" autocomplete="off" />
+        <input data-nohist bind:this={input} bind:value={q} onkeydown={key} placeholder={t('search', app.lang)} spellcheck="false" autocomplete="off" />
         <kbd>esc</kbd>
       </div>
       {#if items.length}

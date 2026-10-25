@@ -41,6 +41,7 @@ pub async fn candles(http: &reqwest::Client, symbol: &str, tf: Timeframe, from: 
         let sent = http
             .get(&url)
             .header("User-Agent", UA)
+            .timeout(std::time::Duration::from_secs(12))
             .query(&[("interval", iv), ("period1", p1.as_str()), ("period2", p2.as_str()), ("includePrePost", "false")])
             .send()
             .await;
@@ -48,9 +49,9 @@ pub async fn candles(http: &reqwest::Client, symbol: &str, tf: Timeframe, from: 
             Err(_) => true,
             Ok(r) => r.status().as_u16() == 429 || r.status().is_server_error(),
         };
-        if retry && attempt < 3 {
+        if retry && attempt < 2 {
             attempt += 1;
-            tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64 * attempt as u64)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64)).await;
             continue;
         }
         break sent?.error_for_status()?.json().await?;
