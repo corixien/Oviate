@@ -52,3 +52,14 @@ test('buy & hold curves: whole period and invested time only', () => {
   assert.ok(Math.abs(invested[6] - 1000 * (1 + s.buyHoldInvested / 100)) < 1e-6);
   assert.deepEqual(buyHoldCurves(res([], []), []), { full: [], invested: [] });
 });
+
+test('universeSummary: breadth, medians and pooled win rate', async () => {
+  const { universeSummary } = await import('./stats.ts');
+  const row = (ret: number, buyHold: number, trades: number, wins: number, maxDD: number) => ({ symbol: 'X', ret, buyHold, trades, wins, winRate: 0, profitFactor: 1, maxDD, bars: 100, years: 1 });
+  const s = universeSummary([row(10, 5, 10, 6, 5), row(-4, 8, 30, 12, 20), row(2, 1, 0, 0, 0)]);
+  assert.equal(s.n, 3); assert.equal(s.profitable, 2); assert.equal(s.beatBuyHold, 2);
+  assert.equal(s.medianRet, 2); assert.equal(s.medianBuyHold, 5);
+  assert.equal(s.trades, 40); assert.equal(s.winRate, 45);
+  assert.equal(s.worstMaxDD, 20);
+  assert.equal(universeSummary([]).n, 0);
+});

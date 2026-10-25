@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-26 (journal, back / forward, keybinds, builder cache, chart sync and navigation rework)
+Last updated: 2026-10-26 (tester / optimizer test scope: data age, securities, timeframe)
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
@@ -62,6 +62,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Test scope for Strategy Tester + Optimizer (`universe.ts`, `scopeData.ts`, `tester.svelte.ts`, `ui/ScopeBar.svelte`, see AGENTS.md): Data age / Securities (max 200, built-in list interleaved strong / mid / weak) / Timeframe, default Chart; tester data line + per-security table + summary; optimizer on several securities (`mergeMetrics`, Profitable column). Chart trades unaffected. Browser-mode check done with synthetic data only; real Alpaca / Yahoo fetch of 10 years x many symbols not yet watched in the app (rate limits possible, failures list as "without data").
 - [x] Chart sync (final): followers show exactly the leader's dates at the left and right edge (span measured in their own bars), clamped only by their own scroll limits (`applyView`, `clampStartV`; max RIGHT_PAD empty bars right). Alignment at the newest bar and right-stop snapping were tried and dropped (dates no longer matched / follower stuck). Multi-chart resize keeps the newest bars at the right edge; smaller layouts keep the marked chart and the last touched ones. Dev builds expose `globalThis.__ovLive` for browser tests (CDP script pattern in section 4).
 - [x] Candle loading: one fetch per symbol + timeframe at a time, Yahoo retries (transport / 429 / 5xx), 4 s cap on the tail refresh then the cache is shown, failed refresh serves cached candles.
 - [x] Builder: conversions of foreign Pine code stored by code hash (`builder/cache.ts`), background pass 15 s after start / 20 s after a save / every 30 min with 3 min retries on rate limits; the builder / code view (`app.editorMode`) stays when another strategy is picked; template and time zone selectors removed from the UI. Light builder AI tasks go Groq first, OpenRouter fallback (`ai_complete_light`); Pine code stays on OpenRouter.
@@ -89,7 +90,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 
 ### Next steps
 1. No active task. Ask the user what to build next.
-2. Possible follow-ups not asked for yet: plain toggle buttons in the back / forward history, News / Calendar page filters in the history, calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
+2. Possible follow-ups not asked for yet: tester transparency steps B-E (richer trade list with exit reason / fees, gross vs net, annualisation per asset, out-of-sample split), sort the per-security table, plain toggle buttons in the back / forward history, News / Calendar page filters in the history, calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
 
 ### Open questions / blockers
 - Macro for other countries than the 9 currency areas, and actual values, need the FMP key; its free tier may not include the economic calendar endpoint (unverified). Nasdaq endpoints are unofficial and could change; failures show as a provider error on the calendar page. Next-week file is published late in the week (404 before that is normal).

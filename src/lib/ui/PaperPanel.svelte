@@ -6,11 +6,34 @@
   import Select from './Select.svelte';
   import OptimizerPanel from './OptimizerPanel.svelte';
   import JournalPanel from './JournalPanel.svelte';
-  import { detailedStats, buyHoldCurves } from '$lib/pine/stats.ts';
+  import { detailedStats, buyHoldCurves, universeSummary } from '$lib/pine/stats.ts';
+  import { candleStore } from '$lib/chart/candleStore';
+  import { testerRun } from '$lib/tester.svelte';
+  import { isChartScope } from '$lib/universe.ts';
+  import ScopeBar from './ScopeBar.svelte';
 
   const acc = $derived(paper.active);
   const st = $derived(acc ? E.accountStats(acc) : null);
-  const tester = $derived(app.strategyResults[app.chart.id]);
+  /** strategy on the active chart (its own live backtest: it also feeds the trade boxes on the chart) */
+  const cs = $derived(app.strategyResults[app.chart.id]);
+  /** the tester shows another period / timeframe / set of securities than the chart: those runs are separate (testerRun) and never touch the chart */
+  const uni = $derived(!isChartScope(app.scope.tester));
+  const uniRow = $derived(testerRun.rows.find((r) => r.symbol === testerRun.selected));
+  /** what the tester panel shows: the chart's backtest, or one security of the last scope run */
+  const tester = $derived.by(() => {
+    if (uni) {
+      const r = uniRow;
+      return r ? { name: cs?.name ?? '', symbol: r.symbol, tf: testerRun.tf, stepSec: testerRun.stepSec, firstClose: r.closes[0], lastClose: r.closes[r.bars - 1], closes: r.closes, strategy: r.strategy, t0: r.t0, t1: r.t1, bars: r.bars } : undefined;
+    }
+    if (!cs?.result.strategy) return undefined;
+    const c = candleStore.get(app.chart.id);
+    return { name: cs.name, symbol: cs.symbol, tf: cs.tf, stepSec: cs.stepSec, firstClose: cs.firstClose, lastClose: cs.lastClose, closes: cs.closes, strategy: cs.result.strategy, t0: c?.t[0] ?? 0, t1: c?.n ? c.t[c.n - 1] : 0, bars: c?.n ?? 0 };
+  });
+  const uniSum = $derived(uni && testerRun.rows.length ? universeSummary(testerRun.rows.map((r) => r.stat)) : null);
+  const day = (t: number) => (t ? new Date(t * 1000).toISOString().slice(0, 10) : '—');
+  const yrs = (t0: number, t1: number) => Math.max(0, (t1 - t0) / (365.25 * 86400));
+  /** the history the provider could give is shorter than asked for (e.g. intraday data is limited) */
+  const shortHistory = $derived(uni && tester && app.scope.tester.years > 0 && yrs(tester.t0, tester.t1) < app.scope.tester.years * 0.9);
 
   const money = (v: number, d = 2) => (Number.isFinite(v) ? v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
   const signed = (v: number, d = 2) => (v >= 0 ? '+' : '') + money(v, d);
@@ -50,7 +73,7 @@
   const paperCurve = $derived(curve((acc?.equityCurve ?? []).map((p) => p.eq)));
 
   // ----- strategy tester -----
-  const sres = $derived(tester?.result.strategy);
+  const sres = $derived(tester?.strategy);
   const dstats = $derived(sres && tester ? detailedStats(sres, { stepSec: tester.stepSec, firstClose: tester.firstClose, lastClose: tester.lastClose }) : null);
   const bhCurves = $derived(sres && tester ? buyHoldCurves(sres, tester.closes) : { full: [], invested: [] });
   // equity chart: which lines are shown and which scale they share
@@ -91,6 +114,18 @@
   const deleteAcc = () => { if (acc && confirm(`Delete paper account "${acc.name}"?`)) paper.remove(acc.id); };
   const resetAcc = () => { if (acc && confirm(`Reset "${acc.name}" to its initial capital? Orders, positions and history are cleared.`)) paper.reset(acc.id); };
 </script>
+
+{#snippet runctl()}
+  {#if uni}
+    {#if testerRun.status === 'loading' || testerRun.status === 'running'}
+      <button class="mini" onclick={() => testerRun.cancel()}>Stop</button>
+      <span class="m">{testerRun.status === 'loading' ? 'Loading data' : 'Testing'} <b>{testerRun.progress.done}/{testerRun.progress.total}</b></span>
+    {:else}
+      <button class="run" onclick={() => testerRun.run()}>Run</button>
+      {#if testerRun.status === 'error'}<span class="warn">{testerRun.error}</span>{/if}
+    {/if}
+  {/if}
+{/snippet}
 
 <div class="panel" class:open={paper.panelOpen} style:height={paper.panelOpen ? paper.panelHeight + 'px' : '38px'}>
   {#if paper.panelOpen}<div class="grip" onpointerdown={startResize} role="separator" aria-orientation="horizontal"></div>{/if}
@@ -189,8 +224,11 @@
     {:else if paper.panelTab === 'journal'}
       <JournalPanel />
     {:else}
-      {#if !tester || !sres || !dstats}
+      {#if !cs}
         <div class="empty"><p>No strategy on the active chart.</p><p class="dim">Type <kbd>/strat add</kbd> in the command bar to add one, or <kbd>/strat add new</kbd> to write your own in Pine.</p></div>
+      {:else if !tester || !sres || !dstats}
+        <ScopeBar which="tester">{@render runctl()}</ScopeBar>
+        <div class="empty"><p class="dim">{testerRun.status === 'error' ? testerRun.error : testerRun.status === 'idle' || testerRun.status === 'done' ? 'Press Run to test the strategy on this data.' : 'Working…'}</p></div>
       {:else}
         <div class="acc">
           <b class="sname">{tester.name}</b><span class="dim">{tester.symbol} · {tester.tf.toUpperCase()}</span>
@@ -209,6 +247,31 @@
         </div>
         <div class="body">
           {#if paper.testerSub === 'overview'}
+            <ScopeBar which="tester">{@render runctl()}</ScopeBar>
+            <p class="dinfo">
+              <b>{tester.symbol}</b> · {tester.tf.toUpperCase()} · {day(tester.t0)} to {day(tester.t1)} · {tester.bars} bars ({yrs(tester.t0, tester.t1).toFixed(1)} years)
+              · slippage {app.tester.slippagePct}% · fees {app.tester.commissionValue}% per fill · {app.tester.fillOnClose ? 'fills at the signal bar close' : 'fills at the next bar open'}
+              {#if shortHistory}<span class="warn"> · the data source only had {yrs(tester.t0, tester.t1).toFixed(1)} of {app.scope.tester.years} years for this timeframe</span>{/if}
+              {#if uni && testerRun.stale}<span class="warn"> · settings changed, press Run for current figures</span>{/if}
+            </p>
+            {#if uniSum}
+              <p class="dinfo">
+                <b>{uniSum.n} securities</b> · profitable on <b>{uniSum.profitable}</b> ({((uniSum.profitable / uniSum.n) * 100).toFixed(0)}%) · beat buy &amp; hold on <b>{uniSum.beatBuyHold}</b> · median return <b class={cls(uniSum.medianRet)}>{signed(uniSum.medianRet, 1)}%</b> (buy &amp; hold {signed(uniSum.medianBuyHold, 1)}%)
+                · {uniSum.trades} trades, win rate {uniSum.winRate.toFixed(1)}% · max drawdown avg {uniSum.meanMaxDD.toFixed(1)}%, worst {uniSum.worstMaxDD.toFixed(1)}%
+                {#if testerRun.failed.length}<span class="warn" title={testerRun.failed.map((f) => f.symbol + ': ' + f.error).join('\n')}> · {testerRun.failed.length} without data</span>{/if}
+              </p>
+              <div class="utab"><table>
+                <thead><tr><th>Security</th><th>Return</th><th>Buy &amp; hold</th><th>Trades</th><th>Win rate</th><th>Profit factor</th><th>Max DD</th><th>History</th></tr></thead>
+                <tbody>
+                  {#each testerRun.rows as r (r.symbol)}
+                    <tr class:sel={r.symbol === testerRun.selected} onclick={() => (testerRun.selected = r.symbol)}>
+                      <td><b>{r.symbol}</b></td><td class={cls(r.stat.ret)}>{signed(r.stat.ret, 1)}%</td><td class={cls(r.stat.buyHold)}>{signed(r.stat.buyHold, 1)}%</td><td>{r.stat.trades}</td>
+                      <td>{r.stat.winRate.toFixed(0)}%</td><td>{pf(r.stat.profitFactor)}</td><td class="dn">{r.stat.maxDD.toFixed(1)}%</td><td class="dim">{r.stat.years.toFixed(1)} y</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table></div>
+            {/if}
             <h5>Equity <span class="dim">red = negative result</span></h5>
             <div class="legend">
               <button class:off={!app.eqView.eq} onclick={() => toggleLine('eq')} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
@@ -329,5 +392,8 @@
   .unit { color: var(--dim); font-size: 11.5px; }
   .empty { padding: 26px; text-align: center; color: var(--fg); } .empty p { margin: 6px 0; } .empty .dim { color: var(--dim); font-size: 13px; }
   .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 9px 18px; font: 700 13px system-ui, sans-serif; cursor: pointer; margin-top: 8px; }
+  .run { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 0 16px; height: 30px; font: 700 12px system-ui, sans-serif; cursor: pointer; }
+  .dinfo { margin: 8px 14px 0; color: var(--dim); font-size: 11.5px; line-height: 1.6; } .dinfo b { color: var(--fg); font-weight: 600; } .warn { color: #e8b13a; }
+  .utab { margin: 8px 14px 4px; max-height: 190px; overflow: auto; border: 1px solid var(--line); } .utab tr { cursor: pointer; } .utab tr.sel td { background: var(--accent-soft); }
   kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); padding: 1px 6px; }
 </style>

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runPine } from './index.ts';
-import { paramSpace, orderedPairs, optimize, metricsOf, minTradesFor, SEGS } from './optimizer.ts';
+import { paramSpace, orderedPairs, optimize, metricsOf, mergeMetrics, minTradesFor, SEGS } from './optimizer.ts';
 import type { StrategyResult, TradeRec, TesterSettings, PineInput } from './types.ts';
 
 const SET: TesterSettings = { initialCapital: 10000, commissionValue: 0, slippagePct: 0.1, fillOnClose: true };
@@ -145,4 +145,30 @@ plot(s, "S")`;
   // every variant reproduces its metrics when run plainly
   const check = runPine(code, data, { params: best.params, broker: SET });
   assert.equal(check.strategy!.trades.filter((t) => !t.open).length, best.metrics.trades);
+});
+
+test('optimize over several securities merges the metrics', () => {
+  const a = candles(800), b = candles(800);
+  const sp = paramSpace([input({ id: 'Len', def: 30, min: 5, max: 60 })]);
+  const r = optimize({ code: 'strategy("t")', data: [a, b], stepSec: 86400, space: sp, settings: SET, budget: 30, run: fake(800) });
+  assert.ok(r.variants.length > 0);
+  // the test hook runs one backtest: a single result is not merged
+  assert.equal(r.variants[0].metrics.symbols, undefined);
+  const m = metricsOf(fake(800)({ Len: 30 }), 800);
+  const merged = mergeMetrics([m, { ...m, ret: m.ret + 10, trades: m.trades * 3, rawWinRate: 0 }]);
+  assert.equal(merged.symbols, 2);
+  assert.equal(merged.trades, m.trades * 4);
+  assert.ok(Math.abs(merged.rawWinRate - m.rawWinRate * 0.25) < 1e-9, 'win rate pooled over all trades');
+  assert.ok(Math.abs(merged.ret - (m.ret + 5)) < 1e-9);
+  assert.equal(merged.breadth, 1);
+  assert.equal(mergeMetrics([m]), m);
+});
+
+test('optimize with real Pine on two securities runs every test on both', () => {
+  const code = `//@version=5\nstrategy("t", overlay=true)\nlen = input.int(10, "Len", minval=2, maxval=30)\nif ta.crossover(close, ta.sma(close, len))\n    strategy.entry("L", strategy.long)\nif ta.crossunder(close, ta.sma(close, len))\n    strategy.close("L")\n`;
+  const sp = paramSpace([input({ id: 'Len', def: 10, min: 2, max: 30 })]);
+  const one = optimize({ code, data: candles(600), stepSec: 86400, space: sp, settings: SET, budget: 12 });
+  const two = optimize({ code, data: [candles(600), candles(600)], stepSec: 86400, space: sp, settings: SET, budget: 12 });
+  assert.equal(two.baseline?.symbols, 2);
+  assert.equal(two.baseline!.trades, one.baseline!.trades * 2, 'identical series: pooled trades double');
 });

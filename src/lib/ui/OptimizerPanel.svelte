@@ -3,6 +3,8 @@
   import { optimizer as opt } from '$lib/optimizer.svelte';
   import { fmtPrice } from '$lib/chart/renderer';
   import Select from './Select.svelte';
+  import ScopeBar from './ScopeBar.svelte';
+  import { isChartScope, scopeLabel } from '$lib/universe.ts';
 
   const tg = $derived.by(() => { void app.strategyResults[app.chart.id]; return opt.target(); });
   $effect(() => { void tg; opt.sync(); });
@@ -17,7 +19,9 @@
     if (Number.isFinite(v) && (k !== 'step' || v > 0)) r[k] = v;
   }
   const best = $derived(opt.result?.variants[0]);
-  const run = $derived(opt.status === 'running');
+  const run = $derived(opt.status === 'running' || opt.status === 'loading');
+  const multi = $derived(!isChartScope(app.scope.optimizer));
+  const day = (t: number) => (t ? new Date(t * 1000).toISOString().slice(0, 10) : '—');
   const pctDone = $derived(opt.progress ? Math.min(100, (opt.progress.evals / Math.max(1, opt.progress.budget)) * 100) : 0);
 </script>
 
@@ -25,17 +29,25 @@
   <div class="empty"><p>No strategy on the active chart.</p><p class="dim">Add one with <kbd>/strat add</kbd> or <kbd>/strat add ai</kbd>, then optimize its parameters here.</p></div>
 {:else}
   <div class="acc">
-    <b class="sname">{tg.t.name}</b><span class="dim">{tg.t.symbol} · {tg.t.tf.toUpperCase()} · {tg.data.n} bars</span>
+    <b class="sname">{tg.t.name}</b><span class="dim">{multi ? scopeLabel(app.scope.optimizer, tg.t.symbol, tg.t.tf) : `${tg.t.symbol} · ${tg.t.tf.toUpperCase()} · ${tg.data.n} bars`}</span>
     <Select value={String(opt.budget)} options={BUDGETS} onchange={(v) => (opt.budget = Number(v))} width="190px" />
     {#if run}<button class="mini" onclick={() => opt.cancel()}>Stop</button>
     {:else}<button class="primary" onclick={() => opt.run()} disabled={!opt.rows.some((r) => r.on)}>Run optimizer</button>{/if}
-    {#if run && opt.progress}
+    {#if opt.status === 'loading'}
+      <span class="m">Loading data · <b>{opt.loading.done}/{opt.loading.total}</b> securities</span>
+    {:else if run && opt.progress}
       <span class="m">{opt.progress.phase} · {opt.progress.evals}/{opt.progress.budget} tests · best score <b>{opt.progress.best.toFixed(3)}</b></span>
       <div class="bar"><i style:width="{pctDone}%"></i></div>
     {:else if opt.status === 'done' && opt.result}
       <span class="m">{opt.result.evals} tests{opt.result.stopped ? ' (stopped)' : ''} · at least {opt.result.minTrades} trades per variant</span>
     {/if}
   </div>
+  <ScopeBar which="optimizer">
+    {#if multi}<span class="dim">every test runs on all securities, figures are averaged (win rate over all trades). Tests = budget x securities.</span>{/if}
+  </ScopeBar>
+  {#if opt.info}
+    <p class="dinfo">Optimized on <b>{opt.info.symbols}</b> securities · {opt.info.tf.toUpperCase()} · from {day(opt.info.from)} · {opt.info.bars} bars{#if opt.info.failed} · <span class="warn">{opt.info.failed} without data</span>{/if}</p>
+  {/if}
   <div class="body">
     {#if opt.status === 'error'}<p class="err">{opt.error}</p>{/if}
     <div class="stack">
@@ -61,17 +73,17 @@
           <p class="dim">{run ? 'Searching…' : 'Press "Run optimizer". It climbs each parameter step by step: a better step is repeated with double size, a worse one is dropped.'}</p>
         {:else}
           <div class="tw"><table>
-            <thead><tr><th>#</th><th>Variant</th><th>Parameters</th><th>Win rate</th><th>Return</th><th>Max DD</th><th>Trades</th><th>Last part</th><th>Score</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Variant</th><th>Parameters</th><th>Win rate</th><th>Return</th><th>Max DD</th><th>Trades</th>{#if multi}<th>Profitable</th>{/if}<th>Last part</th><th>Score</th><th></th></tr></thead>
             <tbody>
               {#if opt.result.baseline}
                 {@const b = opt.result.baseline}
-                <tr class="base"><td></td><td>Current</td><td class="p">{opt.rows.filter((r) => r.on).map((r) => `${r.title} ${fmt(r.def)}`).join(' · ')}</td><td>{(b.rawWinRate * 100).toFixed(0)}%</td><td class={cls(b.ret)}>{pct(b.ret, 0)}</td><td class="dn">{b.maxDD.toFixed(1)}%</td><td>{b.trades}</td><td class={cls(b.recentRet)}>{pct(b.recentRet)}</td><td></td><td></td></tr>
+                <tr class="base"><td></td><td>Current</td><td class="p">{opt.rows.filter((r) => r.on).map((r) => `${r.title} ${fmt(r.def)}`).join(' · ')}</td><td>{(b.rawWinRate * 100).toFixed(0)}%</td><td class={cls(b.ret)}>{pct(b.ret, 0)}</td><td class="dn">{b.maxDD.toFixed(1)}%</td><td>{b.trades}</td>{#if multi}<td>{b.breadth !== undefined ? (b.breadth * 100).toFixed(0) + '%' : ''}</td>{/if}<td class={cls(b.recentRet)}>{pct(b.recentRet)}</td><td></td><td></td></tr>
               {/if}
               {#each opt.result.variants as v (v.rank)}
                 <tr class:top={v.rank === 1}>
                   <td>{v.rank}</td><td class="tag">{v.tag}</td>
                   <td class="p" title={Object.entries(v.params).map(([k, x]) => `${k} = ${fmt(x)}`).join('\n')}>{Object.entries(v.params).map(([k, x]) => `${k} ${fmt(x)}`).join(' · ')}</td>
-                  <td>{(v.metrics.rawWinRate * 100).toFixed(0)}%</td><td class={cls(v.metrics.ret)}>{pct(v.metrics.ret, 0)}</td><td class="dn">{v.metrics.maxDD.toFixed(1)}%</td><td>{v.metrics.trades}</td>
+                  <td>{(v.metrics.rawWinRate * 100).toFixed(0)}%</td><td class={cls(v.metrics.ret)}>{pct(v.metrics.ret, 0)}</td><td class="dn">{v.metrics.maxDD.toFixed(1)}%</td><td>{v.metrics.trades}</td>{#if multi}<td>{v.metrics.breadth !== undefined ? (v.metrics.breadth * 100).toFixed(0) + '%' : ''}</td>{/if}
                   <td class={cls(v.metrics.recentRet)}>{pct(v.metrics.recentRet)}</td><td>{v.score.toFixed(3)}</td>
                   <td class="act"><button class="mini" onclick={() => opt.apply(v)}>Apply</button></td>
                 </tr>
@@ -111,6 +123,7 @@
   tr:hover td { background: var(--hover); } .act { text-align: right; }
   .in { width: 58px; padding: 3px 5px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12px ui-monospace, monospace; outline: none; box-sizing: border-box; } .in:focus { border-color: var(--accent); }
   input[type='checkbox'] { accent-color: var(--accent); }
+  .dinfo { margin: 8px 14px 0; color: var(--dim); font-size: 11.5px; } .dinfo b { color: var(--fg); font-weight: 600; } .warn { color: #e8b13a; }
   .up { color: var(--up); } .dn { color: var(--down); }
   .res > .dim, .params > .dim { margin: 6px 14px; font-size: 12.5px; line-height: 1.5; }
   .note { margin: 8px 14px 0; color: var(--dim); font-size: 11.5px; line-height: 1.5; max-width: 760px; } .err { margin: 8px 14px; color: var(--down); font-size: 12.5px; }

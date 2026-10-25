@@ -64,6 +64,8 @@ export interface Metrics {
   /** last segment only */
   recentWin: number; recentRet: number;
   segs: Seg[];
+  /** securities tested and the share of them with a positive return (several securities only) */
+  symbols?: number; breadth?: number;
 }
 
 const growth = (n: number) => Array.from({ length: n }, (_, k) => RECENCY ** k);
@@ -95,6 +97,21 @@ export function metricsOf(res: StrategyResult, nBars: number): Metrics {
     trades: closed.length, rawWinRate: closed.length ? closed.filter((t) => t.pnl > 0).length / closed.length : 0,
     ret: res.initialCapital > 0 ? (eq[eq.length - 1] / res.initialCapital - 1) * 100 : 0, maxDD, profitFactor: gl > 0 ? gp / gl : gp > 0 ? Infinity : 0,
     winRate: (wins + PRIOR / 2) / (n + PRIOR), retW, ddW, recentWin: last.n ? last.wins / last.n : 0, recentRet: last.ret, segs,
+  };
+}
+
+/** Metrics over several securities: trades pooled, everything else averaged (win rate pooled over all trades). */
+export function mergeMetrics(ms: Metrics[]): Metrics {
+  if (ms.length === 1) return ms[0];
+  const avg = (f: (m: Metrics) => number) => ms.reduce((s, m) => s + f(m), 0) / ms.length;
+  const trades = ms.reduce((s, m) => s + m.trades, 0);
+  const pfs = ms.map((m) => m.profitFactor).filter(Number.isFinite);
+  return {
+    trades, rawWinRate: trades ? ms.reduce((s, m) => s + m.rawWinRate * m.trades, 0) / trades : 0,
+    ret: avg((m) => m.ret), maxDD: avg((m) => m.maxDD), profitFactor: pfs.length ? pfs.reduce((a, b) => a + b, 0) / pfs.length : ms[0].profitFactor,
+    winRate: avg((m) => m.winRate), retW: avg((m) => m.retW), ddW: avg((m) => m.ddW), recentWin: avg((m) => m.recentWin), recentRet: avg((m) => m.recentRet),
+    segs: ms[0].segs.map((_, k) => ({ n: ms.reduce((s, m) => s + m.segs[k].n, 0), wins: ms.reduce((s, m) => s + m.segs[k].wins, 0), ret: avg((m) => m.segs[k].ret), dd: avg((m) => m.segs[k].dd) })),
+    symbols: ms.length, breadth: ms.filter((m) => m.ret > 0).length / ms.length,
   };
 }
 
@@ -135,7 +152,7 @@ const PROFILES: { kind: string; tag: string; score: (m: Metrics, t: number) => n
 export interface Variant { rank: number; tag: string; kind: string; /** every category this point is the absolute best of, plus its own kind */ kinds: string[]; params: Record<string, number>; metrics: Metrics; score: number; robust: number }
 export interface OptimizeProgress { evals: number; budget: number; best: number; phase: string }
 export interface OptimizeOpts {
-  code: string; /** library indicators the strategy reads (oviate.ind) */ lib?: Record<string, string>; data: PineCandles; stepSec: number; space: ParamDef[]; settings: TesterSettings;
+  code: string; /** library indicators the strategy reads (oviate.ind) */ lib?: Record<string, string>; /** one security, or several: every test runs on all of them and the metrics are merged */ data: PineCandles | PineCandles[]; stepSec: number; space: ParamDef[]; settings: TesterSettings;
   /** inputs that are not tuned keep these values */
   base?: Record<string, number | boolean | string>;
   budget?: number;
@@ -149,9 +166,10 @@ export interface OptimizeResult { variants: Variant[]; baseline: Metrics | null;
 interface Point { idx: number[]; m: Metrics }
 
 export function optimize(o: OptimizeOpts): OptimizeResult {
-  const { space, data } = o;
+  const { space } = o;
+  const sets = Array.isArray(o.data) ? o.data : [o.data];
   const budget = o.budget ?? 600;
-  const minT = minTradesFor(data.n);
+  const minT = minTradesFor(sets.reduce((s, d) => s + d.n, 0));
   const K = space.map((p) => Math.round((p.max - p.min) / p.step));
   const cache = new Map<string, Point | null>();
   let evals = 0, stopped = false, bestSeen = 0, phase = 'start';
@@ -165,10 +183,14 @@ export function optimize(o: OptimizeOpts): OptimizeResult {
     if (cache.has(k)) return cache.get(k)!;
     const params = { ...(o.base ?? {}), ...valueOf(idx) };
     if (pairs.some(([a, b]) => Number(params[space[a].id]) >= Number(params[space[b].id]))) { cache.set(k, null); return null; } // keep Fast < Slow
-    let res: StrategyResult | null;
-    if (o.run) res = o.run(params);
-    else { const r = runPine(o.code, data, { params, step: o.stepSec, broker: o.settings, lib: o.lib }); res = r.error ? null : r.strategy ?? null; }
-    const pt = res ? { idx, m: metricsOf(res, data.n) } : null;
+    const ms: Metrics[] = [];
+    if (o.run) { const res = o.run(params); if (res) ms.push(metricsOf(res, sets[0].n)); }
+    else for (const d of sets) {
+      if (stop()) break;
+      const r = runPine(o.code, d, { params, step: o.stepSec, broker: o.settings, lib: o.lib });
+      if (!r.error && r.strategy) ms.push(metricsOf(r.strategy, d.n));
+    }
+    const pt = ms.length && !stopped ? { idx, m: mergeMetrics(ms) } : null;
     cache.set(k, pt);
     evals++;
     if (pt) bestSeen = Math.max(bestSeen, OBJ.balanced(pt.m, minT));

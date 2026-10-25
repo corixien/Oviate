@@ -127,3 +127,26 @@ export function detailedStats(res: StrategyResult, o: StatsOpts): DetailedStats 
     drawdown,
   };
 }
+
+/** One security of a multi-security run. */
+export interface UniStat { symbol: string; ret: number; buyHold: number; trades: number; wins: number; winRate: number; profitFactor: number; maxDD: number; bars: number; years: number }
+
+export function uniStat(symbol: string, res: StrategyResult, o: StatsOpts, bars: number): UniStat {
+  const d = detailedStats(res, o);
+  return { symbol, ret: d.returnPct, buyHold: d.buyHold, trades: d.trades, wins: d.wins, winRate: d.winRate, profitFactor: d.profitFactor, maxDD: d.maxDrawdownPct, bars, years: (bars * o.stepSec) / (365.25 * 86400) };
+}
+
+export interface UniSummary { n: number; profitable: number; beatBuyHold: number; medianRet: number; meanRet: number; medianBuyHold: number; trades: number; winRate: number; meanMaxDD: number; worstMaxDD: number }
+
+const median = (a: number[]) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+/** Summary across securities: how many the strategy made money on, median figures (robust against one outlier), win rate pooled over all trades. */
+export function universeSummary(rows: UniStat[]): UniSummary {
+  const trades = sum(rows.map((r) => r.trades));
+  return {
+    n: rows.length, profitable: rows.filter((r) => r.ret > 0).length, beatBuyHold: rows.filter((r) => r.ret > r.buyHold).length,
+    medianRet: median(rows.map((r) => r.ret)), meanRet: mean(rows.map((r) => r.ret)), medianBuyHold: median(rows.map((r) => r.buyHold)),
+    trades, winRate: trades ? (sum(rows.map((r) => r.wins)) / trades) * 100 : 0,
+    meanMaxDD: mean(rows.map((r) => r.maxDD)), worstMaxDD: rows.length ? Math.max(...rows.map((r) => r.maxDD)) : 0,
+  };
+}

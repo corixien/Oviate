@@ -1,9 +1,10 @@
-import { kvGet, kvSet, type Tf } from './api';
+import { kvGet, kvSet, TIMEFRAMES, type Tf } from './api';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { ChartType } from './chart/transforms';
 import type { Drawing, DrawTool } from './chart/renderer';
 import type { Lang } from './i18n';
 import type { PineResult, TesterSettings } from './pine/types.ts';
+import { DEFAULT_SCOPE, cleanScope, type Scope } from './universe.ts';
 import { library } from './library.svelte';
 
 export interface ChartCfg {
@@ -68,6 +69,8 @@ class App {
   /** Strategy Tester settings (simulation only: not stored in strategies, not shown in chart drawings). */
   /** Strategy Tester equity chart: which lines are shown and the scale (remembered between sessions); buy & hold lines are off by default */
   eqView = $state<{ eq: boolean; bh: boolean; bhi: boolean; scale: 'equity' | 'all' }>({ eq: true, bh: false, bhi: false, scale: 'equity' });
+  /** What the Strategy Tester and the Optimizer run on (period, number of securities, timeframe); default = the chart. */
+  scope = $state<{ tester: Scope; optimizer: Scope }>({ tester: { ...DEFAULT_SCOPE }, optimizer: { ...DEFAULT_SCOPE } });
   tester = $state<TesterSettings>({ initialCapital: 10000, commissionValue: 0, slippagePct: 0.1, fillOnClose: true });
   /** Request to reset the view of a chart (right-click menu, command bar). */
   resetReq = $state({ id: '', n: 0 });
@@ -209,6 +212,7 @@ class App {
         if (s.cmdAlias) this.cmdAlias = s.cmdAlias;
         if (s.eqView) this.eqView = { ...this.eqView, ...s.eqView };
         if (s.tester) this.tester = { ...this.tester, initialCapital: s.tester.initialCapital ?? this.tester.initialCapital, commissionValue: s.tester.commissionValue ?? this.tester.commissionValue, slippagePct: s.tester.slippagePct ?? this.tester.slippagePct, fillOnClose: s.tester.fillOnClose ?? this.tester.fillOnClose }; // slippagePct is new: older saves (tick based) get the 0.1 default
+        if (s.scope) this.scope = { tester: cleanScope(s.scope.tester, TIMEFRAMES), optimizer: cleanScope(s.scope.optimizer, TIMEFRAMES) };
         if (this.uiZoom !== 1) this.applyZoom();
       }
     } catch { /* corrupt state: keep defaults */ }
@@ -222,7 +226,7 @@ class App {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
         lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
-        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, eqView: $state.snapshot(this.eqView), uiZoom: this.uiZoom, tester: $state.snapshot(this.tester), keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias)
+        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, eqView: $state.snapshot(this.eqView), uiZoom: this.uiZoom, tester: $state.snapshot(this.tester), scope: $state.snapshot(this.scope), keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias)
       }));
     }, 400);
   }

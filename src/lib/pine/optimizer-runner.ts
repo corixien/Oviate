@@ -1,4 +1,5 @@
 import { optimize } from './optimizer.ts';
+import type { PineCandles } from './types.ts';
 import type { OptimizeOpts, OptimizeProgress, OptimizeResult } from './optimizer.ts';
 
 export interface OptimizeJob { promise: Promise<OptimizeResult>; cancel(): void }
@@ -10,8 +11,8 @@ export function runOptimizer(opts: Omit<OptimizeOpts, 'onProgress' | 'shouldStop
     return { promise: Promise.resolve().then(() => optimize({ ...opts, onProgress, shouldStop: () => stop })), cancel: () => { stop = true; } };
   }
   const w = new Worker(new URL('./optimizer.worker.ts', import.meta.url), { type: 'module' });
-  const d = opts.data;
-  const data = { n: d.n, t: d.t.slice(), o: d.o.slice(), h: d.h.slice(), l: d.l.slice(), c: d.c.slice(), v: d.v.slice() };
+  const copy = (d: PineCandles): PineCandles => ({ n: d.n, t: d.t.slice(), o: d.o.slice(), h: d.h.slice(), l: d.l.slice(), c: d.c.slice(), v: d.v.slice() });
+  const data = Array.isArray(opts.data) ? opts.data.map(copy) : copy(opts.data);
   let cancelled = false;
   const promise = new Promise<OptimizeResult>((resolve, reject) => {
     w.onmessage = (e: MessageEvent<{ type: string; message?: string; result?: OptimizeResult } & Partial<OptimizeProgress>>) => {
