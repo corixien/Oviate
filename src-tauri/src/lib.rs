@@ -21,6 +21,8 @@ struct AppState {
     cache: Arc<Cache>,
     streams: stream::Streams,
     http: reqwest::Client,
+    /// one fetch at a time per symbol + timeframe: a second chart asking for the same candles waits and then reads the cache
+    fetch_locks: std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 type State<'a> = tauri::State<'a, Arc<AppState>>;
@@ -52,6 +54,8 @@ async fn fetch(st: &AppState, symbol: &str, tf: Timeframe, from: i64, to: i64) -
 #[tauri::command]
 async fn get_candles(st: State<'_>, symbol: String, tf: Timeframe, from: i64, to: i64) -> Result<Candles> {
     let key = tf.key();
+    let lock = st.fetch_locks.lock().unwrap().entry(format!("{symbol}|{key}")).or_default().clone();
+    let _one_at_a_time = lock.lock().await;
     let now = chrono::Utc::now().timestamp();
     let to_eff = to.min(now);
     let step = tf.seconds();
@@ -66,10 +70,12 @@ async fn get_candles(st: State<'_>, symbol: String, tf: Timeframe, from: i64, to
                 st.cache.store(&symbol, key, &c, from, cf)?;
             }
             if to_eff > ct - 2 * step {
-                // Re-fetch the tail including the last (possibly partial) bars.
+                // Re-fetch the tail including the last (possibly partial) bars; when that fails (offline, rate limit) the cached candles are still shown.
                 let start = (ct - 2 * step).max(from);
-                let c = fetch(&st, &symbol, tf, start, to_eff).await?;
-                st.cache.store(&symbol, key, &c, start, to_eff)?;
+                match fetch(&st, &symbol, tf, start, to_eff).await {
+                    Ok(c) => st.cache.store(&symbol, key, &c, start, to_eff)?,
+                    Err(e) => eprintln!("candle refresh failed for {symbol} {key}, using the cache: {e}"),
+                }
             }
         }
     }
@@ -332,9 +338,11 @@ pub fn run() {
             let cache = Cache::open(&dir.join("oviate.db"))?;
             let http = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .pool_idle_timeout(std::time::Duration::from_secs(15))
                 .build()?;
             let streams = stream::Streams::start(app.handle().clone());
-            app.manage(Arc::new(AppState { cache: Arc::new(cache), http, streams }));
+            app.manage(Arc::new(AppState { cache: Arc::new(cache), http, streams, fetch_locks: Default::default() }));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

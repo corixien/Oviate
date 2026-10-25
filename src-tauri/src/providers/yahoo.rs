@@ -34,20 +34,27 @@ pub async fn candles(http: &reqwest::Client, symbol: &str, tf: Timeframe, from: 
         return Ok(Candles::default());
     }
     let url = format!("https://query1.finance.yahoo.com/v8/finance/chart/{}", urlenc(symbol));
-    let v: Value = http
-        .get(url)
-        .header("User-Agent", UA)
-        .query(&[
-            ("interval", tf.yahoo()),
-            ("period1", &from.to_string()),
-            ("period2", &to.to_string()),
-            ("includePrePost", "false"),
-        ])
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let (iv, p1, p2) = (tf.yahoo(), from.to_string(), to.to_string());
+    // transport errors (a stale kept-alive connection, a dropped packet) and 429 / 5xx are retried a few times
+    let mut attempt = 0;
+    let v: Value = loop {
+        let sent = http
+            .get(&url)
+            .header("User-Agent", UA)
+            .query(&[("interval", iv), ("period1", p1.as_str()), ("period2", p2.as_str()), ("includePrePost", "false")])
+            .send()
+            .await;
+        let retry = match &sent {
+            Err(_) => true,
+            Ok(r) => r.status().as_u16() == 429 || r.status().is_server_error(),
+        };
+        if retry && attempt < 3 {
+            attempt += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64 * attempt as u64)).await;
+            continue;
+        }
+        break sent?.error_for_status()?.json().await?;
+    };
     let c = parse_chart(&v)?;
     Ok(if tf == Timeframe::H4 { aggregate(&c, 14400) } else { c })
 }

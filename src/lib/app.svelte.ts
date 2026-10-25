@@ -102,7 +102,9 @@ class App {
 
   /** Switch layout; charts that become visible start with the active chart's indicators (copied, not synced). */
   setLayout(l: LayoutId) {
-    const from = this.count, src = this.chart;
+    const from = this.count;
+    if (LAYOUT_COUNT[l] < from) this.keepTouched(LAYOUT_COUNT[l]);
+    const src = this.chart;
     this.layout = l;
     for (let i = from; i < LAYOUT_COUNT[l]; i++) {
       const c = this.charts[i];
@@ -116,6 +118,19 @@ class App {
     this.persist();
   }
   get count() { return LAYOUT_COUNT[this.layout]; }
+
+  /** chart ids, the one touched last first (not persisted) */
+  private touched: string[] = [];
+  noteTouched(id: string) { if (this.touched[0] !== id) this.touched = [id, ...this.touched.filter((x) => x !== id)]; }
+
+  /** Fewer charts: the marked chart stays, then the ones touched last; they move to the front slots (keeping their order). */
+  private keepTouched(n: number) {
+    const vis = this.charts.slice(0, this.count), activeId = this.chart.id;
+    const rank = (c: ChartCfg) => (c.id === activeId ? -1 : this.touched.indexOf(c.id) < 0 ? 999 : this.touched.indexOf(c.id));
+    const keep = new Set([...vis].sort((a, b) => rank(a) - rank(b)).slice(0, n).map((c) => c.id));
+    this.charts = [...vis.filter((c) => keep.has(c.id)), ...this.charts.filter((c) => !keep.has(c.id))];
+    this.active = this.charts.findIndex((c) => c.id === activeId);
+  }
 
   replayChart() { this.replayReq = { id: this.chart.id, n: this.replayReq.n + 1 }; }
   resetChart() { this.resetReq = { id: this.chart.id, n: this.resetReq.n + 1 }; }

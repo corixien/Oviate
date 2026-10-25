@@ -76,6 +76,9 @@
   });
   $effect(() => { if (app.ready) { void [app.layout, app.active, app.theme, app.lang, app.grid, app.magnet, app.sync, app.showWatchlist, app.charts.map((c) => [c.symbol, c.tf, c.type, c.log, c.volume, c.indicators.length])]; app.persist(); } });
 
+  // remember which charts were touched last (a smaller layout keeps those)
+  $effect(() => { const id = app.charts[app.active]?.id; if (id) app.noteTouched(id); });
+
   // back / forward: page and bottom panel tab changes are recorded as steps (drawing edits are recorded by the charts)
   // every view the user can navigate to is part of one snapshot; a change of any part is one step
   type Nav = { page: typeof app.page; tab: string; psub: string; tsub: string; jsub: string; ed: string; mode: string; syms: string[] };
