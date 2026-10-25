@@ -2,6 +2,7 @@
   let { name, size = 18 }: { name: string; size?: number } = $props();
   const P: Record<string, string> = {
     cursor: 'M5 3l14 7-6 2-2 6z',
+    wallet: 'M3 7h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 7l2-3h12M16 13.5h3',
     blocks: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
     trend: 'M4 19L20 5M4 19h0M20 5h0',
     ray: 'M5 19L22 4M5 17a2 2 0 1 0 0 4a2 2 0 1 0 0-4z',

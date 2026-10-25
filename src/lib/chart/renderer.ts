@@ -533,6 +533,7 @@ export class ChartRenderer {
       }
       return;
     }
+    if (this.barW < 1.5 && type !== 'hollow') { this.drawDenseCandles(a, b); return; }
     for (const up of [true, false]) {
       const wick = up ? theme.upWick : theme.downWick, body = up ? theme.upBody : theme.downBody, border = up ? theme.upBorder : theme.downBorder;
       ctx.strokeStyle = wick;
@@ -562,6 +563,31 @@ export class ChartRenderer {
         }
         ctx.stroke();
       }
+    }
+  }
+
+  /** Zoomed far out (more than one bar per pixel): one high-low line per pixel column instead of every candle. */
+  private drawDenseCandles(a: number, b: number) {
+    const { ctx } = this; const d = this.s.data; const { theme } = this.s;
+    const cols: number[] = []; // x, high, low, up
+    let cx = NaN, hi = 0, lo = 0, o = 0, c = 0;
+    for (let i = a; i <= b; i++) {
+      const X = Math.round(this.xOf(i));
+      if (X !== cx) {
+        if (cx === cx) cols.push(cx, hi, lo, c >= o ? 1 : 0);
+        cx = X; hi = d.h[i]; lo = d.l[i]; o = d.o[i];
+      } else { if (d.h[i] > hi) hi = d.h[i]; if (d.l[i] < lo) lo = d.l[i]; }
+      c = d.c[i];
+    }
+    if (cx === cx) cols.push(cx, hi, lo, c >= o ? 1 : 0);
+    for (const up of [1, 0]) {
+      ctx.strokeStyle = up ? theme.upBody : theme.downBody; ctx.lineWidth = 1; ctx.beginPath();
+      for (let k = 0; k < cols.length; k += 4) {
+        if (cols[k + 3] !== up) continue;
+        const X = cols[k] + 0.5;
+        ctx.moveTo(X, this.py(cols[k + 1])); ctx.lineTo(X, this.py(cols[k + 2]));
+      }
+      ctx.stroke();
     }
   }
 
@@ -666,12 +692,15 @@ export class ChartRenderer {
       flush(b);
     }
     // line / stepline / linebr / (area outline)
-    let pen = false, curCol = '', py = 0;
+    let pen = false, curCol = '', py = 0, lastPx = NaN;
+    const dense = this.barW < 1;
     ctx.lineWidth = lw; ctx.lineJoin = 'round';
     for (let j = lo; j <= b; j++) {
       const v = val(j);
       if (Number.isNaN(v)) { if (pen) ctx.stroke(); pen = false; continue; }
-      const X = this.xOf(j), Y = this.py(v, pane), c = col(j);
+      const X = this.xOf(j);
+      if (dense && pen) { const px = Math.round(X); if (px === lastPx) continue; lastPx = px; } else lastPx = Math.round(X); // more than one bar per pixel: one point per pixel column
+      const Y = this.py(v, pane), c = col(j);
       if (!pen) { ctx.beginPath(); ctx.strokeStyle = c; ctx.moveTo(X, Y); pen = true; curCol = c; }
       else if (c !== curCol) { ctx.lineTo(X, Y); ctx.stroke(); ctx.beginPath(); ctx.strokeStyle = c; ctx.moveTo(X, Y); curCol = c; }
       else { if (pl.style === 'stepline') ctx.lineTo(X, py); ctx.lineTo(X, Y); }
@@ -683,6 +712,7 @@ export class ChartRenderer {
 
   private drawShapes(r: PineResult, pane: Pane, a: number, b: number) {
     const { ctx } = this; const d = this.s.data;
+    if (this.barW < 1.2) return; // markers would only pile up
     const above = new Map<number, number>(), below = new Map<number, number>();
     const SZ: Record<string, number> = { auto: 6, tiny: 4, small: 6, normal: 8, large: 11, huge: 15 };
     for (const sh of r.shapes) {
@@ -807,12 +837,11 @@ export class ChartRenderer {
       const buy = m.side === 'buy';
       const col = buy ? theme.up : theme.down;
       ctx.fillStyle = col; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
-      ctx.shadowColor = col; ctx.shadowBlur = 8;
       ctx.beginPath();
       // buy: arrow below the fill price pointing up; sell: arrow above pointing down
       if (buy) { ctx.moveTo(x, y + 1); ctx.lineTo(x + 6, y + 11); ctx.lineTo(x + 2.5, y + 11); ctx.lineTo(x + 2.5, y + 17); ctx.lineTo(x - 2.5, y + 17); ctx.lineTo(x - 2.5, y + 11); ctx.lineTo(x - 6, y + 11); }
       else { ctx.moveTo(x, y - 1); ctx.lineTo(x + 6, y - 11); ctx.lineTo(x + 2.5, y - 11); ctx.lineTo(x + 2.5, y - 17); ctx.lineTo(x - 2.5, y - 17); ctx.lineTo(x - 2.5, y - 11); ctx.lineTo(x - 6, y - 11); }
-      ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0; ctx.stroke();
+      ctx.closePath(); ctx.fill(); ctx.stroke();
       if (m.text) { ctx.font = '10px ui-monospace, monospace'; ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.fillText(m.text, x, buy ? y + 28 : y - 24); ctx.textAlign = 'left'; ctx.font = '11px ui-monospace, "JetBrains Mono", monospace'; }
     }
   }

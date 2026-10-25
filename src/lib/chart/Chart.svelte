@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack, tick } from 'svelte';
   import { app, type ChartCfg } from '$lib/app.svelte';
+  import { history } from '$lib/history.ts';
   import { getCandles, newsWindow, calendarWindow, symbolRegions, type CalEvent, TF_SECONDS, type NewsItem } from '$lib/api';
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
@@ -20,12 +21,14 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
 
   let main: HTMLCanvasElement, over: HTMLCanvasElement, box: HTMLDivElement;
   let r: ChartRenderer | undefined;
-  let raw = $state<Candles>(emptyCandles());
+  // plain (non-proxied) objects: the renderer reads these arrays millions of times per second and a reactive proxy makes every read slow
+  let raw = $state.raw<Candles>(emptyCandles());
   let status = $state<'loading' | 'ok' | 'empty' | 'error'>('loading');
   let errMsg = $state('');
   let hover = $state<number | null>(null);
   let exhausted = false, loadingMore = false;
   let menuFor = $state('');
+  let acctFor = $state('');
   let selectedId = $state<string | null>(null);
   let ctxMenu = $state<{ x: number; y: number } | null>(null);
   function resetChart() { ctxMenu = null; r?.resetView(); r?.viewChanged(); }
@@ -239,7 +242,7 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
   });
   $effect(() => { const q = app.replayReq; if (!r || !q.n || q.id !== cfg.id) return; untrack(() => { if (app.replay) exitReplay(); else startReplay(); }); });
   // ----- Pine indicators: computed in a worker, coalesced so ticks cannot pile up -----
-  let pineResults = $state<Record<string, PineResult>>({});
+  let pineResults = $state.raw<Record<string, PineResult>>({});
   let pineRunning = false, pineDirty = false, lastPineRun = 0;
   let pineTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -381,7 +384,13 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
       onHover: (i) => { hover = i; },
       onViewChange: () => {},
       onNeedHistory: () => loadMore(),
-      onDrawings: (d) => { cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))]; app.persist(); },
+      onDrawings: (d) => {
+        const before = $state.snapshot(cfg.drawings);
+        cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))];
+        const after = $state.snapshot(cfg.drawings);
+        history.push({ key: 'drawings:' + cfg.id, undo: () => { cfg.drawings = before; app.persist(); }, redo: () => { cfg.drawings = after; app.persist(); } });
+        app.persist();
+      },
       onToolDone: () => { app.tool = 'cursor'; },
       onSelect: (id) => { selectedId = id; },
       onNewsClick: (m) => app.openNews(cfg.symbol, m.ids[0]),
@@ -524,6 +533,23 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
           <button title="Settings" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'settings' })}><Icons name="gear" size={14} /></button>
           <button title="Source code" onclick={() => (app.indDialog = { uid: ind.uid, mode: 'code' })}><Icons name="braces" size={14} /></button>
           <button title="Remove" onclick={() => { cfg.indicators = cfg.indicators.filter((q) => q.uid !== ind.uid); app.persist(); }}><Icons name="trash" size={14} /></button>
+          {#if ind.strategy}
+            <span class="mwrap">
+              <button title={ind.account ? 'Trading on a paper account: change or stop' : 'Trade this strategy on a paper account'} class:tr={!!ind.account} onclick={() => (acctFor = acctFor === ind.uid ? '' : ind.uid)}><Icons name="wallet" size={14} /></button>
+              {#if acctFor === ind.uid}
+                <div class="mmenu acct" role="menu">
+                  <button class="hd2" disabled>Trade on paper account</button>
+                  <p class="hint">After every closed bar the strategy places its orders on the chosen account ({cfg.symbol}). Only one account at a time.</p>
+                  {#each paper.accounts as acc (acc.id)}
+                    <button onclick={() => { ind.account = acc.id; liveBars.clear(); acctFor = ''; app.persist(); }}>{ind.account === acc.id ? '● ' : '○ '}{acc.name}</button>
+                  {:else}
+                    <button onclick={() => { paper.accountDialog = true; acctFor = ''; }}>Create paper account…</button>
+                  {/each}
+                  {#if ind.account}<button class="stop" onclick={() => { ind.account = undefined; liveBars.clear(); acctFor = ''; app.persist(); }}>Stop paper trading</button>{/if}
+                </div>
+              {/if}
+            </span>
+          {/if}
           <span class="mwrap">
             <button title="More" onclick={() => (menuFor = menuFor === ind.uid ? '' : ind.uid)}><Icons name="more" size={14} /></button>
             {#if menuFor === ind.uid}
@@ -533,14 +559,6 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
                 <button onclick={() => { ind.params = {}; ind.colors = undefined; menuFor = ''; app.persist(); }}>Reset to defaults</button>
                 <button onclick={() => { app.editor = { kind: ind.strategy ? 'strategies' : 'indicators', name: ind.id }; app.page = 'editor'; menuFor = ''; }}>Edit source</button>
                 {#if ind.strategy && file?.code.includes('@oviate-builder')}<button onclick={() => { app.openBuilder(ind.id); menuFor = ''; }}>Edit in builder</button>{/if}
-                {#if ind.strategy}
-                  <button class="hd2" disabled>Trade on paper account</button>
-                  {#each paper.accounts as acc (acc.id)}
-                    <button onclick={() => { ind.account = ind.account === acc.id ? undefined : acc.id; liveBars.clear(); menuFor = ''; app.persist(); }}>{ind.account === acc.id ? '● ' : '○ '}{acc.name}</button>
-                  {:else}
-                    <button onclick={() => { paper.accountDialog = true; menuFor = ''; }}>Create paper account…</button>
-                  {/each}
-                {/if}
               </div>
             {/if}
           </span>
@@ -616,10 +634,12 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
   .dot.live { background: var(--up); box-shadow: 0 0 8px var(--up); }
   .nm { color: var(--fg); font-family: system-ui, sans-serif; font-weight: 600; }
   .acts { display: inline-flex; align-items: center; gap: 1px; max-width: 0; margin-left: 0; opacity: 0; overflow: hidden; transition: max-width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1), margin-left 0.28s, opacity 0.18s; }
-  .pill:hover .acts, .pill:focus-within .acts { max-width: 160px; margin-left: 8px; opacity: 1; overflow: visible; }
+  .pill:hover .acts, .pill:focus-within .acts { max-width: 200px; margin-left: 8px; opacity: 1; overflow: visible; }
   .acts button { display: grid; place-items: center; width: 22px; height: 22px; background: none; border: 0; color: var(--dim); cursor: pointer; }
   .acts button:hover { color: #fff; background: var(--accent); }
   .mwrap { position: relative; }
+  .acts button.tr { color: var(--up); }
+  .mmenu.acct { min-width: 220px; } .mmenu .hint { margin: 0; padding: 2px 12px 8px; max-width: 220px; white-space: normal; color: var(--dim); font: 11px system-ui, sans-serif; } .mmenu .stop { color: var(--down); border-top: 1px solid var(--glass-line); }
   .mmenu { position: absolute; top: 26px; right: 0; z-index: 30; min-width: 160px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--glass-line); }
   .mmenu button { width: auto; height: auto; padding: 8px 12px; text-align: left; color: var(--fg); font: 12px system-ui, sans-serif; }
   .cmenu { position: absolute; z-index: 40; min-width: 160px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--glass-line); box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22); }

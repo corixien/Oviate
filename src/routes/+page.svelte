@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
+  import { history } from '$lib/history.ts';
   import { app } from '$lib/app.svelte';
   import { onTick, streamSymbols } from '$lib/api';
   import Chart from '$lib/chart/Chart.svelte';
@@ -72,6 +73,31 @@
   });
   $effect(() => { if (app.ready) { void [app.layout, app.active, app.theme, app.lang, app.grid, app.magnet, app.sync, app.showWatchlist, app.charts.map((c) => [c.symbol, c.tf, c.type, c.log, c.volume, c.indicators.length])]; app.persist(); } });
 
+  // back / forward: page and bottom panel tab changes are recorded as steps (drawing edits are recorded by the charts)
+  type Nav = { page: typeof app.page; tab: string };
+  const navNow = (): Nav => ({ page: app.page, tab: paper.panelOpen ? paper.panelTab : '' });
+  let navPrev = navNow();
+  function goNav(n: Nav) {
+    navPrev = n;
+    app.page = n.page;
+    if (n.tab) { paper.panelTab = n.tab as typeof paper.panelTab; paper.panelOpen = true; } else paper.panelOpen = false;
+    paper.persist();
+  }
+  $effect(() => {
+    const cur = navNow();
+    untrack(() => {
+      const from = navPrev;
+      if (cur.page === from.page && cur.tab === from.tab) return;
+      navPrev = cur;
+      history.push({ undo: () => goNav(from), redo: () => goNav(cur) });
+    });
+  });
+  const stepBack = () => { if (!app.spotlight.open && !app.settingsOpen) history.back(); };
+  const stepForward = () => { if (!app.spotlight.open && !app.settingsOpen) history.forward(); };
+  // mouse back / forward buttons (the webview would otherwise try its own page history)
+  const mouseDown = (e: MouseEvent) => { if (e.button === 3 || e.button === 4) e.preventDefault(); };
+  const mouseUp = (e: MouseEvent) => { if (e.button === 3) { e.preventDefault(); stepBack(); } else if (e.button === 4) { e.preventDefault(); stepForward(); } };
+
   function key(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       if (e.key === '+' || e.key === '=') { e.preventDefault(); app.zoomBy(1); return; }
@@ -81,6 +107,11 @@
     const el = e.target as HTMLElement;
     const typing = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
     if (typing || e.defaultPrevented || app.spotlight.open || app.settingsOpen) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+      e.preventDefault();
+      if (e.key.toLowerCase() === 'y' || e.shiftKey) stepForward(); else stepBack();
+      return;
+    }
     if (e.key === 'Enter') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); app.spotlight = { open: true, seed: '' }; }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && /[a-z0-9/]/i.test(e.key)) {
@@ -89,7 +120,7 @@
   }
 </script>
 
-<svelte:window onkeydown={key} />
+<svelte:window onkeydown={key} onmousedown={mouseDown} onmouseup={mouseUp} />
 
 <div class="app">
   <TopBar />
@@ -152,6 +183,8 @@
     --up: #0891b2; --down: #d61f7c; --glass: #ffffff; --glass-line: #b99af0;
   }
   :global(html), :global(body) { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+  :global(::selection) { background: #c9a6ff; color: #12002b; }
+  :global(:root[data-theme='light'] ::selection) { background: #b78cff; color: #12002b; }
   :global(input[type='number']) { -moz-appearance: textfield; appearance: textfield; }
   :global(input[type='number']::-webkit-inner-spin-button), :global(input[type='number']::-webkit-outer-spin-button) { -webkit-appearance: none; appearance: none; margin: 0; display: none; }
   :global(select) { -webkit-appearance: none; appearance: none; background: #000 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' fill='none' stroke='%239d4dff' stroke-width='1.5'/></svg>") no-repeat right 9px center; padding-right: 26px !important; border-radius: 0; }

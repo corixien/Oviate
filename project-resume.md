@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Back / forward history (Ctrl+Z, Ctrl+Shift+Z, mouse buttons), Journal tab moved next to Paper Trading, wallet button on the strategy pill for paper trading, chart performance (`$state.raw`, dense zoom-out drawing, no trade-arrow glow), builder: template + time zone controls removed and the builder view stays when another strategy is picked, light-purple text selection.
 - [x] Trading journal tab (bottom panel, after Optimizer): account dropdown, newest-first trades table with green / red rows, filters, summary, per-trade notes, day / week / month P&L calendar (`JournalPanel.svelte`, `paper/journal.ts` + tests).
 - [x] Wheel navigation: Ctrl zoom keeps the x / y ratio (joint factor), Ctrl+Shift zooms around the newest candle, Alt+scroll stretches time, plain scroll re-enables the auto price scale; tester equity line is fully red when the result is negative, else fully purple.
 - [x] Tester equity view (lines + scale) remembered in `app.eqView`, buy & hold lines off by default. Note: with tiny trades the equity hugs the starting capital, so on the "All lines" scale it looks flat and its red / purple split (below / above start) flips along the baseline; that is correct, not a bug.

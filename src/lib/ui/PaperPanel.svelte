@@ -96,9 +96,9 @@
   <div class="bar">
     <div class="tabs">
       <button class:on={paper.panelOpen && paper.panelTab === 'paper'} onclick={() => setTab('paper')}>Paper Trading</button>
+      <button class:on={paper.panelOpen && paper.panelTab === 'journal'} onclick={() => setTab('journal')}>Journal</button>
       <button class:on={paper.panelOpen && paper.panelTab === 'tester'} onclick={() => setTab('tester')}>Strategy Tester</button>
       <button class:on={paper.panelOpen && paper.panelTab === 'optimizer'} onclick={() => setTab('optimizer')}>Optimizer</button>
-      <button class:on={paper.panelOpen && paper.panelTab === 'journal'} onclick={() => setTab('journal')}>Journal</button>
     </div>
     <div class="sp"></div>
     <button class="chev" onclick={toggle} title={paper.panelOpen ? 'Collapse' : 'Expand'}>{paper.panelOpen ? '⌄' : '⌃'}</button>

@@ -232,6 +232,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     const key = kind + '|' + (app.editor.name ?? '') + (app.editor.blank ? '|blank' : '') + (app.editor.builder ? '|builder' : '');
     if (key === loadedKey) return;
     loadedKey = key;
+    const wasBuilder = untrack(() => mode === 'builder');
     status = null; undo = null; mode = 'code';
     if (app.editor.blank) { name = ''; code = ''; }
     else if (app.editor.name === null) { name = ''; code = TEMPLATES[kind]; }
@@ -241,7 +242,10 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
       code = f?.code ?? '';
     }
     lastTitle = scriptMeta(code).title;
-    if (app.editor.builder && kind === 'strategies' && !app.editor.blank) untrack(() => enterBuilder());
+    if (kind !== 'strategies' || app.editor.blank) return;
+    // the view stays: another strategy opens in the builder too when the builder made it (other code would need the AI, so that one opens as code)
+    if (app.editor.builder || (wasBuilder && untrack(() => builderModelOf(code, indInfo)))) untrack(() => enterBuilder());
+    else if (wasBuilder) status = { ok: true, text: 'This strategy was not made by the builder: press Builder to read it into the builder with the AI.' };
   });
 
   function check(c = code): boolean {

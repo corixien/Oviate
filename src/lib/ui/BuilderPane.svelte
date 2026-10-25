@@ -1,6 +1,6 @@
 <script lang="ts">
   import { indInfo } from '$lib/builder/info';
-  import { CMP_LABEL, BINARY, UNARY, isUnary, condText, suggest, hhmmText, parseHhmm, DAY_NAMES, PRICE_SRCS, PRICE_LABEL, SESS_STATS, SESS_LABEL, POS_LABEL, TEMPLATES, TIME_ZONES, DEFAULT_TZ, type Cmp, type Cond, type Group, type Model, type Operand, type Side } from '$lib/builder/model.ts';
+  import { CMP_LABEL, BINARY, UNARY, isUnary, condText, suggest, hhmmText, parseHhmm, DAY_NAMES, PRICE_SRCS, PRICE_LABEL, SESS_STATS, SESS_LABEL, POS_LABEL, type Cmp, type Cond, type Group, type Model, type Operand, type Side } from '$lib/builder/model.ts';
   import OperandPicker from './OperandPicker.svelte';
   import Select from './Select.svelte';
 
@@ -50,14 +50,6 @@
     } else c.r2 = undefined;
   }
   function setRight2(c: Cond, o: Operand | null) { if (o) c.r2 = o; }
-  function applyTemplate(id: string) {
-    const t = TEMPLATES.find((x) => x.id === id);
-    if (!t) return;
-    const m = t.build();
-    model.long = m.long; model.short = m.short; model.tz = m.tz;
-    if (model.name.trim() === '' || model.name === 'My Strategy') model.name = m.name;
-    ideas = {}; adj = {};
-  }
   const intOr = (e: Event, d: number | undefined, min = 0) => { const v = Math.floor(parseFloat((e.target as HTMLInputElement).value)); return Number.isFinite(v) && v >= min ? v : d; };
   const timeOf = (o: { from: number; to: number }, k: 'from' | 'to', e: Event) => { const el = e.target as HTMLInputElement; const v = parseHhmm(el.value); if (Number.isFinite(v)) o[k] = v; else el.value = hhmmText(o[k]); };
   function apply(c: Cond, s: Cond) { const n = structuredClone(s); c.l = n.l; c.cmp = n.cmp; c.r = n.r; c.r2 = n.r2; c.n = n.n; c.within = n.within; }
@@ -155,11 +147,6 @@
 {/snippet}
 
 <div class="bp">
-    <div class="tb">
-      <Select value="" options={[{ value: '', label: 'Start from a template…' }, ...TEMPLATES.map((t) => ({ value: t.id, label: t.label }))]} onchange={applyTemplate} width="330px" />
-      <label class="p" title="Time zone of the time of day, sessions and the entries-per-day limit"><span>Time zone</span>
-        <Select value={model.tz ?? DEFAULT_TZ} options={TIME_ZONES.map((z) => ({ value: z, label: z }))} onchange={(v) => (model.tz = v)} width="190px" /></label>
-    </div>
     <div class="sides">
       {#each sides as sd (sd.key)}
         {@const side = model[sd.key]}
@@ -185,7 +172,6 @@
 
 <style>
   .bp { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; }
-  .tb { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
   .slt { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
   .n.t { width: 62px; }
   .sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 14px; align-items: start; }
