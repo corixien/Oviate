@@ -60,6 +60,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Sync followers: time window of the leader again (moves with it), only capped so the empty space at the right is not larger than the leader's (replaces the right-stop snap).
 - [x] Sync with different timeframes: a follower snapping to its right stop uses the leader's empty space in time (not 10 of its own bars), so reset on an hourly chart no longer leaves a daily chart with a screen of empty space.
 - [x] Chart sync: followers clamp the leader's window to their own scroll limits (no scrolling past the data on synced charts).
 - [x] Sync reset fix (followers snap to their own right stop), faster candle loading (4 s cap on tail refresh, shorter Yahoo retries), builder background conversion actually started (was never wired) with retries + save trigger, builder AI tasks on Groq first, back / forward covers dropdowns and text fields.
