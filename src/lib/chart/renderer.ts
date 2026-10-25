@@ -215,10 +215,10 @@ export class ChartRenderer {
     const plot = this.w - AXIS_W;
     this.tgt = null;
     this.barW = Math.min(Math.max(plot / ((v.r - v.l) / this.s.step), BAR_MIN), BAR_MAX);
-    // the leader's time window, moved left only as far as needed so this chart shows no more empty space at the right than the leader does
-    // (the leader's empty space in time, at most RIGHT_PAD bars), and never beyond this chart's own scroll limits
-    const cap = v.gap > 0 ? Math.min(RIGHT_PAD, Math.max(0.5, v.gap / this.s.step)) : RIGHT_PAD;
-    this.start = this.clampStartV(Math.min(this.timeToIdx(v.l) + 0.5, d.n + cap - plot / this.barW), this.barW);
+    // same time span as the leader, aligned at the newest bar: the right edge sits as far (in time) beyond / before this chart's own newest bar as the leader's
+    // right edge is beyond / before its newest bar. Charts with different end times thus move together, and the empty space at the right never exceeds RIGHT_PAD bars.
+    const rightIdx = d.n + Math.min(RIGHT_PAD, v.gap / this.s.step);
+    this.start = this.clampStartV(rightIdx - plot / this.barW, this.barW);
     const c = d.c[d.n - 1];
     if (c > 0 && Number.isFinite(v.rlo) && Number.isFinite(v.rhi) && v.rhi > v.rlo) {
       this.manual = { lo: v.rlo * c, hi: v.rhi * c };
