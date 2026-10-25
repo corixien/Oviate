@@ -36,6 +36,10 @@ export async function getCandles(symbol: string, tf: Tf, from: number, to: numbe
   return toCandles(await call<Raw>('get_candles', { symbol, tf, from, to }));
 }
 
+/** Background download of the test universe (daily to 4 hour candles); later rounds fetch only the newest candles. */
+export const prefetchStart = (symbols: readonly string[]) => (inTauri ? call<void>('prefetch_start', { symbols }) : Promise.resolve());
+export const prefetchStatus = () => (inTauri ? call<{ running: boolean; done: number; total: number }>('prefetch_status') : Promise.resolve({ running: false, done: 0, total: 0 }));
+
 export async function searchSymbols(query: string): Promise<SymbolHit[]> {
   if (!inTauri) {
     const q = query.toUpperCase();

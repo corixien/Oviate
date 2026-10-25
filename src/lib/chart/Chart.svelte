@@ -3,6 +3,7 @@
   import { app, type ChartCfg } from '$lib/app.svelte';
   import { history } from '$lib/history.ts';
   import { comboOf, hasCombo } from '$lib/keybinds.ts';
+  import { setZone } from '$lib/tz.ts';
   import { getCandles, newsWindow, calendarWindow, symbolRegions, type CalEvent, TF_SECONDS, type NewsItem } from '$lib/api';
   import { emptyCandles, mergeCandles, type Candles } from './data';
   import { transform } from './transforms';
@@ -242,6 +243,8 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
     return () => clearInterval(iv);
   });
   $effect(() => { const q = app.replayReq; if (!r || !q.n || q.id !== cfg.id) return; untrack(() => { if (app.replay) exitReplay(); else startReplay(); }); });
+  // time zone of the time axis (settings); candles stay UTC
+  $effect(() => { setZone(app.tz); r?.invalidate(); });
   // ----- Pine indicators: computed in a worker, coalesced so ticks cannot pile up -----
   let pineResults = $state.raw<Record<string, PineResult>>({});
   let pineRunning = false, pineDirty = false, lastPineRun = 0;

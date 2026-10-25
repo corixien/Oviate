@@ -63,6 +63,7 @@ export class Interp {
       x.broker?.beginBar(b);
       this.program(frame);
       x.broker?.endBar(b);
+      x.onBarEnd?.(b);
       for (const [name, cell] of this.global.m) {
         if (cell.hist) {
           while (cell.hist.length < b) cell.hist.push(NaN_);
@@ -502,6 +503,8 @@ export interface RunOptions {
   broker?: TesterSettings;
   /** sources of the library indicators the script reads with oviate.ind (workers have no library of their own) */
   lib?: Record<string, string>;
+  /** strategy runs: the equity so far, about 60 times per run (bar index, copy of the equity values up to that bar) */
+  onEquity?: (bar: number, equity: Float64Array) => void;
 }
 
 export function runPine(code: string, data: PineCandles, opts: RunOptions = {}): PineResult {
@@ -514,6 +517,10 @@ export function runPine(code: string, data: PineCandles, opts: RunOptions = {}):
     symbol: opts.symbol ?? 'SYMBOL', mintick: opts.mintick ?? 0.01, brokerCfg: opts.broker, lib: opts.lib,
     seriesByName: (n: string) => (SERIES_NAMES.has(n) ? new Float64Array(0) : undefined),
   };
+  if (opts.onEquity) {
+    const every = Math.max(10, Math.floor(data.n / 60)), cb = opts.onEquity;
+    x.onBarEnd = (b) => { if ((b % every === 0 || b === data.n - 1) && x.broker) cb(b, x.broker.equityUpTo(b)); };
+  }
   const result = (): PineResult => ({
     meta, inputs: x.inputs, plots: x.plots, shapes: x.shapes, hlines: x.hlines, fills: x.fills,
     bgcolors: x.bgcolors, barcolors: x.barcolors, warnings: x.warnings,

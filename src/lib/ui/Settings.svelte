@@ -2,6 +2,9 @@
   import { app } from '$lib/app.svelte';
   import { alpacaKeysSet, saveAlpacaKeys, clearAlpacaKeys, inTauri, newsStatus, saveNewsKey, liquidLogin, liquidLogout, type NewsStatus } from '$lib/api';
   import { t } from '$lib/i18n';
+  import { zoneOptions } from '$lib/tz.ts';
+  import Select from './Select.svelte';
+  const tzOptions = $derived(app.settingsOpen ? zoneOptions(Math.floor(Date.now() / 1000)) : []);
 
   let keyId = $state(''), secret = $state(''), has = $state(false), msg = $state('');
 
@@ -118,47 +121,41 @@
         </section>
       {/if}
 
-      <section class="grid2">
-        <div>
-          <h3>{t('theme', app.lang)}</h3>
+      <section class="prefs">
+        <h3>Preferences</h3>
+        <div class="row"><span>{t('theme', app.lang)}</span>
           <div class="seg">
             <button class:on={app.theme === 'dark'} onclick={() => { app.theme = 'dark'; app.persist(); }}>{t('dark', app.lang)}</button>
             <button class:on={app.theme === 'light'} onclick={() => { app.theme = 'light'; app.persist(); }}>{t('light', app.lang)}</button>
-          </div>
-        </div>
-        <div>
-          <h3>{t('language', app.lang)}</h3>
+          </div></div>
+        <div class="row"><span>{t('language', app.lang)}</span>
           <div class="seg">
             <button class:on={app.lang === 'en'} onclick={() => { app.lang = 'en'; app.persist(); }}>English</button>
             <button class:on={app.lang === 'de'} onclick={() => { app.lang = 'de'; app.persist(); }}>Deutsch</button>
-          </div>
-        </div>
-        <div>
-          <h3>Keybinds</h3>
-          <button onclick={() => { app.settingsOpen = false; app.keybindsOpen = true; }}>Edit shortcuts and command-bar commands…</button>
-        </div>
-        <div>
-          <h3>Candles</h3>
+          </div></div>
+        <div class="row"><span>Candles</span>
           <div class="seg">
             {#each ['neon', 'mono', 'classic', 'custom'] as pl}
               <button class:on={app.palette === pl} onclick={() => { app.palette = pl as typeof app.palette; app.persist(); }}>{pl}</button>
             {/each}
-          </div>
-        </div>
-        <div>
-          <h3>Indicator parameters</h3>
+          </div></div>
+        <div class="row"><span>Indicator parameters</span>
           <div class="seg">
             <button class:on={app.showParams} onclick={() => { app.showParams = true; app.persist(); }}>Show</button>
             <button class:on={!app.showParams} onclick={() => { app.showParams = false; app.persist(); }}>Hide</button>
-          </div>
-        </div>
-        <div>
-          <h3>{t('animations', app.lang)}</h3>
+          </div></div>
+        <div class="row"><span>{t('animations', app.lang)}</span>
           <div class="seg">
             <button class:on={app.anim} onclick={() => { app.anim = true; app.persist(); }}>On</button>
             <button class:on={!app.anim} onclick={() => { app.anim = false; app.persist(); }}>Off</button>
-          </div>
-        </div>
+          </div></div>
+        <div class="row"><span>Time zone</span>
+          <div class="ctl"><Select value={app.tz} options={tzOptions} onchange={(v) => { app.tz = v; app.persist(); }} width="100%" /></div></div>
+        <div class="row"><span>Session times</span>
+          <div class="ctl"><button onclick={() => { app.settingsOpen = false; app.sessionsOpen = true; }}>Session time cheat sheet…</button></div></div>
+        <p class="hint">The time axis and the crosshair time of intraday charts use the time zone. Candles are always stored in UTC.</p>
+        <div class="row"><span>Keybinds</span>
+          <div class="ctl"><button onclick={() => { app.settingsOpen = false; app.keybindsOpen = true; }}>Edit shortcuts and command-bar commands…</button></div></div>
       </section>
     </div>
   </div>
@@ -184,8 +181,13 @@
   .cc { display: grid; grid-template-columns: 80px repeat(3, 1fr); gap: 8px 10px; align-items: center; font-size: 12px; color: var(--dim); }
   .cc b { font-weight: 600; text-align: center; }
   .cc input[type='color'] { width: 100%; height: 30px; padding: 0; margin: 0; border: 1px solid var(--glass-line); background: none; cursor: pointer; }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0 18px; }
-  .seg { display: flex; border: 1px solid var(--glass-line); border-radius: 2px; overflow: hidden; }
-  .seg button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px 10px; }
+  .prefs { margin-top: 6px; }
+  .row { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 46px; border-bottom: 1px solid var(--glass-line); }
+  .row > span { font-size: 13px; color: var(--fg); }
+  .row button { height: 30px; box-sizing: border-box; padding: 0 14px; }
+  .ctl { display: flex; align-items: center; gap: 10px; min-width: 0; } .ctl :global(.sel) { flex: 1; min-width: 0; }
+  .hint { margin: 6px 0 4px; padding-left: 162px; color: var(--dim); font-size: 11.5px; line-height: 1.5; }
+  .seg { display: inline-flex; width: fit-content; border: 1px solid var(--glass-line); border-radius: 2px; overflow: hidden; }
+  .seg button { min-width: 74px; border: 0; border-radius: 0; background: none; padding: 0 14px; text-transform: capitalize; }
   .seg button.on { background: var(--accent); color: #fff; }
 </style>

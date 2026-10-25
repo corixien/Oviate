@@ -81,25 +81,32 @@
   const toggleLine = (k: 'eq' | 'bh' | 'bhi') => { app.eqView[k] = !app.eqView[k]; app.persist(); };
   // Equity hides the buy & hold lines, All lines shows both (single lines can still be toggled afterwards)
   const setScale = (v: 'equity' | 'all') => { app.eqView.scale = v; app.eqView.bh = app.eqView.bhi = v === 'all'; app.persist(); };
+  /** while a scope run is testing, the equity of the security being tested is drawn live on the equity scale */
+  const liveOn = $derived(uni && testerRun.status === 'running' && !!testerRun.live);
+  const eqInit = $derived(liveOn ? app.tester.initialCapital : sres?.initialCapital ?? app.tester.initialCapital);
+  const eqRaw = $derived(liveOn ? Array.from(testerRun.live!.equity).filter((v) => Number.isFinite(v)) : sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : []);
+  const eqEnd = $derived(eqRaw.length ? eqRaw[eqRaw.length - 1] : eqInit);
   const sCurve = $derived.by(() => {
-    const eq = sres ? Array.from(sres.equity).filter((v) => Number.isFinite(v)) : [];
-    const c = curve(eq, 800, 150, sres?.initialCapital);
-    if (eq.length < 2) return { ...c, full: '', invested: '', clipped: false };
-    const init = sres!.initialCapital;
-    const shown = [...(app.eqView.bh ? bhCurves.full : []), ...(app.eqView.bhi ? bhCurves.invested : [])].filter((v) => Number.isFinite(v));
+    const eq = eqRaw, init = eqInit;
+    const c = curve(eq, 800, 150, init);
+    // equity scale (and the live view): the line is purple above the starting capital and red below it; all lines: one colour for the whole result
+    const split = liveOn || app.eqView.scale === 'equity';
+    if (eq.length < 2) return { ...c, full: '', invested: '', clipped: false, split };
+    const total = liveOn ? testerRun.live!.bars : eq.length;
+    const shown = liveOn ? [] : [...(app.eqView.bh ? bhCurves.full : []), ...(app.eqView.bhi ? bhCurves.invested : [])].filter((v) => Number.isFinite(v));
     const eLo = Math.min(...eq, init), eHi = Math.max(...eq, init), eSpan = eHi - eLo || 1;
     // "equity": the equity keeps its own scale and the buy & hold lines may widen it by at most 0.6 of its span (beyond that they are cut off, so a runaway
     // buy & hold cannot flatten the equity). "all lines": one scale that holds every shown line completely.
     let lo = eLo, hi = eHi;
     if (shown.length) {
       const bLo = Math.min(...shown), bHi = Math.max(...shown);
-      if (app.eqView.scale === 'all') { lo = app.eqView.eq ? Math.min(eLo, bLo) : Math.min(init, bLo); hi = app.eqView.eq ? Math.max(eHi, bHi) : Math.max(init, bHi); }
+      if (!split) { lo = app.eqView.eq ? Math.min(eLo, bLo) : Math.min(init, bLo); hi = app.eqView.eq ? Math.max(eHi, bHi) : Math.max(init, bHi); }
       else { lo = Math.min(eLo, Math.max(bLo, eLo - eSpan * 0.6)); hi = Math.max(eHi, Math.min(bHi, eHi + eSpan * 0.6)); }
-    } else if (!app.eqView.eq) { lo = init - 1; hi = init + 1; }
+    } else if (!app.eqView.eq && !liveOn) { lo = init - 1; hi = init + 1; }
     const span = hi - lo || 1;
-    const line = (pts: number[]) => pts.map((v, i) => `${i ? 'L' : 'M'}${((i / (pts.length - 1)) * 800).toFixed(1)},${(144 - ((v - lo) / span) * 138).toFixed(1)}`).join('');
+    const line = (pts: number[], n = pts.length) => pts.map((v, i) => `${i ? 'L' : 'M'}${((i / Math.max(1, n - 1)) * 800).toFixed(1)},${(144 - ((v - lo) / span) * 138).toFixed(1)}`).join('');
     const clipped = shown.some((v) => v < lo || v > hi);
-    return { path: line(eq), lo, hi, y0: 144 - ((init - lo) / span) * 138, full: app.eqView.bh && bhCurves.full.length > 1 ? line(bhCurves.full) : '', invested: app.eqView.bhi && bhCurves.invested.length > 1 ? line(bhCurves.invested) : '', clipped };
+    return { path: line(eq, total), lo, hi, y0: 144 - ((init - lo) / span) * 138, full: app.eqView.bh && !liveOn && bhCurves.full.length > 1 ? line(bhCurves.full) : '', invested: app.eqView.bhi && !liveOn && bhCurves.invested.length > 1 ? line(bhCurves.invested) : '', clipped, split };
   });
   const endOf = (a: number[]) => (a.length ? a[a.length - 1] : NaN);
   function setT(k: 'initialCapital' | 'commissionValue' | 'slippagePct', e: Event) {
@@ -114,6 +121,26 @@
   const deleteAcc = () => { if (acc && confirm(`Delete paper account "${acc.name}"?`)) paper.remove(acc.id); };
   const resetAcc = () => { if (acc && confirm(`Reset "${acc.name}" to its initial capital? Orders, positions and history are cleared.`)) paper.reset(acc.id); };
 </script>
+
+{#snippet eqsvg()}
+  <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq">
+    <defs>
+      <clipPath id="eqUp"><rect x="0" y="0" width="800" height={Math.min(150, Math.max(0, sCurve.y0))} /></clipPath>
+      <clipPath id="eqDn"><rect x="0" y={Math.min(150, Math.max(0, sCurve.y0))} width="800" height={Math.max(0, 150 - Math.max(0, sCurve.y0))} /></clipPath>
+    </defs>
+    <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
+    {#if sCurve.full}<path d={sCurve.full} fill="none" stroke="#b9a8e6" stroke-opacity="0.7" stroke-width="1.5" vector-effect="non-scaling-stroke" />{/if}
+    {#if sCurve.invested}<path d={sCurve.invested} fill="none" stroke="#22e5ff" stroke-opacity="0.75" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-dasharray="5 4" />{/if}
+    {#if app.eqView.eq || liveOn}
+      {#if sCurve.split}
+        <path d={sCurve.path} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eqUp)" />
+        <path d={sCurve.path} fill="none" stroke="var(--down)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#eqDn)" />
+      {:else}
+        <path d={sCurve.path} fill="none" stroke={eqEnd < eqInit ? 'var(--down)' : 'var(--accent)'} stroke-width="2" vector-effect="non-scaling-stroke" />
+      {/if}
+    {/if}
+  </svg>
+{/snippet}
 
 {#snippet runctl()}
   {#if uni}
@@ -228,7 +255,12 @@
         <div class="empty"><p>No strategy on the active chart.</p><p class="dim">Type <kbd>/strat add</kbd> in the command bar to add one, or <kbd>/strat add new</kbd> to write your own in Pine.</p></div>
       {:else if !tester || !sres || !dstats}
         <ScopeBar which="tester">{@render runctl()}</ScopeBar>
-        <div class="empty"><p class="dim">{testerRun.status === 'error' ? testerRun.error : testerRun.status === 'idle' || testerRun.status === 'done' ? 'Press Run to test the strategy on this data.' : 'Working…'}</p></div>
+        {#if testerRun.status === 'loading' || testerRun.status === 'running'}
+          <h5>Equity <span class="dim">{liveOn ? 'testing ' + testerRun.live?.symbol + ' …' : 'loading data …'}</span></h5>
+          {@render eqsvg()}
+        {:else}
+          <div class="empty"><p class="dim">{testerRun.status === 'error' ? testerRun.error : 'Press Run to test the strategy on this data.'}</p></div>
+        {/if}
       {:else}
         <div class="acc">
           <b class="sname">{tester.name}</b><span class="dim">{tester.symbol} · {tester.tf.toUpperCase()}</span>
@@ -254,6 +286,18 @@
               {#if shortHistory}<span class="warn"> · the data source only had {yrs(tester.t0, tester.t1).toFixed(1)} of {app.scope.tester.years} years for this timeframe</span>{/if}
               {#if uni && testerRun.stale}<span class="warn"> · settings changed, press Run for current figures</span>{/if}
             </p>
+            <h5>Equity <span class="dim">{liveOn ? 'testing ' + testerRun.live?.symbol + ' …' : sCurve.split ? 'purple above the starting capital, red below' : 'red = negative result'}</span></h5>
+            <div class="legend">
+              <button class:off={!app.eqView.eq} onclick={() => toggleLine('eq')} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
+              <button class:off={!app.eqView.bh} onclick={() => toggleLine('bh')} title="What the same capital would be worth if you bought at the start and held to the end"><i class="sw bh"></i>Buy &amp; hold <b>{money(endOf(bhCurves.full))}</b></button>
+              <button class:off={!app.eqView.bhi} onclick={() => toggleLine('bhi')} title="Buy & hold growth, applied only for the share of time the strategy was invested"><i class="sw bi"></i>Buy &amp; hold, invested time only <b>{money(endOf(bhCurves.invested))}</b></button>
+              <span class="grow"></span>
+              <span class="dim">Scale</span>
+              <div class="mseg"><button class:on={app.eqView.scale === 'equity'} onclick={() => setScale('equity')} title="Scale to the equity; far-off buy & hold lines are cut at the edge">Equity</button><button class:on={app.eqView.scale === 'all'} onclick={() => setScale('all')} title="Scale so every shown line is fully visible">All lines</button></div>
+            </div>
+
+            {@render eqsvg()}
+            {#if sCurve.clipped}<p class="eqnote">A buy &amp; hold line leaves the chart on this scale: switch to "All lines" to see it completely.</p>{/if}
             {#if uniSum}
               <p class="dinfo">
                 <b>{uniSum.n} securities</b> · profitable on <b>{uniSum.profitable}</b> ({((uniSum.profitable / uniSum.n) * 100).toFixed(0)}%) · beat buy &amp; hold on <b>{uniSum.beatBuyHold}</b> · median return <b class={cls(uniSum.medianRet)}>{signed(uniSum.medianRet, 1)}%</b> (buy &amp; hold {signed(uniSum.medianBuyHold, 1)}%)
@@ -272,25 +316,6 @@
                 </tbody>
               </table></div>
             {/if}
-            <h5>Equity <span class="dim">red = negative result</span></h5>
-            <div class="legend">
-              <button class:off={!app.eqView.eq} onclick={() => toggleLine('eq')} title="Show or hide the strategy equity"><i class="sw eq"></i>Strategy equity <b>{money(dstats.equity)}</b></button>
-              <button class:off={!app.eqView.bh} onclick={() => toggleLine('bh')} title="What the same capital would be worth if you bought at the start and held to the end"><i class="sw bh"></i>Buy &amp; hold <b>{money(endOf(bhCurves.full))}</b></button>
-              <button class:off={!app.eqView.bhi} onclick={() => toggleLine('bhi')} title="Buy & hold growth, applied only for the share of time the strategy was invested"><i class="sw bi"></i>Buy &amp; hold, invested time only <b>{money(endOf(bhCurves.invested))}</b></button>
-              <span class="grow"></span>
-              <span class="dim">Scale</span>
-              <div class="mseg"><button class:on={app.eqView.scale === 'equity'} onclick={() => setScale('equity')} title="Scale to the equity; far-off buy & hold lines are cut at the edge">Equity</button><button class:on={app.eqView.scale === 'all'} onclick={() => setScale('all')} title="Scale so every shown line is fully visible">All lines</button></div>
-            </div>
-
-            <svg viewBox="0 0 800 150" preserveAspectRatio="none" class="eq">
-              <line x1="0" x2="800" y1={sCurve.y0} y2={sCurve.y0} class="base" />
-              {#if sCurve.full}<path d={sCurve.full} fill="none" stroke="#b9a8e6" stroke-opacity="0.7" stroke-width="1.5" vector-effect="non-scaling-stroke" />{/if}
-              {#if sCurve.invested}<path d={sCurve.invested} fill="none" stroke="#22e5ff" stroke-opacity="0.75" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" />{/if}
-              {#if app.eqView.eq}
-                <path d={sCurve.path} fill="none" stroke={dstats.equity < sres.initialCapital ? 'var(--down)' : 'var(--accent)'} stroke-width="2" vector-effect="non-scaling-stroke" />
-              {/if}
-            </svg>
-            {#if sCurve.clipped}<p class="eqnote">A buy &amp; hold line leaves the chart on this scale: switch to "All lines" to see it completely.</p>{/if}
             {#each [
               ['Performance', [['Net profit', signed(dstats.netProfit), cls(dstats.netProfit)], ['Return', signed(dstats.returnPct) + '%', cls(dstats.returnPct)], ['Buy & hold, whole period', signed(dstats.buyHold) + '%', cls(dstats.buyHold)], ['Buy & hold, invested time only', signed(dstats.buyHoldInvested) + '%', cls(dstats.buyHoldInvested)],
                 ['Initial capital', money(dstats.initial), ''], ['Final equity', money(dstats.equity), cls(dstats.equity - dstats.initial)], ['Profit factor', pf(dstats.profitFactor), ''], ['Fees paid', money(dstats.commission), '']]],

@@ -1,10 +1,10 @@
-import { kvGet, kvSet, TIMEFRAMES, type Tf } from './api';
+import { kvGet, kvSet, prefetchStart, TIMEFRAMES, type Tf } from './api';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { ChartType } from './chart/transforms';
 import type { Drawing, DrawTool } from './chart/renderer';
 import type { Lang } from './i18n';
 import type { PineResult, TesterSettings } from './pine/types.ts';
-import { DEFAULT_SCOPE, cleanScope, type Scope } from './universe.ts';
+import { DEFAULT_SCOPE, UNIVERSE, cleanScope, type Scope } from './universe.ts';
 import { library } from './library.svelte';
 
 export interface ChartCfg {
@@ -61,6 +61,9 @@ class App {
   spotlight = $state<{ open: boolean; seed: string }>({ open: false, seed: '' });
   settingsOpen = $state(false);
   keybindsOpen = $state(false);
+  sessionsOpen = $state(false);
+  /** time zone the chart time axis shows ('system' or an IANA id); candles themselves are always UTC */
+  tz = $state('system');
   /** shortcut overrides by action id ('' = unbound; see keybinds.ts) and renamed command-bar commands by command id */
   keybinds = $state<Record<string, string>>({});
   cmdAlias = $state<Record<string, string>>({});
@@ -208,6 +211,7 @@ class App {
         if (s.split) this.split = { ...this.split, ...s.split };
         this.showWatchlist = s.showWatchlist ?? true;
         this.uiZoom = s.uiZoom ?? 1;
+        if (typeof s.tz === 'string' && s.tz) this.tz = s.tz;
         if (s.keybinds) this.keybinds = s.keybinds;
         if (s.cmdAlias) this.cmdAlias = s.cmdAlias;
         if (s.eqView) this.eqView = { ...this.eqView, ...s.eqView };
@@ -217,6 +221,8 @@ class App {
       }
     } catch { /* corrupt state: keep defaults */ }
     this.ready = true;
+    // fill the local candle cache for the Strategy Tester / Optimizer in the background (later rounds only fetch the newest candles)
+    setTimeout(() => { void prefetchStart(UNIVERSE).catch(() => {}); }, 20000);
   }
 
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -226,7 +232,7 @@ class App {
       kvSet('workspace', JSON.stringify({
         layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
         lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
-        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, eqView: $state.snapshot(this.eqView), uiZoom: this.uiZoom, tester: $state.snapshot(this.tester), scope: $state.snapshot(this.scope), keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias)
+        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, eqView: $state.snapshot(this.eqView), uiZoom: this.uiZoom, tester: $state.snapshot(this.tester), scope: $state.snapshot(this.scope), tz: this.tz, keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias)
       }));
     }, 400);
   }

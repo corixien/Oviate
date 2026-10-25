@@ -54,6 +54,7 @@ export function buildCommands(): Command[] {
     { key: 'zoom in app interface bigger', title: 'App zoom in (Ctrl +)', tag: 'ui', run: () => { app.zoomBy(1); } },
     { key: 'zoom out app interface smaller', title: 'App zoom out (Ctrl -)', tag: 'ui', run: () => { app.zoomBy(-1); } },
     { key: 'zoom reset app interface 100', title: 'App zoom reset (Ctrl 0)', tag: 'ui', run: () => { app.setZoom(1); } },
+    { key: 'sessions session times cheat sheet market hours timezone', title: 'Session Time Cheat Sheet', sub: 'Market hours at the venue, in UTC and in your time zone', tag: 'ui', run: () => { app.sessionsOpen = true; } },
     { key: 'keybinds shortcuts keys bindings hotkeys commands aliases', title: 'Keybinds', sub: 'Shortcuts and command-bar commands, editable', tag: 'ui', run: () => { app.keybindsOpen = true; } },
     { key: 'anim animations toggle', title: 'Toggle animations', tag: 'ui', run: () => { app.anim = !app.anim; } },
     { id: 'watch:add', key: 'watch add watchlist', title: `Add ${app.chart.symbol} to watchlist`, tag: 'watch', run: () => { if (!app.list.symbols.includes(app.chart.symbol)) app.list.symbols = [...app.list.symbols, app.chart.symbol]; } },

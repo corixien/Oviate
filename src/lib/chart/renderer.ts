@@ -1,6 +1,9 @@
+import { activeZone, zonedParts, MONTHS, type Parts } from '../tz.ts';
 import type { Candles } from './data';
 import type { ChartType } from './transforms';
 import type { PineResult, PlotOut } from '../pine/types';
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
 
 export type DrawTool = 'cursor' | 'trend' | 'ray' | 'extline' | 'hray' | 'arrow' | 'hline' | 'vline' | 'crossline' | 'channel' | 'pitchfork'
   | 'arrowpath' | 'rect' | 'ellipse' | 'circle' | 'triangle' | 'fib' | 'fibext' | 'longpos' | 'shortpos' | 'measure' | 'pricerange' | 'daterange'
@@ -804,6 +807,9 @@ export class ChartRenderer {
     ctx.fillStyle = fg; ctx.textAlign = 'left'; ctx.fillText(text, this.plotW + 8, Math.round(y) + 1);
   }
 
+  /** daily and longer bars are labelled with their calendar day (the same in every zone); intraday bars with the zone chosen in the settings */
+  private axisZone() { return this.s.step >= 86400 ? 'UTC' : activeZone(); }
+
   private timeTicks(): Array<{ x: number; label: string; major: boolean }> {
     const out: Array<{ x: number; label: string; major: boolean }> = [];
     const d = this.s.data; if (!d.n) return out;
@@ -812,17 +818,18 @@ export class ChartRenderer {
     const stepBars = nice.find((n) => n >= need) ?? 10000;
     const a = Math.floor(this.start), b = Math.ceil(this.start + (this.w - AXIS_W) / this.barW);
     const intraday = this.s.step < 86400;
-    let prev: Date | null = null;
+    const tz = this.axisZone();
+    let prev: Parts | null = null;
     for (let i = Math.floor(a / stepBars) * stepBars; i <= b + stepBars; i += stepBars) {
-      const dt = new Date(this.idxToTime(i) * 1000);
+      const p = zonedParts(tz, this.idxToTime(i));
       let label: string, major = false;
       if (intraday) {
-        if (!prev || prev.getDate() !== dt.getDate()) { label = String(dt.getDate()); major = true; }
-        else label = dt.toTimeString().slice(0, 5);
-      } else if (!prev || prev.getFullYear() !== dt.getFullYear()) { label = String(dt.getFullYear()); major = true; }
-      else if (prev.getMonth() !== dt.getMonth()) { label = dt.toLocaleString('en', { month: 'short' }); major = true; }
-      else label = String(dt.getDate());
-      prev = dt;
+        if (!prev || prev.day !== p.day) { label = String(p.day); major = true; }
+        else label = `${pad2(p.hour)}:${pad2(p.minute)}`;
+      } else if (!prev || prev.year !== p.year) { label = String(p.year); major = true; }
+      else if (prev.month !== p.month) { label = MONTHS[p.month - 1]; major = true; }
+      else label = String(p.day);
+      prev = p;
       out.push({ x: this.xOf(i), label, major });
     }
     return out;
@@ -1321,10 +1328,9 @@ export class ChartRenderer {
     c.beginPath(); c.moveTo(x, 0); c.lineTo(x, this.h - TIME_H); if (y >= 0) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(this.plotW, Math.round(y) + 0.5); } c.stroke();
     c.setLineDash([]);
     // time label
-    const dt = new Date(this.idxToTime(i) * 1000);
-    const lbl = this.s.step >= 86400
-      ? dt.toLocaleDateString('en', { day: '2-digit', month: 'short', year: 'numeric' })
-      : dt.toLocaleDateString('en', { day: '2-digit', month: 'short' }) + ' ' + dt.toTimeString().slice(0, 5);
+    const zp = zonedParts(this.axisZone(), this.idxToTime(i));
+    const dayLbl = `${pad2(zp.day)} ${MONTHS[zp.month - 1]}`;
+    const lbl = this.s.step >= 86400 ? `${dayLbl} ${zp.year}` : `${dayLbl} ${pad2(zp.hour)}:${pad2(zp.minute)}`;
     const tw = c.measureText(lbl).width + 16;
     c.fillStyle = theme.accent; c.fillRect(Math.min(Math.max(x - tw / 2, 0), this.plotW - tw), this.h - TIME_H + 2, tw, 20);
     c.fillStyle = '#fff'; c.textAlign = 'center'; c.fillText(lbl, Math.min(Math.max(x, tw / 2), this.plotW - tw / 2), this.h - TIME_H + 13); c.textAlign = 'left';

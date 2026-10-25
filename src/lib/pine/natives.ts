@@ -26,6 +26,8 @@ export interface Ctx extends PineCandles {
   lib?: Record<string, string>;
   /** results of oviate.ind runs, per indicator and input set */
   indCache?: Map<string, import('./types.ts').PineResult>;
+  /** called after every bar of a strategy run (live equity progress for the Strategy Tester) */
+  onBarEnd?: (bar: number) => void;
   seriesByName(name: string): Float64Array | undefined;
 }
 

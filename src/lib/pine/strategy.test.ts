@@ -108,3 +108,16 @@ test('fillOnClose: market orders fill at the close of the signal bar, with slipp
   const decl = ok(runPine(code.replace('strategy("t",', 'strategy("t", process_orders_on_close=true,'), d)).trades[0];
   assert.equal(decl.entryBar, 1);
 });
+
+test('onEquity reports the equity while the strategy runs', () => {
+  const n = 600;
+  const t = new Float64Array(n), o = new Float64Array(n), h = new Float64Array(n), l = new Float64Array(n), c = new Float64Array(n), v = new Float64Array(n).fill(1);
+  for (let i = 0; i < n; i++) { t[i] = 1.6e9 + i * 86400; c[i] = o[i] = 100 + Math.sin(i / 20) * 10; h[i] = c[i] + 1; l[i] = c[i] - 1; }
+  const calls: [number, number][] = [];
+  const code = `//@version=5\nstrategy("t")\nif ta.crossover(close, ta.sma(close, 10))\n    strategy.entry("L", strategy.long)\nif ta.crossunder(close, ta.sma(close, 10))\n    strategy.close("L")\n`;
+  const r = runPine(code, { n, t, o, h, l, c, v }, { onEquity: (bar, eq) => calls.push([bar, eq.length]) });
+  assert.ok(calls.length >= 50 && calls.length <= 70, `${calls.length} progress calls`);
+  assert.ok(calls.every(([bar, len]) => len === bar + 1));
+  assert.equal(calls[calls.length - 1][0], n - 1, 'the last call covers the whole run');
+  assert.ok(r.strategy && r.strategy.equity.length === n);
+});

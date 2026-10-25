@@ -2,7 +2,7 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-26 (tester / optimizer test scope: data age, securities, timeframe)
+Last updated: 2026-10-26 (prefetch, live tester equity, time zone + session cheat sheet, settings layout)
 
 ## 1. What this project is
 Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
@@ -62,6 +62,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Goal of current task: none
 
 ### Done (recent, newest first)
+- [x] Background prefetch of the 200 universe symbols (Rust `prefetch_start`, daily / weekly / monthly 20 y, 1h / 4h 2 y; newest candles only on later rounds), tester equity: purple above / red below the starting capital on the Equity scale, rows and equity line stream live during a scope run (`onEquity` engine hook), Settings preferences laid out as rows, time zone dropdown (`tz.ts`, axis + crosshair of intraday charts) and Session Time Cheat Sheet (`sessions.ts`, `SessionsDialog`). Verified in browser mode with synthetic data only; the Rust prefetch ran `cargo check` only (not watched against Yahoo / Alpaca). Prefetch status is exposed (`prefetch_status`) but not shown in the UI yet.
 - [x] Test scope for Strategy Tester + Optimizer (`universe.ts`, `scopeData.ts`, `tester.svelte.ts`, `ui/ScopeBar.svelte`, see AGENTS.md): Data age / Securities (max 200, built-in list interleaved strong / mid / weak) / Timeframe, default Chart; tester data line + per-security table + summary; optimizer on several securities (`mergeMetrics`, Profitable column). Chart trades unaffected. Browser-mode check done with synthetic data only; real Alpaca / Yahoo fetch of 10 years x many symbols not yet watched in the app (rate limits possible, failures list as "without data").
 - [x] Chart sync (final): followers show exactly the leader's dates at the left and right edge (span measured in their own bars), clamped only by their own scroll limits (`applyView`, `clampStartV`; max RIGHT_PAD empty bars right). Alignment at the newest bar and right-stop snapping were tried and dropped (dates no longer matched / follower stuck). Multi-chart resize keeps the newest bars at the right edge; smaller layouts keep the marked chart and the last touched ones. Dev builds expose `globalThis.__ovLive` for browser tests (CDP script pattern in section 4).
 - [x] Candle loading: one fetch per symbol + timeframe at a time, Yahoo retries (transport / 429 / 5xx), 4 s cap on the tail refresh then the cache is shown, failed refresh serves cached candles.

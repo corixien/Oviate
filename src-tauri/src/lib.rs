@@ -23,6 +23,7 @@ struct AppState {
     http: reqwest::Client,
     /// one fetch at a time per symbol + timeframe: a second chart asking for the same candles waits and then reads the cache
     fetch_locks: std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    prefetch: std::sync::Mutex<PrefetchStatus>,
 }
 
 type State<'a> = tauri::State<'a, Arc<AppState>>;
@@ -50,38 +51,101 @@ async fn fetch(st: &AppState, symbol: &str, tf: Timeframe, from: i64, to: i64) -
     yahoo::candles(&st.http, &symbol.replace('/', "-"), tf, from, to).await
 }
 
-/// Return candles in [from, to], fetching only what the local cache is missing.
-#[tauri::command]
-async fn get_candles(st: State<'_>, symbol: String, tf: Timeframe, from: i64, to: i64) -> Result<Candles> {
+/// Make sure the cache covers [from, to] (fetching only what is missing). Returns whether the network was used.
+async fn ensure_cached(st: &AppState, symbol: &str, tf: Timeframe, from: i64, to: i64) -> Result<bool> {
     let key = tf.key();
     let lock = st.fetch_locks.lock().unwrap().entry(format!("{symbol}|{key}")).or_default().clone();
     let _one_at_a_time = lock.lock().await;
     let now = chrono::Utc::now().timestamp();
     let to_eff = to.min(now);
     let step = tf.seconds();
-    match st.cache.coverage(&symbol, key)? {
+    let mut fetched = false;
+    match st.cache.coverage(symbol, key)? {
         None => {
-            let c = fetch(&st, &symbol, tf, from, to_eff).await?;
-            st.cache.store(&symbol, key, &c, from, to_eff)?;
+            let c = fetch(st, symbol, tf, from, to_eff).await?;
+            st.cache.store(symbol, key, &c, from, to_eff)?;
+            fetched = true;
         }
         Some((cf, ct)) => {
             if from < cf {
-                let c = fetch(&st, &symbol, tf, from, cf).await?;
-                st.cache.store(&symbol, key, &c, from, cf)?;
+                let c = fetch(st, symbol, tf, from, cf).await?;
+                st.cache.store(symbol, key, &c, from, cf)?;
+                fetched = true;
             }
             if to_eff > ct - 2 * step {
                 // Re-fetch the tail including the last (possibly partial) bars; when that fails (offline, rate limit) the cached candles are still shown.
                 let start = (ct - 2 * step).max(from);
+                fetched = true;
                 // a slow network must not hold the chart back: after 4 s the cached candles are shown and the next poll tries again
-                match tokio::time::timeout(std::time::Duration::from_secs(4), fetch(&st, &symbol, tf, start, to_eff)).await {
-                    Ok(Ok(c)) => st.cache.store(&symbol, key, &c, start, to_eff)?,
+                match tokio::time::timeout(std::time::Duration::from_secs(4), fetch(st, symbol, tf, start, to_eff)).await {
+                    Ok(Ok(c)) => st.cache.store(symbol, key, &c, start, to_eff)?,
                     Ok(Err(e)) => eprintln!("candle refresh failed for {symbol} {key}, using the cache: {e}"),
                     Err(_) => eprintln!("candle refresh for {symbol} {key} timed out, using the cache"),
                 }
             }
         }
     }
-    st.cache.load(&symbol, key, from, to)
+    Ok(fetched)
+}
+
+/// Return candles in [from, to], fetching only what the local cache is missing.
+#[tauri::command]
+async fn get_candles(st: State<'_>, symbol: String, tf: Timeframe, from: i64, to: i64) -> Result<Candles> {
+    ensure_cached(&st, &symbol, tf, from, to).await?;
+    st.cache.load(&symbol, tf.key(), from, to)
+}
+
+/// Progress of the background download for the Strategy Tester / Optimizer.
+#[derive(serde::Serialize, Default, Clone)]
+struct PrefetchStatus {
+    running: bool,
+    done: usize,
+    total: usize,
+}
+
+/// Background download of the test universe: daily / weekly / monthly (20 years) and hourly / 4 hour (2 years) candles of every symbol, one request at a time with a pause.
+/// Later passes (every 6 hours) only fetch the newest candles. Sub-hour timeframes are not prefetched (too large); they are cached when first used.
+#[tauri::command]
+fn prefetch_start(st: State<'_>, symbols: Vec<String>) {
+    {
+        let mut s = st.prefetch.lock().unwrap();
+        if s.running { return; }
+        *s = PrefetchStatus { running: true, done: 0, total: 0 };
+    }
+    let st = st.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        const YEAR: i64 = 365 * 86400;
+        let plan: [(Timeframe, i64); 5] = [(Timeframe::D1, 20 * YEAR), (Timeframe::W1, 20 * YEAR), (Timeframe::Mo1, 20 * YEAR), (Timeframe::H1, 2 * YEAR), (Timeframe::H4, 2 * YEAR)];
+        loop {
+            st.prefetch.lock().unwrap().total = plan.len() * symbols.len();
+            st.prefetch.lock().unwrap().done = 0;
+            let mut failures = 0;
+            'pass: for (tf, back) in plan {
+                for sym in &symbols {
+                    let now = chrono::Utc::now().timestamp();
+                    match ensure_cached(&st, sym, tf, now - back, now).await {
+                        Ok(true) => { failures = 0; tokio::time::sleep(std::time::Duration::from_millis(300)).await; }
+                        Ok(false) => failures = 0,
+                        Err(e) => {
+                            eprintln!("prefetch {sym} {}: {e}", tf.key());
+                            failures += 1;
+                            if failures >= 8 { break 'pass; } // offline or blocked: try again next round
+                            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                        }
+                    }
+                    st.prefetch.lock().unwrap().done += 1;
+                }
+            }
+            st.prefetch.lock().unwrap().running = false;
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+            st.prefetch.lock().unwrap().running = true;
+        }
+    });
+}
+
+#[tauri::command]
+fn prefetch_status(st: State<'_>) -> PrefetchStatus {
+    st.prefetch.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -358,11 +422,13 @@ pub fn run() {
                 .pool_idle_timeout(std::time::Duration::from_secs(15))
                 .build()?;
             let streams = stream::Streams::start(app.handle().clone());
-            app.manage(Arc::new(AppState { cache: Arc::new(cache), http, streams, fetch_locks: Default::default() }));
+            app.manage(Arc::new(AppState { cache: Arc::new(cache), http, streams, fetch_locks: Default::default(), prefetch: Default::default() }));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_candles,
+            prefetch_start,
+            prefetch_status,
             search_symbols,
             save_alpaca_keys,
             clear_alpaca_keys,

@@ -44,6 +44,7 @@
   .sel { position: relative; display: inline-block; min-width: 90px; }
   .btn { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #000; border: 1px solid var(--line); color: var(--fg); padding: 0 10px; height: 30px; box-sizing: border-box; font: 12.5px system-ui, sans-serif; cursor: pointer; text-align: left; }
   .btn:hover, .btn.open { border-color: var(--accent); }
+  .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .btn svg { color: var(--accent); flex: none; transition: transform 0.15s; } .btn.open svg { transform: rotate(180deg); }
   .list { position: absolute; top: calc(100% + 2px); left: 0; min-width: 100%; z-index: 300; background: #07040d; border: 1px solid var(--accent); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); max-height: 260px; overflow-y: auto; }
   .list button { display: block; width: 100%; background: none; border: 0; color: var(--fg); padding: 8px 12px; text-align: left; font: 12.5px system-ui, sans-serif; cursor: pointer; white-space: nowrap; }

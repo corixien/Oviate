@@ -5,6 +5,7 @@
   import { buildCommands } from '$lib/commands.svelte';
   import { startBuilderBackground } from '$lib/builder/cache';
   import KeybindsDialog from '$lib/ui/KeybindsDialog.svelte';
+  import SessionsDialog from '$lib/ui/SessionsDialog.svelte';
   import { app } from '$lib/app.svelte';
   import { onTick, streamSymbols } from '$lib/api';
   import Chart from '$lib/chart/Chart.svelte';
@@ -152,6 +153,7 @@
   const mouseUp = (e: MouseEvent) => { if (e.button === 3) { e.preventDefault(); stepBack(); } else if (e.button === 4) { e.preventDefault(); stepForward(); } };
 
   function key(e: KeyboardEvent) {
+    if (app.sessionsOpen) return;
     if (app.keybindsOpen) return; // the Keybinds dialog is recording a shortcut
     const combo = comboOf(e);
     const hit = (id: string) => hasCombo(id, combo, app.keybinds);
@@ -224,6 +226,7 @@
 <AiDialog />
 <Settings />
 <KeybindsDialog />
+<SessionsDialog />
 <IndicatorDialog />
 <OrderDialog />
 <AccountDialog />

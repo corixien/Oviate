@@ -253,6 +253,9 @@ export class Broker {
     this.exits = this.exits.filter((ex) => this.lots.some((lt) => !ex.from || lt.id === ex.from) || this.orders.some((od) => od.id === ex.from));
   }
 
+  /** Equity per bar up to and including bar b (copy). */
+  equityUpTo(b: number): Float64Array { return this.equityArr.slice(0, b + 1); }
+
   /** Called after the script ran on bar b: update excursions and the equity curve. */
   endBar(b: number) {
     const x = this.x;

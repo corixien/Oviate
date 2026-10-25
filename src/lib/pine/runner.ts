@@ -7,16 +7,19 @@ let worker: Worker | null = null;
 let failed = false;
 let seq = 0;
 const pending = new Map<number, (r: PineResult) => void>();
+const progressCb = new Map<number, (bar: number, equity: Float64Array) => void>();
 
 function getWorker(): Worker | null {
   if (failed || typeof Worker === 'undefined') return null;
   if (worker) return worker;
   try {
     worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e: MessageEvent<{ id: number; result: PineResult }>) => {
+    worker.onmessage = (e: MessageEvent<{ id: number; result?: PineResult; progress?: { bar: number; equity: Float64Array } }>) => {
+      if (e.data.progress) { progressCb.get(e.data.id)?.(e.data.progress.bar, e.data.progress.equity); return; }
+      progressCb.delete(e.data.id);
       const cb = pending.get(e.data.id);
       pending.delete(e.data.id);
-      cb?.(e.data.result);
+      cb?.(e.data.result!);
     };
     worker.onerror = () => {
       failed = true;
@@ -29,14 +32,15 @@ function getWorker(): Worker | null {
 }
 
 /** Run a script in the background worker (main thread fallback). Candle arrays are copied. */
-export function runScript(code: string, candles: PineCandles, opts: RunOptions = {}): Promise<PineResult> {
+export function runScript(code: string, candles: PineCandles, opts: RunOptions = {}, onEquity?: (bar: number, equity: Float64Array) => void): Promise<PineResult> {
   const w = getWorker();
   if (!opts.lib) { const lib = neededLib(code); if (lib) opts = { ...opts, lib }; } // the worker has no script library of its own
-  if (!w) return Promise.resolve(runPine(code, candles, opts));
+  if (!w) return Promise.resolve(runPine(code, candles, onEquity ? { ...opts, onEquity } : opts));
   const id = ++seq;
   const copy: PineCandles = { n: candles.n, t: candles.t.slice(), o: candles.o.slice(), h: candles.h.slice(), l: candles.l.slice(), c: candles.c.slice(), v: candles.v.slice() };
   return new Promise((resolve) => {
     pending.set(id, resolve);
-    w.postMessage({ id, code, candles: copy, opts });
+    if (onEquity) progressCb.set(id, onEquity);
+    w.postMessage({ id, code, candles: copy, opts, progress: !!onEquity });
   });
 }
