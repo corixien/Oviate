@@ -5,6 +5,7 @@ import type { Drawing, DrawTool } from './chart/renderer';
 import type { Lang } from './i18n';
 import type { PineResult, TesterSettings } from './pine/types.ts';
 import { DEFAULT_SCOPE, UNIVERSE, cleanScope, type Scope } from './universe.ts';
+import { collectDrawings } from './sync.ts';
 import { library } from './library.svelte';
 
 export interface ChartCfg {
@@ -13,7 +14,8 @@ export interface ChartCfg {
   tf: Tf;
   type: ChartType;
   indicators: { uid: string; id: string; params: Record<string, number | string | boolean>; hidden?: boolean; showParams?: boolean; colors?: string[]; strategy?: boolean; account?: string }[];
-  drawings: Drawing[];
+  /** legacy: drawings used to be kept per chart slot, they now live in `app.drawings` (migrated on load) */
+  drawings?: Drawing[];
   log: boolean;
   volume: boolean;
   volumeVisible?: boolean;
@@ -37,11 +39,13 @@ export type LayoutId = '1' | '2v' | '2h' | '3' | '4';
 export const LAYOUT_COUNT: Record<LayoutId, number> = { '1': 1, '2v': 2, '2h': 2, '3': 3, '4': 4 };
 
 export function newChart(symbol = 'AAPL', tf: Tf = '1d'): ChartCfg {
-  return { id: crypto.randomUUID(), symbol, tf, type: 'candles', indicators: [], drawings: [], log: false, volume: true };
+  return { id: crypto.randomUUID(), symbol, tf, type: 'candles', indicators: [], log: false, volume: true };
 }
 
 class App {
   layout = $state<LayoutId>('1');
+  /** drawings of every symbol (a symbol shows the same drawings in any chart slot and on every device) */
+  drawings = $state<Drawing[]>([]);
   charts = $state<ChartCfg[]>([newChart('AAPL'), newChart('MSFT'), newChart('BTC/USD'), newChart('SPY')]);
   active = $state(0);
   theme = $state<'dark' | 'light'>('dark');
@@ -218,7 +222,7 @@ class App {
   /** Settings every device shares through the account (layout, split sizes, zoom and panel sizes stay per device). */
   sharedState() {
     return {
-      charts: $state.snapshot(this.charts), theme: this.theme, lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams,
+      charts: $state.snapshot(this.charts), drawings: $state.snapshot(this.drawings), theme: this.theme, lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams,
       grid: this.grid, magnet: this.magnet, watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom),
       eqView: $state.snapshot(this.eqView), tester: $state.snapshot(this.tester), scope: $state.snapshot(this.scope), tz: this.tz,
       keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias),
@@ -227,7 +231,8 @@ class App {
 
   /** Take over the shared part of a saved state (this device's workspace file or the account's settings). */
   adoptShared(s: any) {
-    if (Array.isArray(s.charts) && s.charts.length === 4) this.charts = s.charts;
+    if (Array.isArray(s.charts) && s.charts.length === 4) this.charts = s.charts.map((c: ChartCfg) => { const { drawings: _old, ...rest } = c; return rest as ChartCfg; });
+    this.drawings = collectDrawings(s);
     this.theme = s.theme ?? 'dark';
     this.lang = s.lang ?? 'en';
     this.anim = s.anim ?? true;

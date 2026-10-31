@@ -46,4 +46,10 @@
   .inline { display: flex; gap: 6px; }
   .num { width: 96px; height: 30px; padding: 0 9px; background: #000; border: 1px solid var(--line); color: var(--fg); font: 12.5px ui-monospace, monospace; outline: none; box-sizing: border-box; }
   .num:focus { border-color: var(--accent); } .num.bad { border-color: var(--down); } .num:disabled { opacity: 0.4; }
+  @media (max-width: 719px), (max-height: 479px) {
+    .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; width: 100%; }
+    .f:first-child { grid-column: 1 / -1; }
+    .num { width: 100%; }
+    .inline { width: 100%; } .inline :global(.sel) { flex: 1.5; min-width: 0; } .inline .num { flex: 1; width: auto; min-width: 0; }
+  }
 </style>

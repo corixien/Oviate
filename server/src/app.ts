@@ -10,7 +10,7 @@ export interface Deps { db: Db; candles: CandleStore; allowSignup: boolean; fetc
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
 const bad = (msg: string) => new HttpError(400, msg);
 
-const MAX_BODY = 3_000_000;
+const MAX_BODY = 10_000_000;
 const SYMBOL = /^[A-Za-z0-9.^=\-/ ]{1,24}$/;
 const KV_KEY = /^[a-z0-9:_.-]{1,64}$/;
 const SHARED_KEY = /^(news|aisum|cal)[:a-zA-Z0-9_.|-]{1,160}$/;
@@ -80,7 +80,7 @@ export function createApp(d: Deps) {
     const kv = /^\/api\/kv\/([^/]+)$/.exec(p);
     if (kv && m === 'PUT') {
       const key = decodeURIComponent(kv[1]), b = await readJson(req);
-      if (!KV_KEY.test(key) || typeof b.value !== 'string' || b.value.length > 2_000_000) throw bad('invalid key or value');
+      if (!KV_KEY.test(key) || typeof b.value !== 'string' || b.value.length > 8_000_000) throw bad('invalid key or value');
       const at = Number.isFinite(b.updatedAt) ? Math.floor(b.updatedAt) : Date.now();
       const cur = (await d.db.query<{ updated_at: number }>('SELECT updated_at FROM user_kv WHERE user_id = $1 AND key = $2', [user.id, key])).rows[0];
       if (cur && cur.updated_at > at) return send(res, 200, { stored: false, updatedAt: cur.updated_at });
@@ -112,8 +112,11 @@ export function createApp(d: Deps) {
     if (p === '/api/community' && m === 'GET') {
       const kind = url.searchParams.get('kind') ?? '';
       if (!KINDS.includes(kind)) throw bad('kind must be indicators or strategies');
-      const r = await d.db.query<any>('SELECT s.kind, s.name, s.code, s.updated_at, u.name AS author FROM scripts s JOIN users u ON u.id = s.user_id WHERE s.public = TRUE AND s.kind = $1 AND s.user_id <> $2 ORDER BY s.updated_at DESC LIMIT 200', [kind, user.id]);
-      return send(res, 200, r.rows.map((x) => ({ kind: x.kind, name: x.name, code: x.code, author: x.author, updatedAt: x.updated_at })));
+      const r = await d.db.query<any>('SELECT s.kind, s.name, s.code, s.updated_at, u.name AS author FROM scripts s JOIN users u ON u.id = s.user_id WHERE s.public = TRUE AND s.kind = $1 AND s.user_id <> $2 ORDER BY s.updated_at DESC LIMIT 600', [kind, user.id]);
+      // the same script published by several users (or copied around) is listed once
+      const seen = new Set<string>();
+      const list = r.rows.filter((x) => { const k = x.name + '\0' + x.code; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 200);
+      return send(res, 200, list.map((x) => ({ kind: x.kind, name: x.name, code: x.code, author: x.author, updatedAt: x.updated_at })));
     }
 
     // ---- API keys of the user (Alpaca, news providers, AI), sealed with the server's SECRETS_KEY

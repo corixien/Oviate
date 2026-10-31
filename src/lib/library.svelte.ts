@@ -7,6 +7,9 @@ export interface ScriptFile { name: string; code: string; title: string; shortTi
 
 const bundledIndicators = import.meta.glob('/indicators/*.pine', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 
+/** shipped indicators by file name */
+const BUNDLED: Record<string, string> = Object.fromEntries(Object.entries(bundledIndicators).map(([p, c]) => [p.split('/').pop()!.replace(/\.pine$/, ''), c]));
+
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<T>(cmd, args);
@@ -34,6 +37,9 @@ class Library {
 
   /** Set by the account sync: a script was saved or deleted on this device (not by the sync itself). */
   onChange: ((kind: ScriptKind, name: string) => void) | null = null;
+
+  /** An unchanged indicator that ships with Oviate: every user has it, so it is public by nature and never travels through the account. */
+  isBuiltIn(kind: ScriptKind, name: string, code: string) { return kind === 'indicators' && BUNDLED[name] === code; }
 
   list(kind: ScriptKind) { return kind === 'indicators' ? this.indicators : this.strategies; }
   get(kind: ScriptKind, name: string): ScriptFile | undefined { return this.list(kind).find((f) => f.name === name); }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planSecrets, planScripts, hashCode, freeName, stateDirection, type LocalScript, type RemoteScript } from './sync.ts';
+import { collectDrawings, mergeFirstSync, planSecrets, planScripts, hashCode, freeName, stateDirection, type LocalScript, type RemoteScript } from './sync.ts';
 
 const L = (name: string, code: string, modified = 100, pub = false): LocalScript => ({ name, code, modified, public: pub });
 const R = (name: string, code: string, updatedAt = 100000, pub = false): RemoteScript => ({ name, code, public: pub, updatedAt });
@@ -59,4 +59,20 @@ test('API keys: copied both ways, removals follow, own value wins a conflict', (
   assert.deepEqual(planSecrets({}, { a: '1' }, { a: h('1') }).delRemote, ['a'], 'removed here');
   assert.deepEqual(planSecrets({ a: '1' }, {}, { a: h('1') }).delLocal, ['a'], 'removed elsewhere');
   assert.deepEqual(planSecrets({ a: '2' }, {}, { a: h('1') }).push, ['a'], 'edited here after the remote removal: keep it');
+});
+
+test('drawings belong to symbols, not to chart slots', () => {
+  const d = (id: string, sym = 'AAPL') => ({ id, sym });
+  assert.deepEqual(collectDrawings({ charts: [{ drawings: [d('a'), d('b')] }, { drawings: [d('b'), d('c', 'MSFT')] }] }).map((x) => x.id), ['a', 'b', 'c'], 'old saves: union over the slots');
+  assert.deepEqual(collectDrawings({ drawings: [d('x')], charts: [{ drawings: [d('old')] }] }).map((x) => x.id), ['x'], 'new saves: the list');
+  assert.deepEqual(collectDrawings({}), []);
+});
+
+test('first sync keeps what only exists on this device', () => {
+  const m = mergeFirstSync(
+    { drawings: [{ id: '1' }, { id: '2' }], watchlists: [{ id: 'default', symbols: ['AAPL', 'TSLA'] }, { id: 'mine', symbols: ['X'] }] },
+    { drawings: [{ id: '2' }, { id: '3' }], watchlists: [{ id: 'default', symbols: ['MSFT', 'AAPL'] }] },
+  );
+  assert.deepEqual(m.drawings.map((x) => x.id), ['2', '3', '1']);
+  assert.deepEqual(m.watchlists, [{ id: 'default', symbols: ['MSFT', 'AAPL', 'TSLA'] }, { id: 'mine', symbols: ['X'] }]);
 });

@@ -1,13 +1,13 @@
 import { app } from './app.svelte';
 import { library, type ScriptKind } from './library.svelte';
 import { kvGet, kvSet, remote, secretsApply, secretsExport, type Raw, type Tf } from './api';
-import { freeName, hashCode, planScripts, planSecrets, stateDirection, type Seen } from './sync.ts';
+import { collectDrawings, freeName, hashCode, mergeFirstSync, planScripts, planSecrets, stateDirection, type Seen } from './sync.ts';
 
 export interface SyncUser { id: string; email: string; name: string }
 export interface Community { kind: ScriptKind; name: string; code: string; author: string; updatedAt: number }
 interface Auth { server: string; token: string; user: SyncUser; candles: boolean }
 /** Local bookkeeping of the sync (never sent): when the settings last changed here, and what every script looked like at its last sync. */
-interface Meta { localAt: number; seen: Record<string, Seen>; public: Record<string, boolean>; secrets: Record<string, string> }
+interface Meta { /** 2 = drawings in one list for all symbols */ schema?: number; localAt: number; seen: Record<string, Seen>; public: Record<string, boolean>; secrets: Record<string, string> }
 
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
 const KINDS: ScriptKind[] = ['indicators', 'strategies'];
@@ -40,10 +40,12 @@ class Sync {
     try {
       const a: Auth | null = JSON.parse((await kvGet('sync_auth')) ?? 'null');
       const m = JSON.parse((await kvGet('sync_meta')) ?? 'null');
-      if (m) { this.meta = { localAt: m.localAt ?? 0, seen: m.seen ?? {}, public: m.public ?? {}, secrets: m.secrets ?? {} }; this.pub = { ...this.meta.public }; }
+      if (m) { this.meta = { schema: m.schema, localAt: m.localAt ?? 0, seen: m.seen ?? {}, public: m.public ?? {}, secrets: m.secrets ?? {} }; this.pub = { ...this.meta.public }; }
       if (a?.token) { this.server = a.server; this.token = a.token; this.user = a.user; this.useCandles = a.candles !== false; this.status = 'idle'; }
     } catch { /* no saved account */ }
     this.wire();
+    // the settings changed shape (drawings per symbol): treat this device like a new one once, so what the account has and what is here get merged
+    if (this.meta.schema !== 2) { this.meta.schema = 2; if (this.signedIn) this.meta.localAt = 0; await this.saveMeta(); }
     if (this.signedIn) { void this.syncAll(); }
     // other devices change things too: look again when the window comes back and every few minutes
     window.addEventListener('focus', () => { if (this.signedIn) void this.syncAll(); });
@@ -122,7 +124,7 @@ class Sync {
     this.meta.localAt = Date.now();
     void this.saveMeta();
     clearTimeout(this.stateTimer);
-    this.stateTimer = setTimeout(() => void this.pushState().catch(() => {}), 3000);
+    this.stateTimer = setTimeout(() => void this.pushState().catch((e) => { this.status = 'error'; this.message = 'Settings not saved to the account: ' + (e as Error).message; }), 3000);
   }
 
   private async pushState() {
@@ -136,8 +138,16 @@ class Sync {
     const remoteS = all.settings ?? null;
     const dir = stateDirection(this.meta.localAt, remoteS ? remoteS.updatedAt : null);
     if (dir === 'pull' && remoteS) {
-      try { app.adoptShared(JSON.parse(remoteS.value)); } catch { return; }
+      const first = this.meta.localAt === 0; // this device has not synced before: keep its own drawings and watchlists
+      const mine = { drawings: $state.snapshot(app.drawings), watchlists: $state.snapshot(app.watchlists) };
+      let parsed: any;
+      try { parsed = JSON.parse(remoteS.value); app.adoptShared(parsed); } catch { return; }
       this.meta.localAt = remoteS.updatedAt; await this.saveMeta();
+      if (first) {
+        const m = mergeFirstSync(mine, { drawings: collectDrawings(parsed), watchlists: $state.snapshot(app.watchlists) });
+        app.drawings = m.drawings; app.watchlists = m.watchlists;
+        if (m.drawings.length !== collectDrawings(parsed).length || m.watchlists.some((w, i) => w.symbols.length !== (app.watchlists[i]?.symbols.length ?? -1))) { app.persist(); return; } // something was added here: send the merged state
+      }
       app.persist(true);
     } else if (dir === 'push') await this.pushState();
   }
@@ -150,7 +160,8 @@ class Sync {
     this.scriptTimer = setTimeout(() => void this.syncScripts().catch(() => {}), 1500);
   }
 
-  isPublic(kind: ScriptKind, name: string) { return !!this.pub[key(kind, name)]; }
+  /** built-in indicators count as public (everybody has them); your own scripts are private until you publish them */
+  isPublic(kind: ScriptKind, name: string) { const f = library.get(kind, name); return (!!f && library.isBuiltIn(kind, name, f.code)) || !!this.pub[key(kind, name)]; }
   async setPublic(kind: ScriptKind, name: string, v: boolean) {
     this.meta.public[key(kind, name)] = v; this.pub = { ...this.meta.public }; await this.saveMeta();
     await this.syncScripts();
@@ -159,10 +170,12 @@ class Sync {
   async syncScripts() {
     for (const kind of KINDS) {
       const remoteList = await this.http<{ kind: ScriptKind; name: string; code: string; public: boolean; updatedAt: number }[]>('GET', '/api/scripts');
-      const rem = remoteList.filter((s) => s.kind === kind);
+      // built-in indicators are on every device already: they are neither uploaded nor kept as private copies on the server
+      for (const r of remoteList) if (r.kind === kind && library.isBuiltIn(kind, r.name, r.code)) { await this.http('DELETE', `/api/scripts/${kind}/${encodeURIComponent(r.name)}`).catch(() => {}); delete this.meta.seen[key(kind, r.name)]; }
+      const rem = remoteList.filter((s) => s.kind === kind && !library.isBuiltIn(kind, s.name, s.code));
       const seenK: Record<string, Seen> = {};
       for (const [k, v] of Object.entries(this.meta.seen)) if (k.startsWith(kind + '/')) seenK[k.slice(kind.length + 1)] = v;
-      const local = library.list(kind).map((f) => ({ name: f.name, code: f.code, modified: f.modified, public: !!this.meta.public[key(kind, f.name)] }));
+      const local = library.list(kind).filter((f) => !library.isBuiltIn(kind, f.name, f.code)).map((f) => ({ name: f.name, code: f.code, modified: f.modified, public: !!this.meta.public[key(kind, f.name)] }));
       for (const a of planScripts(local, rem, seenK)) {
         const k = key(kind, a.name);
         if (a.op === 'pull') { await library.save(kind, a.name, a.code, true); this.meta.public[k] = a.public; this.meta.seen[k] = { hash: hashCode(a.code), public: a.public }; }

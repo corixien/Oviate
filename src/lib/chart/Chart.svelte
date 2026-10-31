@@ -201,7 +201,7 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
     ...candleColors
   });
 
-  const symDrawings = $derived(cfg.drawings.filter((d) => d.sym === cfg.symbol));
+  const symDrawings = $derived(app.drawings.filter((d) => d.sym === cfg.symbol));
   // ----- replay: the candles right of the picked bar are hidden; indicators and strategies only see what is visible -----
   const replay = $derived(app.replay && (app.sync || app.replay.owner === cfg.id) ? app.replay : null);
   const isOwner = $derived(app.replay?.owner === cfg.id);
@@ -389,10 +389,10 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
       onViewChange: () => {},
       onNeedHistory: () => loadMore(),
       onDrawings: (d) => {
-        const before = $state.snapshot(cfg.drawings);
-        cfg.drawings = [...cfg.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))];
-        const after = $state.snapshot(cfg.drawings);
-        history.push({ key: 'drawings:' + cfg.id, undo: () => { cfg.drawings = before; app.persist(); }, redo: () => { cfg.drawings = after; app.persist(); } });
+        const before = $state.snapshot(app.drawings);
+        app.drawings = [...app.drawings.filter((x) => x.sym !== cfg.symbol), ...d.map((x) => ({ ...x, sym: cfg.symbol }))];
+        const after = $state.snapshot(app.drawings);
+        history.push({ key: 'drawings:' + cfg.id, undo: () => { app.drawings = before; app.persist(); }, redo: () => { app.drawings = after; app.persist(); } });
         app.persist();
       },
       onToolDone: () => { app.tool = 'cursor'; },

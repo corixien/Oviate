@@ -53,6 +53,8 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   let gutter = $state<HTMLDivElement>();
   const lines = $derived(code.split('\n').length);
   const blank = $derived(!!app.editor.blank);
+  /** a shipped indicator, unchanged: public by nature */
+  const builtIn = $derived(!!app.editor.name && library.isBuiltIn(kind, app.editor.name, library.get(kind, app.editor.name)?.code ?? '\0'));
   const isNew = $derived(app.editor.name === null && !blank);
 
   // ----- settings row (always visible) and AI -----
@@ -365,12 +367,13 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
 
     <section class="main">
       <div class="bar">
+        <button class="mlist" onclick={() => open(kind, null)}>‹ All scripts</button>
         <input class="name" bind:value={name} oninput={onNameInput} placeholder={blank ? '' : isNew ? 'File name (default: script title)' : 'File name (change it and save to rename)'} spellcheck="false" disabled={blank} aria-label="File name" />
         <span class="ext">.pine</span>
         <div class="spacer"></div>
         {#if kind === 'strategies'}<button onclick={toggleMode} disabled={blank} title={inBuilder ? 'Back to the Pine code' : 'Build the strategy from indicator conditions, no code'}>{inBuilder ? 'Editor' : 'Builder'}</button>{/if}
         <button onclick={checkClick} disabled={blank}>Check</button>
-        {#if !isNew && !blank && app.editor.name}<button class:on={account.signedIn && account.isPublic(kind, app.editor.name)} onclick={() => (account.signedIn ? account.setPublic(kind, app.editor.name!, !account.isPublic(kind, app.editor.name!)) : (app.settingsOpen = true))} title={account.signedIn ? 'A public script shows up for every user, who can add a copy to their library. Private scripts stay yours.' : 'Sign in (Settings > Account and sync) to publish scripts for other users'}>{account.signedIn ? (account.isPublic(kind, app.editor.name) ? 'Public' : 'Private') : 'Publish…'}</button>{/if}
+        {#if !isNew && !blank && app.editor.name}<button class:on={account.signedIn && account.isPublic(kind, app.editor.name)} disabled={builtIn} onclick={() => (account.signedIn ? account.setPublic(kind, app.editor.name!, !account.isPublic(kind, app.editor.name!)) : (app.settingsOpen = true))} title={builtIn ? 'Built in: every user has this indicator already' : account.signedIn ? 'A public script shows up for every user, who can add a copy to their library. Private scripts stay yours.' : 'Sign in (Settings > Account and sync) to publish scripts for other users'}>{builtIn ? 'Public' : account.signedIn ? (account.isPublic(kind, app.editor.name) ? 'Public' : 'Private') : 'Publish…'}</button>{/if}
         {#if !isNew && !blank}<button class="danger" onclick={remove}>Delete</button>{/if}
         <button class="primary" onclick={() => save()} disabled={saving || blank}>Save <kbd>Ctrl+S</kbd></button>
         <button class="primary" onclick={() => save(true)} disabled={saving || blank} title="Save, and put it on the chart unless it is already there">Save & add to chart</button>
@@ -457,15 +460,28 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .aibtns .primary { background: var(--accent); border-color: var(--accent); color: #fff; } .aibtns button:disabled { opacity: 0.5; cursor: default; }
   .editor.bpane { display: flex; flex-direction: column; background: var(--bg); }
   .status.hint { color: var(--dim); }
+  .mlist { display: none; }
+  /* phone: one tidy column, buttons in a grid, the code fills the rest */
   @media (max-width: 719px), (max-height: 479px) {
-    header { flex-wrap: wrap; row-gap: 6px; }
-    .path { display: none; }
+    header { padding: 8px 12px; gap: 8px; align-items: center; }
+    header .back, .path { display: none; }
+    header h1 { font-size: 13px; margin: 0; flex: 1; }
     .cols { display: block; overflow: hidden; }
     .cols aside { width: auto; height: 100%; border-right: 0; }
-    .cols .main { height: 100%; overflow: auto; }
+    .cols .main { height: 100%; overflow-y: auto; }
     .cols.isblank .main { display: none; }
     .cols:not(.isblank) aside { display: none; }
-    .bar { flex-wrap: wrap; row-gap: 6px; }
-    .bar .name { flex: 1 1 60%; min-width: 0; }
+    .bar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
+    .bar .mlist { display: block; grid-column: 1 / -1; text-align: left; }
+    .bar .name { grid-column: 1 / -1; min-width: 0; width: 100%; box-sizing: border-box; }
+    .bar .ext, .bar .spacer, .bar kbd { display: none; }
+    .bar button { width: 100%; height: 40px; padding: 0 8px; justify-content: center; }
+    .setrow { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px; }
+    .settings { width: 100%; }
+    .aibox { width: 100%; flex-direction: column; }
+    .aibox textarea { width: 100%; flex: none; }
+    .aibox button { width: 100%; height: 40px; }
+    .editor { min-height: 60vh; }
+    .editor textarea { font-size: 12px; }
   }
 </style>

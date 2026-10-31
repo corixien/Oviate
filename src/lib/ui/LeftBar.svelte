@@ -20,7 +20,7 @@
   {/each}
   <i></i>
   <button class:on={app.magnet} title="Magnet" onclick={() => { app.magnet = !app.magnet; app.persist(); }}><Icons name="magnet" /></button>
-  <button title="Remove all drawings (this symbol)" onclick={() => (app.chart.drawings = app.chart.drawings.filter((d) => d.sym !== app.chart.symbol))}><Icons name="trash" /></button>
+  <button title="Remove all drawings (this symbol)" onclick={() => (app.drawings = app.drawings.filter((d) => d.sym !== app.chart.symbol))}><Icons name="trash" /></button>
 </aside>
 
 <style>

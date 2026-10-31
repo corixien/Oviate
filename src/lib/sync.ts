@@ -78,3 +78,29 @@ export function planSecrets(local: Record<string, string>, remote: Record<string
   }
   return plan;
 }
+
+export interface DrawingLike { id: string; sym?: string }
+
+/** All drawings of a saved state. Older saves kept them per chart slot, newer ones in one list for every symbol: drawings belong to a symbol, not to a chart slot. */
+export function collectDrawings<T extends DrawingLike>(s: { drawings?: T[]; charts?: { drawings?: T[] }[] }): T[] {
+  const out: T[] = [], seen = new Set<string>();
+  const add = (d: T) => { if (d && typeof d.id === 'string' && !seen.has(d.id)) { seen.add(d.id); out.push(d); } };
+  if (Array.isArray(s.drawings)) s.drawings.forEach(add);
+  else for (const c of s.charts ?? []) (c.drawings ?? []).forEach(add);
+  return out;
+}
+
+/**
+ * First sync of a device that has its own data: what the account has wins, but drawings and watchlists that only exist here are added (nothing made before
+ * signing in is lost). Later syncs follow the newer side, so deletions travel.
+ */
+export function mergeFirstSync<D extends DrawingLike, W extends { id: string; symbols: string[] }>(local: { drawings: D[]; watchlists: W[] }, remote: { drawings: D[]; watchlists: W[] }) {
+  const have = new Set(remote.drawings.map((d) => d.id));
+  const drawings = [...remote.drawings, ...local.drawings.filter((d) => !have.has(d.id))];
+  const lists = remote.watchlists.map((w) => {
+    const mine = local.watchlists.find((x) => x.id === w.id);
+    return mine ? { ...w, symbols: [...w.symbols, ...mine.symbols.filter((y) => !w.symbols.includes(y))] } : w;
+  });
+  const known = new Set(remote.watchlists.map((w) => w.id));
+  return { drawings, watchlists: [...lists, ...local.watchlists.filter((w) => !known.has(w.id))] };
+}
