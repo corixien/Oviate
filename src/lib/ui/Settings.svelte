@@ -226,4 +226,10 @@
   .seg { display: inline-flex; width: fit-content; border: 1px solid var(--glass-line); border-radius: 2px; overflow: hidden; }
   .seg button { min-width: 74px; border: 0; border-radius: 0; background: none; padding: 0 14px; text-transform: capitalize; }
   .seg button.on { background: var(--accent); color: #fff; }
+  @media (max-width: 719px), (max-height: 479px) {
+    .row { grid-template-columns: 1fr; gap: 6px; padding: 10px 0; }
+    .seg { width: 100%; }
+    .seg button { flex: 1; min-width: 0; padding: 0 6px; }
+    .hint { padding-left: 0; }
+  }
 </style>

@@ -37,6 +37,10 @@ rand = "0.10.3"
 regex = "1.13.1"
 
 
+# Android has no system certificate verifier set up for rustls (it panics until a JNI hook is installed): use the bundled Mozilla roots there
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-root-certs = "1"
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

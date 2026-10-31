@@ -616,7 +616,7 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
 <style>
   .pane { position: relative; min-width: 0; min-height: 0; background: var(--pane); border: 1px solid var(--line); overflow: hidden; }
   .pane.active { z-index: 1; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 1px var(--accent); }
-  .layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   .top { touch-action: none; }
   .legend { position: absolute; top: 8px; left: 10px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; font: 12px ui-monospace, 'JetBrains Mono', monospace; max-width: calc(100% - 90px); }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

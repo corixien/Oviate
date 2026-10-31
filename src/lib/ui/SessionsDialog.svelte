@@ -76,4 +76,10 @@
   td { padding: 7px 10px; border-bottom: 1px solid var(--glass-line); white-space: nowrap; }
   td b { font-family: system-ui, sans-serif; } .dim { color: var(--dim); font-family: system-ui, sans-serif; font-size: 11.5px; margin-left: 4px; } .mine { color: var(--accent); }
   .st { font: 600 10.5px system-ui, sans-serif; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--glass-line); padding: 2px 7px; } .st.on { color: var(--up); border-color: var(--up); }
+  @media (max-width: 719px), (max-height: 479px) {
+    td .dim { display: none; }
+    th, td { padding: 7px 6px; font-size: 11.5px; }
+    header { gap: 6px; }
+    .x { margin-left: auto; }
+  }
 </style>

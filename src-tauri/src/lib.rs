@@ -416,10 +416,14 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let cache = Cache::open(&dir.join("oviate.db"))?;
-            let http = reqwest::Client::builder()
+            let builder = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .pool_idle_timeout(std::time::Duration::from_secs(15))
+                ;
+            #[cfg(target_os = "android")]
+            let builder = builder.tls_certs_only(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().filter_map(|c| reqwest::Certificate::from_der(c.as_ref()).ok()));
+            let http = builder
                 .build()?;
             let streams = stream::Streams::start(app.handle().clone());
             app.manage(Arc::new(AppState { cache: Arc::new(cache), http, streams, fetch_locks: Default::default(), prefetch: Default::default() }));

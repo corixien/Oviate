@@ -1,4 +1,6 @@
 <script lang="ts">
+  /** phone: the list and the detail take turns */
+  let mOpen = $state(false);
   import { onMount, tick } from 'svelte';
   import { app } from '$lib/app.svelte';
   import { newsWindow, aiSummary, newsStatus, openUrl, type NewsItem, type AiSummary } from '$lib/api';
@@ -152,12 +154,12 @@
     </div>
   </header>
 
-  <div class="cols">
+  <div class="cols" class:mdetail={mOpen}>
     <div class="list" bind:this={listEl} onscroll={onScroll}>
       {#each groups as g (g.day)}
         <div class="day">{g.day}</div>
         {#each g.rows as it (it.id)}
-          <button class="row" class:on={it.id === sel} onclick={() => (sel = it.id)}>
+          <button class="row" class:on={it.id === sel} onclick={() => { sel = it.id; mOpen = true; }}>
             <span class="t">{hhmm(it.ts)}</span>
             <span class="h">{it.headline}</span>
             <span class="m">{it.source || it.provider}<i>{it.provider}</i></span>
@@ -171,6 +173,7 @@
     </div>
 
     <div class="detail">
+      <button class="mback" onclick={() => (mOpen = false)}>← Headlines</button>
       {#if current}
         <section class="ai" style:--dir={ai ? dirColor(ai.direction) : 'var(--accent)'}>
           <div class="aih"><span>AI summary</span><small>{ai ? ai.model : 'Groq'}</small>
@@ -256,4 +259,15 @@
   .body { font: 15px/1.6 system-ui, sans-serif; margin: 0 0 18px; }
   .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 9px 18px; font: 700 13px system-ui, sans-serif; cursor: pointer; }
   .primary:hover { filter: brightness(1.12); }
+  .mback { display: none; }
+  @media (max-width: 719px), (max-height: 479px) {
+    header { flex-wrap: wrap; row-gap: 6px; }
+    header :global(.q) { flex: 1 1 100%; min-width: 0; width: auto; }
+    .cols { display: block; position: relative; overflow: hidden; }
+    .cols .list { height: 100%; overflow: auto; border-right: 0; }
+    .cols .detail { display: none; height: 100%; overflow: auto; padding-bottom: 24px; }
+    .cols.mdetail .list { display: none; }
+    .cols.mdetail .detail { display: block; }
+    .mback { display: block; margin: 8px 0; height: 40px; padding: 0 14px; background: none; border: 1px solid var(--line); color: var(--fg); font: 600 13px system-ui, sans-serif; }
+  }
 </style>

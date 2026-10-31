@@ -168,6 +168,8 @@
   }
   const impactColor = (i: string) => (i === 'high' ? 'var(--down)' : i === 'medium' ? '#ff9800' : 'var(--dim)');
   function goChart(sym: string) { app.chart.symbol = sym; app.persist(); app.page = 'chart'; }
+  /** phone: the list and the detail take turns */
+  let mOpen = $state(false);
   const back = () => (app.page = 'chart');
 </script>
 
@@ -199,14 +201,14 @@
     <input class="q" bind:value={query} placeholder="Symbol, company or region…" spellcheck="false" autocomplete="off" aria-label="Search" />
   </div>
 
-  <div class="cols">
+  <div class="cols" class:mdetail={mOpen}>
     <div class="list" bind:this={listEl} onwheel={touch} onpointerdown={touch} onkeydown={touch} role="presentation">
       {#each groups as g (g.key)}
         <div class="day" class:today={g.today}>{g.day}{#if g.today}<i>today</i>{/if}</div>
         {#each g.rows as e, i (e.id + ':' + i)}
           {@const lab = LABELS[e.kind] ?? LABELS.macro}
           {@const sp = surprise(e)}
-          <button class="row" data-id={e.id} class:on={e.id === sel} class:past={e.ts < nowS} onclick={() => (sel = e.id)}>
+          <button class="row" data-id={e.id} class:on={e.id === sel} class:past={e.ts < nowS} onclick={() => { sel = e.id; mOpen = true; }}>
             <span class="t">{hhmm(e.ts)}</span>
             <span class="c" class:co={e.kind !== 'macro'}>{e.symbol ?? e.country}</span>
             <span class="i" style:--c={impactColor(e.impact)} title={e.impact}><u class:f={IMP[e.impact] >= 1}></u><u class:f={IMP[e.impact] >= 2}></u><u class:f={IMP[e.impact] >= 3}></u></span>
@@ -231,6 +233,7 @@
     </div>
 
     <div class="detail">
+      <button class="mback" onclick={() => (mOpen = false)}>← Events</button>
       {#if current}
         {@const lab = LABELS[current.kind] ?? LABELS.macro}
         {@const sp = surprise(current)}
@@ -341,4 +344,15 @@
   .acts { display: flex; gap: 10px; }
   .primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 0 16px; height: 30px; font: 700 12px system-ui, sans-serif; cursor: pointer; } .primary:hover { filter: brightness(1.12); }
   .pad { padding: 20px 0; }
+  .mback { display: none; }
+  @media (max-width: 719px), (max-height: 479px) {
+    header, .filters { flex-wrap: wrap; row-gap: 6px; }
+    header :global(.q), .filters :global(.q) { flex: 1 1 100%; min-width: 0; width: auto; }
+    .cols { display: block; position: relative; overflow: hidden; }
+    .cols .list { height: 100%; overflow: auto; border-right: 0; }
+    .cols .detail { display: none; height: 100%; overflow: auto; padding-bottom: 24px; }
+    .cols.mdetail .list { display: none; }
+    .cols.mdetail .detail { display: block; }
+    .mback { display: block; margin: 8px 0; height: 40px; padding: 0 14px; background: none; border: 1px solid var(--line); color: var(--fg); font: 600 13px system-ui, sans-serif; }
+  }
 </style>

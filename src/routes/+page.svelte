@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { sync } from '$lib/sync.svelte';
+  import { pushState } from '$app/navigation';
+  import MobileTop from '$lib/ui/MobileTop.svelte';
+  import MobileNav from '$lib/ui/MobileNav.svelte';
   import { history } from '$lib/history.ts';
   import { comboOf, combosOf, hasCombo, isBuiltin } from '$lib/keybinds.ts';
   import { buildCommands } from '$lib/commands.svelte';
@@ -61,6 +64,8 @@
   }
 
   onMount(() => {
+    const size = () => { app.vw = window.innerWidth; app.vh = window.innerHeight; document.documentElement.dataset.mobile = app.mobile ? '1' : '0'; };
+    size(); window.addEventListener('resize', size);
     app.load().then(() => library.load()).then(() => { startBuilderBackground(); void sync.init(); });
     paper.load();
     // scripts added from outside (the oviate CLI) show up when the window gets focus again
@@ -68,8 +73,28 @@
     window.addEventListener('focus', refresh);
     let off = () => {};
     onTick((t) => { app.ticks[t.symbol] = { p: t.price, s: t.size, t: t.t }; }).then((f) => (off = f));
-    return () => { off(); window.removeEventListener('focus', refresh); };
+    return () => { off(); window.removeEventListener('focus', refresh); window.removeEventListener('resize', size); };
   });
+  // phone: the Android back button steps out of sheets, dialogs and pages before it leaves the app (one history entry per open layer)
+  let layerDepth = 0, skipPops = 0;
+  const layers = $derived((app.page !== 'chart' ? 1 : 0) + (app.sheet ? 1 : 0) + (app.settingsOpen ? 1 : 0) + (app.spotlight.open ? 1 : 0) + (app.sessionsOpen ? 1 : 0));
+  $effect(() => {
+    const n = app.mobile ? layers : 0;
+    untrack(() => {
+      while (layerDepth < n) { pushState('', {}); layerDepth++; }
+      if (layerDepth > n) { const k = layerDepth - n; layerDepth = n; skipPops += k; window.history.go(-k); }
+    });
+  });
+  function onPop() {
+    if (skipPops > 0) { skipPops--; return; }
+    if (!app.mobile) return;
+    layerDepth = Math.max(0, layerDepth - 1);
+    if (app.spotlight.open) app.spotlight = { open: false, seed: '' };
+    else if (app.sessionsOpen) app.sessionsOpen = false;
+    else if (app.settingsOpen) app.settingsOpen = false;
+    else if (app.sheet) app.sheet = '';
+    else if (app.page !== 'chart') app.page = 'chart';
+  }
   $effect(() => { if (app.ready) streamSymbols([...new Set(app.charts.slice(0, app.count).map((c) => c.symbol))]); });
 
   $effect(() => {
@@ -178,23 +203,26 @@
   }
 </script>
 
-<svelte:window onkeydown={key} onmousedown={mouseDown} onmouseup={mouseUp} />
+<svelte:window onpopstate={onPop} onkeydown={key} onmousedown={mouseDown} onmouseup={mouseUp} />
 
-<div class="app">
-  <TopBar />
+<div class="app" class:mobile={app.mobile}>
+  {#if app.mobile}<MobileTop />{:else}<TopBar />{/if}
   {#if app.page === 'news'}<NewsPage />{/if}
   {#if app.page === 'editor'}<ScriptEditor />{/if}
   {#if app.page === 'calendar'}<CalendarPage />{/if}
+  {#if app.mobile && app.page === 'watchlist'}<div class="mpage"><Watchlist /><Analysis /></div>{/if}
+  {#if app.mobile && app.page === 'trade'}<div class="mpage trade"><PaperPanel /></div>{/if}
   <div class="body" class:hid={app.page !== 'chart'}>
-    <LeftBar />
-    <div class="center" class:noright={!app.showWatchlist}>
+    {#if !app.mobile}<LeftBar />{/if}
+    <div class="center" class:noright={!app.showWatchlist || app.mobile}>
      <div class="chartarea" bind:this={center}>
-      <main class="grid l{app.layout}" class:flush={app.showWatchlist} style:grid-template-columns={cols} style:grid-template-rows={rows}>
-        {#each app.charts.slice(0, app.count) as c, i (c.id)}
+      <main class="grid l{app.mobile ? '1' : app.layout}" class:flush={app.showWatchlist && !app.mobile} style:grid-template-columns={app.mobile ? undefined : cols} style:grid-template-rows={app.mobile ? undefined : rows}>
+        {#each (app.mobile ? [app.active] : Array.from({ length: app.count }, (_, k) => k)) as i (app.charts[i].id)}
           <Chart bind:cfg={app.charts[i]} index={i} />
         {/each}
       </main>
-      {#if ['2v', '3', '4'].includes(app.layout)}
+      {#if app.mobile && app.drawOpen}<div class="drawstrip"><LeftBar horizontal /></div>{/if}
+      {#if !app.mobile && ['2v', '3', '4'].includes(app.layout)}
         <div class="ov" class:flush={app.showWatchlist} bind:this={ov}>
           <div class="hv" style:left="calc(100% * {app.split.c})" role="separator" aria-orientation="vertical" onpointerdown={(e) => startDrag(e, 'c')}></div>
           {#if app.layout === '3' || app.layout === '4'}
@@ -202,23 +230,24 @@
           {/if}
         </div>
       {/if}
-      {#if app.layout === '2h'}
+      {#if !app.mobile && app.layout === '2h'}
         <div class="ov" class:flush={app.showWatchlist} bind:this={ov}>
           <div class="hh" style:top="calc(100% * {app.split.r})" role="separator" aria-orientation="horizontal" onpointerdown={(e) => startDrag(e, 'r')}></div>
         </div>
       {/if}
      </div>
-     <PaperPanel />
+     {#if !app.mobile}<PaperPanel />{/if}
     </div>
-    {#if app.showWatchlist}
+    {#if app.showWatchlist && !app.mobile}
       <div class="vsplit" role="separator" aria-orientation="vertical" onpointerdown={startRightDrag}></div>
-      <div class="rcol" bind:this={rcol} style:width="{app.split.rightW}px" style:grid-template-rows="{app.split.listFrac}fr 0px {1 - app.split.listFrac}fr">
+      <div class="rcol" bind:this={rcol} style:width="{Math.min(app.split.rightW, Math.max(210, Math.round(app.vw * 0.27)))}px" style:grid-template-rows="{app.split.listFrac}fr 0px {1 - app.split.listFrac}fr">
         <Watchlist />
         <div class="lsplit" role="separator" aria-orientation="horizontal" onpointerdown={startListDrag}></div>
         <Analysis />
       </div>
     {/if}
   </div>
+  {#if app.mobile}<MobileNav />{/if}
   {#if app.toast}<div class="toast">{app.toast}</div>{/if}
 </div>
 
@@ -280,5 +309,22 @@
   .l2v { grid-template-rows: 1fr; }
   .l2h { grid-template-columns: 1fr; }
   .l3 :global(.pane:first-child) { grid-row: 1 / span 2; }
+  /* ---- phone layout ---- */
+  .app.mobile { height: 100dvh; }
+  .app.mobile .grid { padding: 0; }
+  .app.mobile .chartarea { flex-direction: column; }
+  .drawstrip { flex: none; background: var(--bar); }
+  .mpage { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
+  .mpage > :global(*) { margin: 0 !important; flex: none; border-left: 0 !important; border-right: 0 !important; }
+  .mpage.trade { overflow: hidden; }
+  .mpage.trade :global(.panel) { flex: 1; height: auto !important; min-height: 0; margin: 0 !important; border: 0 !important; }
+  .mpage :global(.pane), .mpage :global(.wl), .mpage :global(.ana) { min-height: 360px; }
   .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 2px; font-size: 13px; background: var(--glass); border: 1px solid var(--glass-line); z-index: 200; }
+  /* dialogs fill the screen on a phone; touch targets get bigger; inputs stay 16px so the browser does not zoom in */
+  @media (max-width: 719px), (max-height: 479px) {
+    :global(.scrim > .card) { width: 100vw !important; max-width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; border-radius: 0 !important; box-sizing: border-box; padding-top: calc(16px + env(safe-area-inset-top)) !important; padding-bottom: calc(18px + env(safe-area-inset-bottom)) !important; overflow: auto !important; }
+    :global(.scrim) { padding: 0 !important; align-items: stretch !important; }
+    :global(input), :global(textarea) { font-size: 16px !important; }
+    :global(.card button), :global(.sheet button) { min-height: 40px; }
+  }
 </style>

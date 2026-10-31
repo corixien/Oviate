@@ -350,7 +350,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     <span class="path" title="Scripts are plain .pine files in this folder">{library.folder[kind] || 'browser storage'}</span>
   </header>
 
-  <div class="cols">
+  <div class="cols" class:isblank={blank}>
     <aside>
       <button class="new" class:on={isNew} onclick={() => open(kind, null)}>+ New {label.toLowerCase()}</button>
       <input class="search" bind:value={search} placeholder="Search {kind}…" spellcheck="false" autocomplete="off" aria-label="Search {kind}" />
@@ -457,4 +457,15 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .aibtns .primary { background: var(--accent); border-color: var(--accent); color: #fff; } .aibtns button:disabled { opacity: 0.5; cursor: default; }
   .editor.bpane { display: flex; flex-direction: column; background: var(--bg); }
   .status.hint { color: var(--dim); }
+  @media (max-width: 719px), (max-height: 479px) {
+    header { flex-wrap: wrap; row-gap: 6px; }
+    .path { display: none; }
+    .cols { display: block; overflow: hidden; }
+    .cols aside { width: auto; height: 100%; border-right: 0; }
+    .cols .main { height: 100%; overflow: auto; }
+    .cols.isblank .main { display: none; }
+    .cols:not(.isblank) aside { display: none; }
+    .bar { flex-wrap: wrap; row-gap: 6px; }
+    .bar .name { flex: 1 1 60%; min-width: 0; }
+  }
 </style>

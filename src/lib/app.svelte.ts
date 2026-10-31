@@ -82,7 +82,14 @@ class App {
   replay = $state<{ owner: string; t: number | null; playing: boolean; speed: number } | null>(null);
   /** AI indicator dialog (indicator from plain text). */
   aiDialog = $state<'indicators' | 'strategies' | null>(null);
-  page = $state<'chart' | 'news' | 'editor' | 'calendar'>('chart');
+  page = $state<'chart' | 'news' | 'editor' | 'calendar' | 'watchlist' | 'trade'>('chart');
+  /** window size in CSS pixels; phones (narrow or short windows) get the touch layout, tablets and PCs the desktop layout */
+  vw = $state(typeof window !== 'undefined' ? window.innerWidth : 1440);
+  vh = $state(typeof window !== 'undefined' ? window.innerHeight : 900);
+  get mobile() { return this.vw < 720 || this.vh < 480; }
+  /** phone layout: the drawing tools strip and the open bottom sheet */
+  drawOpen = $state(false);
+  sheet = $state<'' | 'tf' | 'more' | 'type'>('');
   /** Script editor target: an existing script or a new one (name null). */
   /** name null = a new script; blank = nothing selected yet (opened with /ind or /strat) */
   editor = $state<{ kind: 'indicators' | 'strategies'; name: string | null; blank?: boolean; /** open in the visual builder instead of the code */ builder?: boolean }>({ kind: 'indicators', name: null });
@@ -123,7 +130,7 @@ class App {
     if (this.active >= this.count) this.active = 0;
     this.persist();
   }
-  get count() { return LAYOUT_COUNT[this.layout]; }
+  get count() { return this.mobile ? 1 : LAYOUT_COUNT[this.layout]; }
 
   /** chart ids, the one touched last first (not persisted) */
   private touched: string[] = [];

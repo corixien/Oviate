@@ -1353,8 +1353,17 @@ export class ChartRenderer {
     const pos = (e: MouseEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     const region = (x: number, y: number) => (x > this.plotW ? 'paxis' : y > this.h - TIME_H ? 'taxis' : 'plot');
 
+    // touch: two fingers pinch-zoom (time and price together, like Ctrl+wheel); one finger pans, a tap shows the crosshair
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinch: { d: number } | null = null;
+    const spread = () => { const [a, b] = [...touches.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; };
     on('pointerdown', (e) => {
       const { x, y } = pos(e);
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x, y });
+        if (touches.size === 2) { this.drag = null; this.draft = null; chartSync.leader = this; pinch = { d: spread().d }; return; }
+        if (touches.size > 2) return;
+      }
       if (e.button === 1) {
         // Middle click deletes the drawing under the cursor.
         e.preventDefault();
@@ -1411,7 +1420,18 @@ export class ChartRenderer {
       this.invalidate();
     });
     on('pointermove', (e) => {
-      const { x, y } = pos(e); this.mx = x; this.my = y;
+      const { x, y } = pos(e);
+      if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+        touches.set(e.pointerId, { x, y });
+        if (pinch && touches.size >= 2) {
+          const sp = spread();
+          const w = Math.log(sp.d / pinch.d) / 0.003; // the wheel zoom takes this amount: positive = zoom in
+          pinch.d = sp.d;
+          if (Math.abs(w) > 0.01) this.wheelZoom(w, Math.min(sp.cx, this.plotW), sp.cy);
+          return;
+        }
+      }
+      this.mx = x; this.my = y;
       const i = Math.max(0, Math.min(this.s.data.n - 1, Math.round(this.idxOf(x))));
       const inPlot = x < this.plotW && y < this.h - TIME_H;
       const m0 = this.panes[0];
@@ -1454,7 +1474,8 @@ export class ChartRenderer {
       }
       this.invalidate();
     });
-    on('pointerup', () => {
+    const lift = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') { touches.delete(e.pointerId); if (pinch) { if (touches.size < 2) pinch = null; this.drag = null; return; } }
       this.applyPan();
       const d = this.drag; this.drag = null;
       if (d?.kind === 'brush') { if (this.draft && this.draft.pts.length > 1) this.finishDraft(); else this.draft = null; this.invalidate(); return; }
@@ -1463,7 +1484,9 @@ export class ChartRenderer {
         const dr = this.s.drawings.find((q) => q.id === this.selected);
         if (dr && (dr.type === 'text' || dr.type === 'callout')) this.startEdit(dr);
       }
-    });
+    };
+    on('pointerup', lift);
+    on('pointercancel', lift);
     on('pointerleave', () => { this.mx = -1; this.my = -1; this.hoverNews = null; this.hoverCal = null; this.hooks.onHover(null, null, null); this.broadcastCross(null, null); this.invalidateOver(); });
     on('dblclick', (e) => {
       const { x, y } = pos(e);
