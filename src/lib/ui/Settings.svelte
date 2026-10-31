@@ -4,6 +4,14 @@
   import { t } from '$lib/i18n';
   import { zoneOptions } from '$lib/tz.ts';
   import Select from './Select.svelte';
+  import { sync } from '$lib/sync.svelte';
+  let accEmail = $state(''), accPass = $state(''), accName = $state(''), accBusy = $state(false);
+  async function account(mode: 'login' | 'register') {
+    accBusy = true;
+    try { await sync.signIn(mode, accEmail, accPass, accName); accPass = ''; app.notify(mode === 'register' ? 'Account created' : 'Signed in'); } catch { /* the message is shown below */ }
+    accBusy = false;
+  }
+  const ago = (t: number) => (t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'never');
   const tzOptions = $derived(app.settingsOpen ? zoneOptions(Math.floor(Date.now() / 1000)) : []);
 
   let keyId = $state(''), secret = $state(''), has = $state(false), msg = $state('');
@@ -53,6 +61,34 @@
           <button class="primary" onclick={save} disabled={!keyId.trim() || !secret.trim()}>{t('save', app.lang)}</button>
           {#if has}<button onclick={clear}>{t('clear', app.lang)}</button>{/if}
         </div>
+      </section>
+
+      <section>
+        <h3>Account and sync</h3>
+        {#if sync.signedIn}
+          <p class="status ok">Signed in as {sync.user?.name} ({sync.user?.email}). Charts, drawings, watchlists, settings and scripts follow you to every device; candles come from the shared server.</p>
+          <p class="status">{sync.status === 'syncing' ? 'Syncing…' : sync.status === 'error' ? 'Sync problem: ' + sync.message : 'Last sync ' + ago(sync.lastSync)} · {sync.server}</p>
+          <div class="btns">
+            <button class="primary" onclick={() => sync.syncAll()} disabled={sync.status === 'syncing'}>Sync now</button>
+            <button onclick={() => sync.signOut()}>Sign out</button>
+          </div>
+          <div class="row"><span>Candles</span>
+            <div class="seg">
+              <button class:on={sync.useCandles} onclick={() => sync.setUseCandles(true)}>From the server</button>
+              <button class:on={!sync.useCandles} onclick={() => sync.setUseCandles(false)}>Own fetch</button>
+            </div></div>
+        {:else}
+          <p class="status">Optional. An account keeps your charts, drawings, watchlists, settings and scripts in sync on all your devices (PC, phone, tablet) and shares candles, news summaries and public scripts with everybody.</p>
+          <label>Server address<input bind:value={sync.server} autocomplete="off" spellcheck="false" placeholder="https://oviate-server.onrender.com" /></label>
+          <label>E-mail<input bind:value={accEmail} type="email" autocomplete="username" /></label>
+          <label>Password (8 characters or more)<input bind:value={accPass} type="password" autocomplete="current-password" /></label>
+          <label>Name for public scripts (new accounts)<input bind:value={accName} autocomplete="off" placeholder="optional" /></label>
+          {#if sync.message}<p class="warn">{sync.message}</p>{/if}
+          <div class="btns">
+            <button class="primary" disabled={accBusy || !accEmail.trim() || !accPass} onclick={() => account('login')}>{accBusy ? 'Please wait…' : 'Sign in'}</button>
+            <button disabled={accBusy || !accEmail.trim() || accPass.length < 8} onclick={() => account('register')}>Create account</button>
+          </div>
+        {/if}
       </section>
 
       <section>

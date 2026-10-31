@@ -16,7 +16,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
-interface Raw { t: number[]; o: number[]; h: number[]; l: number[]; c: number[]; v: number[] }
+export interface Raw { t: number[]; o: number[]; h: number[]; l: number[]; c: number[]; v: number[] }
 
 function toCandles(r: Raw): Candles {
   const n = r.t.length;
@@ -31,7 +31,28 @@ function toCandles(r: Raw): Candles {
   };
 }
 
+/** Registered by the account sync (sync.svelte.ts): candles and caches that every user shares through the server. */
+export const remote: {
+  candles?: (symbol: string, tf: Tf, from: number, to: number) => Promise<Raw | null>;
+  shared?: { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
+} = {};
+
+/** Shared cache key for something long (a news id, a calendar event): its hash. */
+async function sharedKey(...parts: string[]): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(parts.join('|')));
+  return 'aisum:' + [...new Uint8Array(d)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** A summary somebody already generated is reused; a new one is shared with everybody. */
+async function sharedOr<T>(key: string, force: boolean, make: () => Promise<T>): Promise<T> {
+  if (!force && remote.shared) { try { const v = await remote.shared.get(key); if (v) return JSON.parse(v) as T; } catch { /* the server is optional */ } }
+  const r = await make();
+  remote.shared?.put(key, JSON.stringify(r)).catch(() => {});
+  return r;
+}
+
 export async function getCandles(symbol: string, tf: Tf, from: number, to: number): Promise<Candles> {
+  if (remote.candles) { try { const r = await remote.candles(symbol, tf, from, to); if (r) return toCandles(r); } catch { /* server down or slow: the local path below */ } }
   if (!inTauri) return synthColumns(symbol, TF_SECONDS[tf], from, to);
   return toCandles(await call<Raw>('get_candles', { symbol, tf, from, to }));
 }
@@ -113,12 +134,12 @@ function previewCalendar(from: number, to: number): CalEvent[] {
 export const symbolRegions = (symbol: string) => (inTauri ? call<string[]>('symbol_regions', { symbol }) : Promise.reject('needs the desktop app'));
 
 export interface CalSummary { what: string; why: string; above: string; below: string; assets: string[]; volatility: number; model: string }
-export const calendarSummary = (event: CalEvent, lang: string, force = false) =>
-  inTauri ? call<CalSummary>('calendar_summary', { event, lang, force }) : Promise.reject('AI summaries need the desktop app');
+export const calendarSummary = async (event: CalEvent, lang: string, force = false) =>
+  inTauri ? sharedOr(await sharedKey('cal', event.id, lang, String(event.actual ?? '')), force, () => call<CalSummary>('calendar_summary', { event, lang, force })) : Promise.reject('AI summaries need the desktop app');
 
 export interface AiSummary { what: string; impact: string; direction: 'bullish' | 'bearish' | 'neutral' | 'mixed'; intensity: number; assets: string[]; horizon: string; model: string }
-export const aiSummary = (id: string, lang: string, force = false) =>
-  inTauri ? call<AiSummary>('ai_summary', { id, lang, force }) : Promise.reject('AI summaries need the desktop app');
+export const aiSummary = async (id: string, lang: string, force = false) =>
+  inTauri ? sharedOr(await sharedKey('news', id, lang), force, () => call<AiSummary>('ai_summary', { id, lang, force })) : Promise.reject('AI summaries need the desktop app');
 
 export type ChatMsg = { role: 'system' | 'user' | 'assistant'; content: string };
 export const aiComplete = (messages: ChatMsg[]) =>

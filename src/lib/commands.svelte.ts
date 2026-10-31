@@ -2,6 +2,7 @@ import { app, newChart } from '$lib/app.svelte';
 import { TIMEFRAMES } from '$lib/api';
 import { CHART_TYPES } from '$lib/chart/transforms';
 import { library } from '$lib/library.svelte';
+import { sync } from '$lib/sync.svelte';
 import { paper } from '$lib/paper/paper.svelte';
 import { DRAW_TOOLS } from '$lib/chart/renderer';
 import { t } from '$lib/i18n';
@@ -24,6 +25,11 @@ export function buildCommands(): Command[] {
     { key: 'ind add ai text describe generate plain words new', title: 'New indicator from text (AI)', sub: 'Describe it in words, the AI writes the Pine code', tag: 'indicator', run: () => { app.aiDialog = 'indicators'; } },
     ...library.strategies.map((f) => ({ key: `strat add ${f.name} ${f.title}`, title: `Add strategy: ${f.title}`, sub: f.name, tag: 'strategy',
       run: () => { app.addStrategy(f.name); paper.panelOpen = true; paper.panelTab = 'tester'; paper.persist(); } })),
+    // public scripts of other users: a copy goes into your own library
+    ...sync.community.indicators.map((c) => ({ key: `ind add community ${c.name} ${c.author}`, title: `Community indicator: ${c.name}`, sub: `by ${c.author}, adds a copy to your library`, tag: 'indicator',
+      run: async () => { const n = await sync.importCommunity(c); app.chart.indicators = [...app.chart.indicators, { uid: crypto.randomUUID(), id: n, params: {} }]; } })),
+    ...sync.community.strategies.map((c) => ({ key: `strat add community ${c.name} ${c.author}`, title: `Community strategy: ${c.name}`, sub: `by ${c.author}, adds a copy to your library`, tag: 'strategy',
+      run: async () => { const n = await sync.importCommunity(c); app.addStrategy(n); paper.panelOpen = true; paper.panelTab = 'tester'; paper.persist(); } })),
     { key: 'strat add ai text describe generate plain words new', title: 'New strategy from text (AI)', sub: 'Describe it in words, the AI writes the Pine strategy', tag: 'strategy', run: () => { app.aiDialog = 'strategies'; } },
     { key: 'strat remove delete strategy', title: 'Remove strategy from chart', tag: 'strategy', run: () => { app.chart.indicators = app.chart.indicators.filter((i) => !i.strategy); } },
     { key: 'paper new account create', title: 'New paper account', tag: 'paper', run: () => { paper.accountDialog = true; } },

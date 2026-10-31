@@ -2,6 +2,7 @@
   import { app } from '$lib/app.svelte';
   import { library, scriptMeta, type ScriptKind } from '$lib/library.svelte';
   import { paper } from '$lib/paper/paper.svelte';
+  import { sync as account } from '$lib/sync.svelte';
   import { describeScript } from '$lib/pine/describe.ts';
   import { tick, untrack } from 'svelte';
   import { aiComplete, aiLight } from '$lib/api';
@@ -369,6 +370,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
         <div class="spacer"></div>
         {#if kind === 'strategies'}<button onclick={toggleMode} disabled={blank} title={inBuilder ? 'Back to the Pine code' : 'Build the strategy from indicator conditions, no code'}>{inBuilder ? 'Editor' : 'Builder'}</button>{/if}
         <button onclick={checkClick} disabled={blank}>Check</button>
+        {#if account.signedIn && !isNew && !blank && app.editor.name}<button class:on={account.isPublic(kind, app.editor.name)} onclick={() => account.setPublic(kind, app.editor.name!, !account.isPublic(kind, app.editor.name!))} title="A public script shows up for every user, who can add a copy to their library. Private scripts stay yours.">{account.isPublic(kind, app.editor.name) ? 'Public' : 'Private'}</button>{/if}
         {#if !isNew && !blank}<button class="danger" onclick={remove}>Delete</button>{/if}
         <button class="primary" onclick={() => save()} disabled={saving || blank}>Save <kbd>Ctrl+S</kbd></button>
         <button class="primary" onclick={() => save(true)} disabled={saving || blank} title="Save, and put it on the chart unless it is already there">Save & add to chart</button>

@@ -31,6 +31,9 @@ class Library {
   folder = $state<Record<ScriptKind, string>>({ indicators: '', strategies: '' });
   loaded = $state(false);
 
+  /** Set by the account sync: a script was saved or deleted on this device (not by the sync itself). */
+  onChange: ((kind: ScriptKind, name: string) => void) | null = null;
+
   list(kind: ScriptKind) { return kind === 'indicators' ? this.indicators : this.strategies; }
   get(kind: ScriptKind, name: string): ScriptFile | undefined { return this.list(kind).find((f) => f.name === name); }
 
@@ -61,7 +64,7 @@ class Library {
     this.loaded = true;
   }
 
-  async save(kind: ScriptKind, name: string, code: string): Promise<string> {
+  async save(kind: ScriptKind, name: string, code: string, quiet = false): Promise<string> {
     let saved = name;
     if (inTauri) saved = await call<string>('pine_save', { kind, name, code });
     else {
@@ -70,13 +73,15 @@ class Library {
     }
     const list = this.list(kind).filter((f) => f.name !== saved);
     this.set(kind, [...list, toFile(saved, code, Date.now() / 1000)].sort((a, b) => a.name.localeCompare(b.name)));
+    if (!quiet) this.onChange?.(kind, saved);
     return saved;
   }
 
-  async remove(kind: ScriptKind, name: string) {
+  async remove(kind: ScriptKind, name: string, quiet = false) {
     if (inTauri) await call('pine_delete', { kind, name });
     else { const s = this.store(kind); delete s[name]; try { localStorage.setItem('oviate:scripts:' + kind, JSON.stringify(s)); } catch { /* ignore */ } }
     this.set(kind, this.list(kind).filter((f) => f.name !== name));
+    if (!quiet) this.onChange?.(kind, name);
   }
 }
 

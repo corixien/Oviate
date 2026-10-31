@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import { sync } from '$lib/sync.svelte';
   import { history } from '$lib/history.ts';
   import { comboOf, combosOf, hasCombo, isBuiltin } from '$lib/keybinds.ts';
   import { buildCommands } from '$lib/commands.svelte';
@@ -60,8 +61,7 @@
   }
 
   onMount(() => {
-    app.load();
-    library.load().then(() => startBuilderBackground());
+    app.load().then(() => library.load()).then(() => { startBuilderBackground(); void sync.init(); });
     paper.load();
     // scripts added from outside (the oviate CLI) show up when the window gets focus again
     const refresh = () => library.load();

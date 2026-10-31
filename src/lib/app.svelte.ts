@@ -193,30 +193,12 @@ class App {
       if (raw) {
         const s = JSON.parse(raw);
         this.layout = s.layout ?? this.layout;
-        if (Array.isArray(s.charts) && s.charts.length === 4) this.charts = s.charts;
         this.active = Math.min(s.active ?? 0, 3);
-        this.theme = s.theme ?? 'dark';
-        this.lang = s.lang ?? 'en';
-        this.anim = s.anim ?? true;
-        this.showNews = s.showNews ?? true;
-        this.showParams = s.showParams ?? false;
-        this.palette = s.palette ?? 'neon';
-        this.grid = s.grid ?? true;
-        this.magnet = s.magnet ?? false;
-        this.sync = s.sync ?? true;
-        if (Array.isArray(s.watchlists) && s.watchlists.length) this.watchlists = s.watchlists;
-        else if (Array.isArray(s.watchlist)) this.watchlists = [{ id: 'default', name: 'Main', symbols: s.watchlist }];
-        this.activeList = s.activeList ?? this.watchlists[0].id;
-        if (s.custom) this.custom = { ...DEFAULT_CUSTOM, ...s.custom };
         if (s.split) this.split = { ...this.split, ...s.split };
         this.showWatchlist = s.showWatchlist ?? true;
         this.uiZoom = s.uiZoom ?? 1;
-        if (typeof s.tz === 'string' && s.tz) this.tz = s.tz;
-        if (s.keybinds) this.keybinds = s.keybinds;
-        if (s.cmdAlias) this.cmdAlias = s.cmdAlias;
-        if (s.eqView) this.eqView = { ...this.eqView, ...s.eqView };
-        if (s.tester) this.tester = { ...this.tester, initialCapital: s.tester.initialCapital ?? this.tester.initialCapital, commissionValue: s.tester.commissionValue ?? this.tester.commissionValue, slippagePct: s.tester.slippagePct ?? this.tester.slippagePct, fillOnClose: s.tester.fillOnClose ?? this.tester.fillOnClose }; // slippagePct is new: older saves (tick based) get the 0.1 default
-        if (s.scope) this.scope = { tester: cleanScope(s.scope.tester, TIMEFRAMES), optimizer: cleanScope(s.scope.optimizer, TIMEFRAMES) };
+        this.sync = s.sync ?? true;
+        this.adoptShared(s);
         if (this.uiZoom !== 1) this.applyZoom();
       }
     } catch { /* corrupt state: keep defaults */ }
@@ -225,15 +207,54 @@ class App {
     setTimeout(() => { void prefetchStart(UNIVERSE).catch(() => {}); }, 20000);
   }
 
+
+  /** Settings every device shares through the account (layout, split sizes, zoom and panel sizes stay per device). */
+  sharedState() {
+    return {
+      charts: $state.snapshot(this.charts), theme: this.theme, lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams,
+      grid: this.grid, magnet: this.magnet, watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom),
+      eqView: $state.snapshot(this.eqView), tester: $state.snapshot(this.tester), scope: $state.snapshot(this.scope), tz: this.tz,
+      keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias),
+    };
+  }
+
+  /** Take over the shared part of a saved state (this device's workspace file or the account's settings). */
+  adoptShared(s: any) {
+    if (Array.isArray(s.charts) && s.charts.length === 4) this.charts = s.charts;
+    this.theme = s.theme ?? 'dark';
+    this.lang = s.lang ?? 'en';
+    this.anim = s.anim ?? true;
+    this.showNews = s.showNews ?? true;
+    this.showParams = s.showParams ?? false;
+    this.palette = s.palette ?? 'neon';
+    this.grid = s.grid ?? true;
+    this.magnet = s.magnet ?? false;
+    if (Array.isArray(s.watchlists) && s.watchlists.length) this.watchlists = s.watchlists;
+    else if (Array.isArray(s.watchlist)) this.watchlists = [{ id: 'default', name: 'Main', symbols: s.watchlist }];
+    this.activeList = this.watchlists.some((w) => w.id === s.activeList) ? s.activeList : this.watchlists[0].id;
+    if (s.custom) this.custom = { ...DEFAULT_CUSTOM, ...s.custom };
+    if (typeof s.tz === 'string' && s.tz) this.tz = s.tz;
+    if (s.keybinds) this.keybinds = s.keybinds;
+    if (s.cmdAlias) this.cmdAlias = s.cmdAlias;
+    if (s.eqView) this.eqView = { ...this.eqView, ...s.eqView };
+    if (s.tester) this.tester = { ...this.tester, initialCapital: s.tester.initialCapital ?? this.tester.initialCapital, commissionValue: s.tester.commissionValue ?? this.tester.commissionValue, slippagePct: s.tester.slippagePct ?? this.tester.slippagePct, fillOnClose: s.tester.fillOnClose ?? this.tester.fillOnClose }; // slippagePct is new: older saves (tick based) get the 0.1 default
+    if (s.scope) this.scope = { tester: cleanScope(s.scope.tester, TIMEFRAMES), optimizer: cleanScope(s.scope.optimizer, TIMEFRAMES) };
+  }
+
+  /** Set by the account sync: called after a change made on this device was saved (not after adopting synced settings). */
+  onPersist: (() => void) | null = null;
+  private dirty = false;
+
   private timer: ReturnType<typeof setTimeout> | undefined;
-  persist() {
+  /** `quiet`: the change came from the account sync and must not be sent back. */
+  persist(quiet = false) {
     clearTimeout(this.timer);
+    if (!quiet) this.dirty = true;
     this.timer = setTimeout(() => {
       kvSet('workspace', JSON.stringify({
-        layout: this.layout, charts: $state.snapshot(this.charts), active: this.active, theme: this.theme,
-        lang: this.lang, anim: this.anim, palette: this.palette, showNews: this.showNews, showParams: this.showParams, grid: this.grid, magnet: this.magnet, sync: this.sync,
-        watchlists: $state.snapshot(this.watchlists), activeList: this.activeList, custom: $state.snapshot(this.custom), split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, eqView: $state.snapshot(this.eqView), uiZoom: this.uiZoom, tester: $state.snapshot(this.tester), scope: $state.snapshot(this.scope), tz: this.tz, keybinds: $state.snapshot(this.keybinds), cmdAlias: $state.snapshot(this.cmdAlias)
+        ...this.sharedState(), layout: this.layout, active: this.active, sync: this.sync, split: $state.snapshot(this.split), showWatchlist: this.showWatchlist, uiZoom: this.uiZoom,
       }));
+      if (this.dirty) { this.dirty = false; this.onPersist?.(); }
     }, 400);
   }
 }
