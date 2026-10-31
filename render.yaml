@@ -1,0 +1,22 @@
+# Render blueprint: New > Blueprint > pick this repository. Only DATABASE_URL has to be filled in (Neon connection string).
+services:
+  - type: web
+    name: oviate-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/index.ts
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22.21.0
+      - key: DATABASE_URL
+        sync: false # Neon: pooled connection string, ends with ?sslmode=require
+      - key: ALLOW_SIGNUP
+        value: "true" # set to "false" once your accounts exist
+      - key: ALPACA_KEY_ID
+        sync: false # optional: stock / crypto candles from Alpaca instead of only Yahoo
+      - key: ALPACA_SECRET
+        sync: false
