@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS candles (
 CREATE TABLE IF NOT EXISTS candle_cov (
   symbol TEXT NOT NULL, tf TEXT NOT NULL, from_t BIGINT NOT NULL, to_t BIGINT NOT NULL, PRIMARY KEY (symbol, tf)
 );
+CREATE TABLE IF NOT EXISTS secrets (
+  user_id TEXT NOT NULL, name TEXT NOT NULL, sealed TEXT NOT NULL, updated_at BIGINT NOT NULL, PRIMARY KEY (user_id, name)
+);
 CREATE TABLE IF NOT EXISTS shared_cache (
   key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL
 );

@@ -1,7 +1,7 @@
-# Render blueprint: New > Blueprint > pick this repository. Only DATABASE_URL has to be filled in (Neon connection string).
+# Render blueprint: New > Blueprint > pick this repository. Only DATABASE_URL has to be filled in (Neon connection string); SECRETS_KEY is generated.
 services:
   - type: web
-    name: oviate-server
+    name: oviate
     runtime: node
     plan: free
     rootDir: server
@@ -14,6 +14,8 @@ services:
         value: 22.21.0
       - key: DATABASE_URL
         sync: false # Neon: pooled connection string, ends with ?sslmode=require
+      - key: SECRETS_KEY
+        generateValue: true # seals the API keys stored for the users; never change it later (the stored keys could not be read any more)
       - key: ALLOW_SIGNUP
         value: "true" # set to "false" once your accounts exist
       - key: ALPACA_KEY_ID

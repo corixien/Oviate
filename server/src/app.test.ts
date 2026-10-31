@@ -6,6 +6,7 @@ import { SCHEMA, type Db } from './db.ts';
 import { createApp } from './app.ts';
 import { CandleStore, parseYahoo, aggregate, emptyCols, type Provider, type Tf } from './candles.ts';
 import { hashPassword, verifyPassword } from './auth.ts';
+import { makeVault } from './vault.ts';
 
 async function boot(opts: { signup?: boolean } = {}) {
   const mem = newDb();
@@ -21,7 +22,7 @@ async function boot(opts: { signup?: boolean } = {}) {
     return c;
   };
   const candles = new CandleStore(db, provider);
-  const server = createServer(createApp({ db, candles, allowSignup: opts.signup ?? true, fetch: (async () => new Response(JSON.stringify({ quotes: [{ symbol: 'AAPL', longname: 'Apple', exchDisp: 'NASDAQ', quoteType: 'EQUITY' }] }))) as typeof fetch }));
+  const server = createServer(createApp({ db, candles, allowSignup: opts.signup ?? true, vault: makeVault('test-secret-0123456789'), fetch: (async () => new Response(JSON.stringify({ quotes: [{ symbol: 'AAPL', longname: 'Apple', exchDisp: 'NASDAQ', quoteType: 'EQUITY' }] }))) as typeof fetch }));
   await new Promise<void>((r) => server.listen(0, r));
   const base = `http://127.0.0.1:${(server.address() as any).port}`;
   const call = async (method: string, path: string, body?: unknown, token?: string) => {
@@ -133,4 +134,30 @@ test('yahoo parsing and 4h aggregation', () => {
   for (let i = 0; i < 8; i++) { h.t.push(i * 3600); h.o.push(1 + i); h.h.push(2 + i); h.l.push(0.5); h.c.push(1.5 + i); h.v.push(10); }
   const a = aggregate(h, 14400);
   assert.equal(a.t.length, 2); assert.equal(a.v[0], 40); assert.equal(a.o[1], 5); assert.equal(a.c[0], 4.5);
+});
+
+test('API keys: sealed in the database, per user, whitelisted names', async () => {
+  const s = await boot();
+  const a = (await s.call('POST', '/api/auth/register', { email: 'a@b.de', password: 'password1' })).body.token;
+  const b = (await s.call('POST', '/api/auth/register', { email: 'c@d.de', password: 'password1' })).body.token;
+  assert.equal((await s.call('PUT', '/api/secrets/groq_key', { value: ' gsk_123 ' }, a)).status, 200);
+  assert.equal((await s.call('PUT', '/api/secrets/evil_key', { value: 'x' }, a)).status, 400);
+  assert.equal((await s.call('PUT', '/api/secrets/groq_key', { value: '' }, a)).status, 400);
+  const got = (await s.call('GET', '/api/secrets', undefined, a)).body;
+  assert.equal(got.groq_key.value, 'gsk_123');
+  assert.deepEqual((await s.call('GET', '/api/secrets', undefined, b)).body, {});
+  await s.call('DELETE', '/api/secrets/groq_key', undefined, a);
+  assert.deepEqual((await s.call('GET', '/api/secrets', undefined, a)).body, {});
+  s.close();
+});
+
+test('vault: ciphertext differs, is bound to user and name, and wrong keys do not open it', () => {
+  const v = makeVault('one-secret-0123456789'), w = makeVault('other-secret-0123456789');
+  const sealed = v.seal('u1', 'groq_key', 'gsk_abc');
+  assert.ok(!sealed.includes('gsk_abc'));
+  assert.notEqual(sealed, v.seal('u1', 'groq_key', 'gsk_abc'));
+  assert.equal(v.open('u1', 'groq_key', sealed), 'gsk_abc');
+  assert.equal(v.open('u2', 'groq_key', sealed), null);
+  assert.equal(v.open('u1', 'fmp_key', sealed), null);
+  assert.equal(w.open('u1', 'groq_key', sealed), null);
 });

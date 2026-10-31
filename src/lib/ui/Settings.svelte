@@ -20,10 +20,10 @@
   let fmpKey = $state(''), fhKey = $state(''), naKey = $state(''), gqKey = $state(''), orKey = $state(''), liquidBusy = $state(false), newsMsg = $state('');
   const refreshNews = () => newsStatus().then((v) => (ns = v));
 
-  $effect(() => { if (app.settingsOpen) { alpacaKeysSet().then((v) => (has = v)); refreshNews(); } });
+  $effect(() => { void sync.keysVersion; if (app.settingsOpen) { alpacaKeysSet().then((v) => (has = v)); refreshNews(); } });
 
   async function saveKey(p: 'finnhub' | 'newsapi' | 'groq' | 'openrouter' | 'fmp', v: string) {
-    try { await saveNewsKey(p, v); if (p === 'fmp') fmpKey = ''; else if (p === 'finnhub') fhKey = ''; else if (p === 'newsapi') naKey = ''; else if (p === 'groq') gqKey = ''; else orKey = ''; newsMsg = ''; await refreshNews(); app.notify(v.trim() ? 'Key saved' : 'Key removed'); }
+    try { await saveNewsKey(p, v); if (p === 'fmp') fmpKey = ''; else if (p === 'finnhub') fhKey = ''; else if (p === 'newsapi') naKey = ''; else if (p === 'groq') gqKey = ''; else orKey = ''; newsMsg = ''; await refreshNews(); sync.secretsChanged(); app.notify(v.trim() ? 'Key saved' : 'Key removed'); }
     catch (e) { newsMsg = String(e); }
   }
   async function connectLiquid() {
@@ -36,10 +36,10 @@
 
   async function save() {
     if (!keyId.trim() || !secret.trim()) return;
-    try { await saveAlpacaKeys(keyId, secret); keyId = ''; secret = ''; has = true; msg = ''; app.notify('Alpaca keys saved'); }
+    try { await saveAlpacaKeys(keyId, secret); keyId = ''; secret = ''; has = true; msg = ''; sync.secretsChanged(); app.notify('Alpaca keys saved'); }
     catch (e) { msg = String(e); }
   }
-  async function clear() { await clearAlpacaKeys(); has = false; app.notify('Alpaca keys removed'); }
+  async function clear() { await clearAlpacaKeys(); has = false; sync.secretsChanged(); app.notify('Alpaca keys removed'); }
   const close = () => (app.settingsOpen = false);
 </script>
 
@@ -66,7 +66,7 @@
       <section>
         <h3>Account and sync</h3>
         {#if sync.signedIn}
-          <p class="status ok">Signed in as {sync.user?.name} ({sync.user?.email}). Charts, drawings, watchlists, settings and scripts follow you to every device; candles come from the shared server.</p>
+          <p class="status ok">Signed in as {sync.user?.name} ({sync.user?.email}). Charts, drawings, watchlists, settings, scripts and your API keys (stored encrypted on the server) follow you to every device; candles come from the shared server.</p>
           <p class="status">{sync.status === 'syncing' ? 'Syncing…' : sync.status === 'error' ? 'Sync problem: ' + sync.message : 'Last sync ' + ago(sync.lastSync)} · {sync.server}</p>
           <div class="btns">
             <button class="primary" onclick={() => sync.syncAll()} disabled={sync.status === 'syncing'}>Sync now</button>
@@ -79,7 +79,7 @@
             </div></div>
         {:else}
           <p class="status">Optional. An account keeps your charts, drawings, watchlists, settings and scripts in sync on all your devices (PC, phone, tablet) and shares candles, news summaries and public scripts with everybody.</p>
-          <label>Server address<input bind:value={sync.server} autocomplete="off" spellcheck="false" placeholder="https://oviate-server.onrender.com" /></label>
+          <label>Server address<input bind:value={sync.server} autocomplete="off" spellcheck="false" placeholder="https://oviate.onrender.com" /></label>
           <label>E-mail<input bind:value={accEmail} type="email" autocomplete="username" /></label>
           <label>Password (8 characters or more)<input bind:value={accPass} type="password" autocomplete="current-password" /></label>
           <label>Name for public scripts (new accounts)<input bind:value={accName} autocomplete="off" placeholder="optional" /></label>

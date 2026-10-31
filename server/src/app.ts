@@ -3,8 +3,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Db } from './db.ts';
 import { AuthError, login, logout, register, userOf, type User } from './auth.ts';
 import { CandleStore, isTf, searchSymbols, type Fetch } from './candles.ts';
+import { SECRET_NAMES, type Vault } from './vault.ts';
 
-export interface Deps { db: Db; candles: CandleStore; allowSignup: boolean; fetch?: Fetch }
+export interface Deps { db: Db; candles: CandleStore; allowSignup: boolean; fetch?: Fetch; /** null: SECRETS_KEY is not set, key sync is off */ vault?: Vault | null }
 
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
 const bad = (msg: string) => new HttpError(400, msg);
@@ -113,6 +114,25 @@ export function createApp(d: Deps) {
       if (!KINDS.includes(kind)) throw bad('kind must be indicators or strategies');
       const r = await d.db.query<any>('SELECT s.kind, s.name, s.code, s.updated_at, u.name AS author FROM scripts s JOIN users u ON u.id = s.user_id WHERE s.public = TRUE AND s.kind = $1 AND s.user_id <> $2 ORDER BY s.updated_at DESC LIMIT 200', [kind, user.id]);
       return send(res, 200, r.rows.map((x) => ({ kind: x.kind, name: x.name, code: x.code, author: x.author, updatedAt: x.updated_at })));
+    }
+
+    // ---- API keys of the user (Alpaca, news providers, AI), sealed with the server's SECRETS_KEY
+    if (p === '/api/secrets' && m === 'GET') {
+      if (!d.vault) throw new HttpError(503, 'Key sync is off: the server has no SECRETS_KEY');
+      const r = await d.db.query<{ name: string; sealed: string; updated_at: number }>('SELECT name, sealed, updated_at FROM secrets WHERE user_id = $1', [user.id]);
+      const out: Record<string, { value: string; updatedAt: number }> = {};
+      for (const x of r.rows) { const v = d.vault.open(user.id, x.name, x.sealed); if (v !== null) out[x.name] = { value: v, updatedAt: x.updated_at }; }
+      return send(res, 200, out);
+    }
+    const se = /^\/api\/secrets\/([a-z_]+)$/.exec(p);
+    if (se && (m === 'PUT' || m === 'DELETE')) {
+      if (!d.vault) throw new HttpError(503, 'Key sync is off: the server has no SECRETS_KEY');
+      if (!SECRET_NAMES.includes(se[1])) throw bad('unknown key name');
+      if (m === 'DELETE') { await d.db.query('DELETE FROM secrets WHERE user_id = $1 AND name = $2', [user.id, se[1]]); return send(res, 200, { ok: true }); }
+      const b = await readJson(req);
+      if (typeof b.value !== 'string' || !b.value.trim() || b.value.length > 4000) throw bad('invalid value');
+      await d.db.query('INSERT INTO secrets (user_id, name, sealed, updated_at) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, name) DO UPDATE SET sealed = $3, updated_at = $4', [user.id, se[1], d.vault.seal(user.id, se[1], b.value.trim()), Date.now()]);
+      return send(res, 200, { ok: true });
     }
 
     // ---- cache shared by everybody: news windows, AI summaries, calendar (the same for every user)

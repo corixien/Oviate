@@ -52,3 +52,29 @@ export function freeName(name: string, taken: string[], author?: string): string
 /** Which side holds the newer settings? Timestamps are unix milliseconds. */
 export const stateDirection = (localAt: number, remoteAt: number | null): 'push' | 'pull' | 'none' =>
   remoteAt === null ? 'push' : remoteAt > localAt ? 'pull' : localAt > remoteAt ? 'push' : 'none';
+
+export interface SecretPlan { push: string[]; delRemote: string[]; setLocal: string[]; delLocal: string[]; seen: Record<string, string> }
+
+/**
+ * Three-way plan for the API keys (name -> value): a key that exists on one side only is copied, a key removed on one side is removed on the other
+ * unless it was changed there, and when both sides changed the value of this device wins.
+ * `seen` holds the hash of every key at the last sync.
+ */
+export function planSecrets(local: Record<string, string>, remote: Record<string, string>, seen: Record<string, string>): SecretPlan {
+  const plan: SecretPlan = { push: [], delRemote: [], setLocal: [], delLocal: [], seen: {} };
+  for (const name of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const l = local[name], r = remote[name], s = seen[name];
+    if (l !== undefined && r !== undefined) {
+      if (l === r) plan.seen[name] = hashCode(l);
+      else if (s === hashCode(l)) { plan.setLocal.push(name); plan.seen[name] = hashCode(r); } // changed on the other device
+      else { plan.push.push(name); plan.seen[name] = hashCode(l); }
+    } else if (l !== undefined) {
+      if (s !== undefined && s === hashCode(l)) plan.delLocal.push(name); // removed on the other device
+      else { plan.push.push(name); plan.seen[name] = hashCode(l); }
+    } else if (r !== undefined) {
+      if (s !== undefined && s === hashCode(r)) plan.delRemote.push(name); // removed here
+      else { plan.setLocal.push(name); plan.seen[name] = hashCode(r); }
+    }
+  }
+  return plan;
+}

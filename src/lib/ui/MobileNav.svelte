@@ -10,6 +10,18 @@
   const go = (p: typeof app.page) => { app.page = p; app.sheet = ''; if (p === 'trade') { paper.panelOpen = true; paper.persist(); } };
   const draw = () => { app.page = 'chart'; app.sheet = ''; app.drawOpen = !app.drawOpen; if (!app.drawOpen) app.tool = 'cursor'; };
   const more = (f: () => void) => () => { app.sheet = ''; f(); };
+
+  // swipe the sheet down to close it (it follows the finger; a short pull springs back)
+  let dragY = $state(0), dragFrom: number | null = null, dragT = 0;
+  const down = (e: PointerEvent) => { dragFrom = e.clientY; dragT = e.timeStamp; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); };
+  const move = (e: PointerEvent) => { if (dragFrom !== null) dragY = Math.max(0, e.clientY - dragFrom); };
+  const up = (e: PointerEvent) => {
+    if (dragFrom === null) return;
+    const fast = dragY / Math.max(1, e.timeStamp - dragT) > 0.5; // px per ms
+    dragFrom = null;
+    if (dragY > 90 || (fast && dragY > 25)) app.sheet = '';
+    dragY = 0;
+  };
 </script>
 
 <nav>
@@ -22,7 +34,7 @@
 
 {#if app.sheet}
   <div class="mscrim" onpointerdown={() => (app.sheet = '')} role="presentation">
-    <div class="sheet" onpointerdown={(e) => e.stopPropagation()} role="dialog" aria-label="Menu">
+    <div class="sheet" style:transform={dragY ? `translateY(${dragY}px)` : undefined} onpointerdown={(e) => { e.stopPropagation(); down(e); }} onpointermove={move} onpointerup={up} onpointercancel={up} role="dialog" aria-label="Menu">
       <i class="grab"></i>
       {#if app.sheet === 'tf'}
         <h4>Timeframe</h4>
@@ -50,7 +62,7 @@
   nav button { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; background: none; border: 0; color: var(--dim); font: 600 10.5px system-ui, sans-serif; letter-spacing: 0.04em; }
   nav button.on { color: var(--accent); }
   .mscrim { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; }
-  .sheet { width: 100%; max-height: 80vh; overflow: auto; padding: 8px 12px calc(14px + env(safe-area-inset-bottom)); background: var(--glass); border-top: 1px solid var(--glass-line); box-shadow: 0 -1px 0 1px rgba(168, 85, 247, 0.22); }
+  .sheet { touch-action: none; width: 100%; max-height: 80vh; overflow: auto; padding: 8px 12px calc(14px + env(safe-area-inset-bottom)); background: var(--glass); border-top: 1px solid var(--glass-line); box-shadow: 0 -1px 0 1px rgba(168, 85, 247, 0.22); }
   .grab { display: block; width: 38px; height: 4px; background: var(--line); margin: 2px auto 10px; }
   h4 { margin: 0 4px 10px; font: 700 11px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

@@ -311,7 +311,8 @@
   .l3 :global(.pane:first-child) { grid-row: 1 / span 2; }
   /* ---- phone layout ---- */
   .app.mobile { height: 100dvh; }
-  .app.mobile .grid { padding: 0; }
+  /* the chart frame lines up with the left edge of the search button above it */
+  .app.mobile .grid { padding: 8px calc(8px + env(safe-area-inset-right)) 8px calc(8px + env(safe-area-inset-left)); }
   .app.mobile .chartarea { flex-direction: column; }
   .drawstrip { flex: none; background: var(--bar); }
   .mpage { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
@@ -323,7 +324,7 @@
   /* dialogs fill the screen on a phone; touch targets get bigger; inputs stay 16px so the browser does not zoom in */
   @media (max-width: 719px), (max-height: 479px) {
     :global(.scrim > .card) { width: 100vw !important; max-width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; border-radius: 0 !important; box-sizing: border-box; padding-top: calc(16px + env(safe-area-inset-top)) !important; padding-bottom: calc(18px + env(safe-area-inset-bottom)) !important; overflow: auto !important; }
-    :global(.scrim) { padding: 0 !important; align-items: stretch !important; }
+    :global(.scrim:has(> .card)) { padding: 0 !important; align-items: stretch !important; }
     :global(input), :global(textarea) { font-size: 16px !important; }
     :global(.card button), :global(.sheet button) { min-height: 40px; }
   }

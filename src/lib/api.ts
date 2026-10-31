@@ -102,6 +102,9 @@ export interface Unusual { symbol: string; multiple: number; volume: string }
 export const newsStatus = () => (inTauri ? call<NewsStatus>('news_status') : Promise.resolve({ fmp: false, finnhub: false, newsapi: false, alpaca: false, liquid: false, groq: false, openrouter: false }));
 /** Empty value clears the key. */
 export const saveNewsKey = (provider: 'finnhub' | 'newsapi' | 'groq' | 'openrouter' | 'fmp', value: string) => (inTauri ? call<void>('save_news_key', { provider, value }) : Promise.resolve());
+/** API keys the account sync keeps for all devices (desktop: keyring, Android: private database). */
+export const secretsExport = () => (inTauri ? call<Record<string, string>>('secrets_export') : Promise.resolve({} as Record<string, string>));
+export const secretsApply = (set: Record<string, string>, remove: string[]) => (inTauri ? call<void>('secrets_apply', { set, remove }) : Promise.resolve());
 export const liquidLogin = () => (inTauri ? call<void>('liquid_login') : Promise.reject('Liquid login needs the desktop app'));
 export const liquidLogout = () => (inTauri ? call<void>('liquid_logout') : Promise.resolve());
 /** News in [from, to] (unix seconds); symbol null = market-wide. Cached locally by the backend. */

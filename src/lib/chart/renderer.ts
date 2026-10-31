@@ -1353,16 +1353,18 @@ export class ChartRenderer {
     const pos = (e: MouseEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     const region = (x: number, y: number) => (x > this.plotW ? 'paxis' : y > this.h - TIME_H ? 'taxis' : 'plot');
 
-    // touch: two fingers pinch-zoom (time and price together, like Ctrl+wheel); one finger pans, a tap shows the crosshair
+    // touch: two fingers pinch-zoom (time and price together, like Ctrl+wheel), three fingers zoom towards the newest candles (like Ctrl+Shift+wheel); one finger pans, a tap shows the crosshair
     const touches = new Map<number, { x: number; y: number }>();
     let pinch: { d: number } | null = null;
-    const spread = () => { const [a, b] = [...touches.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; };
+    const spread = () => {
+      const p = [...touches.values()], cx = p.reduce((s, q) => s + q.x, 0) / p.length, cy = p.reduce((s, q) => s + q.y, 0) / p.length;
+      return { d: (p.reduce((s, q) => s + Math.hypot(q.x - cx, q.y - cy), 0) / p.length) * 2 || 1, cx, cy }; // twice the mean distance from the centre = the finger distance for two fingers
+    };
     on('pointerdown', (e) => {
       const { x, y } = pos(e);
       if (e.pointerType === 'touch') {
         touches.set(e.pointerId, { x, y });
-        if (touches.size === 2) { this.drag = null; this.draft = null; chartSync.leader = this; pinch = { d: spread().d }; return; }
-        if (touches.size > 2) return;
+        if (touches.size >= 2) { this.drag = null; this.draft = null; chartSync.leader = this; pinch = { d: spread().d }; return; }
       }
       if (e.button === 1) {
         // Middle click deletes the drawing under the cursor.
@@ -1427,7 +1429,7 @@ export class ChartRenderer {
           const sp = spread();
           const w = Math.log(sp.d / pinch.d) / 0.003; // the wheel zoom takes this amount: positive = zoom in
           pinch.d = sp.d;
-          if (Math.abs(w) > 0.01) this.wheelZoom(w, Math.min(sp.cx, this.plotW), sp.cy);
+          if (Math.abs(w) > 0.01) this.wheelZoom(w, Math.min(sp.cx, this.plotW), sp.cy, touches.size >= 3);
           return;
         }
       }
@@ -1475,7 +1477,7 @@ export class ChartRenderer {
       this.invalidate();
     });
     const lift = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') { touches.delete(e.pointerId); if (pinch) { if (touches.size < 2) pinch = null; this.drag = null; return; } }
+      if (e.pointerType === 'touch') { touches.delete(e.pointerId); if (pinch) { pinch = touches.size < 2 ? null : { d: spread().d }; this.drag = null; return; } }
       this.applyPan();
       const d = this.drag; this.drag = null;
       if (d?.kind === 'brush') { if (this.draft && this.draft.pts.length > 1) this.finishDraft(); else this.draft = null; this.invalidate(); return; }

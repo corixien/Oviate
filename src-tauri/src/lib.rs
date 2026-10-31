@@ -28,14 +28,46 @@ struct AppState {
 
 type State<'a> = tauri::State<'a, Arc<AppState>>;
 
+/// API keys and tokens live in the OS keyring. Android has none: there they are kept in the app's private database instead.
+#[cfg(not(target_os = "android"))]
 fn keyring_entry(name: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, name).map_err(|e| Error::Keyring(e.to_string()))
 }
 
+#[cfg(target_os = "android")]
+static SECRET_DB: std::sync::OnceLock<Arc<Cache>> = std::sync::OnceLock::new();
+
+#[cfg(not(target_os = "android"))]
+pub(crate) fn secret_get(name: &str) -> Option<String> {
+    keyring_entry(name).ok()?.get_password().ok().filter(|v| !v.is_empty())
+}
+#[cfg(target_os = "android")]
+pub(crate) fn secret_get(name: &str) -> Option<String> {
+    SECRET_DB.get()?.kv_get(&format!("secret:{name}")).ok().flatten().filter(|v| !v.is_empty())
+}
+
+#[cfg(not(target_os = "android"))]
+fn secret_set(name: &str, value: &str) -> Result<()> {
+    keyring_entry(name)?.set_password(value).map_err(|e| Error::Keyring(e.to_string()))
+}
+#[cfg(target_os = "android")]
+fn secret_set(name: &str, value: &str) -> Result<()> {
+    SECRET_DB.get().ok_or_else(|| Error::Other("secret store not ready".into()))?.kv_set(&format!("secret:{name}"), value)
+}
+
+#[cfg(not(target_os = "android"))]
+fn secret_del(name: &str) {
+    if let Ok(e) = keyring_entry(name) { let _ = e.delete_credential(); }
+}
+#[cfg(target_os = "android")]
+fn secret_del(name: &str) {
+    if let Some(c) = SECRET_DB.get() { let _ = c.kv_set(&format!("secret:{name}"), ""); }
+}
+
 pub(crate) fn load_keys() -> Option<alpaca::Keys> {
-    let id = keyring_entry("alpaca_key_id").ok()?.get_password().ok()?;
-    let secret = keyring_entry("alpaca_secret").ok()?.get_password().ok()?;
-    (!id.is_empty() && !secret.is_empty()).then_some(alpaca::Keys { id, secret })
+    let id = secret_get("alpaca_key_id")?;
+    let secret = secret_get("alpaca_secret")?;
+    Some(alpaca::Keys { id, secret })
 }
 
 async fn fetch(st: &AppState, symbol: &str, tf: Timeframe, from: i64, to: i64) -> Result<Candles> {
@@ -158,15 +190,15 @@ async fn search_symbols(st: State<'_>, query: String) -> Result<Vec<SymbolHit>> 
 
 #[tauri::command]
 fn save_alpaca_keys(key_id: String, secret: String) -> Result<()> {
-    keyring_entry("alpaca_key_id")?.set_password(key_id.trim()).map_err(|e| Error::Keyring(e.to_string()))?;
-    keyring_entry("alpaca_secret")?.set_password(secret.trim()).map_err(|e| Error::Keyring(e.to_string()))?;
+    secret_set("alpaca_key_id", key_id.trim())?;
+    secret_set("alpaca_secret", secret.trim())?;
     Ok(())
 }
 
 #[tauri::command]
 fn clear_alpaca_keys() -> Result<()> {
     for n in ["alpaca_key_id", "alpaca_secret"] {
-        let _ = keyring_entry(n)?.delete_credential();
+        secret_del(n);
     }
     Ok(())
 }
@@ -181,10 +213,6 @@ fn stream_symbols(st: State<'_>, symbols: Vec<String>) {
     st.streams.set(symbols);
 }
 
-fn secret_get(name: &str) -> Option<String> {
-    keyring_entry(name).ok()?.get_password().ok().filter(|v| !v.is_empty())
-}
-
 fn news_keys() -> news::NewsKeys {
     news::NewsKeys { finnhub: secret_get("finnhub_key"), newsapi: secret_get("newsapi_key"), alpaca: load_keys() }
 }
@@ -194,7 +222,7 @@ fn liquid_tokens() -> Option<mcp::Tokens> {
 }
 
 fn save_liquid_tokens(t: &mcp::Tokens) -> Result<()> {
-    keyring_entry("liquid_tokens")?.set_password(&serde_json::to_string(t).map_err(|e| Error::Other(e.to_string()))?).map_err(|e| Error::Keyring(e.to_string()))
+    secret_set("liquid_tokens", &serde_json::to_string(t).map_err(|e| Error::Other(e.to_string()))?)
 }
 
 #[derive(serde::Serialize)]
@@ -210,8 +238,28 @@ fn news_status() -> NewsStatus {
 #[tauri::command]
 fn save_news_key(provider: String, value: String) -> Result<()> {
     let name = match provider.as_str() { "finnhub" => "finnhub_key", "newsapi" => "newsapi_key", "groq" => "groq_key", "openrouter" => "openrouter_key", "fmp" => "fmp_key", p => return Err(Error::Other(format!("unknown provider {p}"))) };
-    let e = keyring_entry(name)?;
-    if value.trim().is_empty() { let _ = e.delete_credential(); Ok(()) } else { e.set_password(value.trim()).map_err(|e| Error::Keyring(e.to_string())) }
+    if value.trim().is_empty() { secret_del(name); Ok(()) } else { secret_set(name, value.trim()) }
+}
+
+/// The keys a user account keeps for all devices (the liquid login stays on its device).
+const SYNCED_SECRETS: [&str; 7] = ["alpaca_key_id", "alpaca_secret", "finnhub_key", "newsapi_key", "groq_key", "openrouter_key", "fmp_key"];
+
+/// Every stored key that the account sync handles, for the sync with the server.
+#[tauri::command]
+fn secrets_export() -> std::collections::BTreeMap<String, String> {
+    SYNCED_SECRETS.iter().filter_map(|n| secret_get(n).map(|v| (n.to_string(), v))).collect()
+}
+
+/// Store keys that came from the account (and remove keys that were removed on another device).
+#[tauri::command]
+fn secrets_apply(set: std::collections::BTreeMap<String, String>, remove: Vec<String>) -> Result<()> {
+    for (n, v) in set {
+        if SYNCED_SECRETS.contains(&n.as_str()) && !v.trim().is_empty() { secret_set(&n, v.trim())?; }
+    }
+    for n in remove {
+        if SYNCED_SECRETS.contains(&n.as_str()) { secret_del(&n); }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -223,7 +271,7 @@ async fn liquid_login(app: tauri::AppHandle, st: State<'_>) -> Result<()> {
 
 #[tauri::command]
 fn liquid_logout() {
-    if let Ok(e) = keyring_entry("liquid_tokens") { let _ = e.delete_credential(); }
+    secret_del("liquid_tokens");
 }
 
 async fn liquid_brief(st: &AppState) -> Result<(Vec<news::NewsItem>, Vec<mcp::Unusual>)> {
@@ -416,6 +464,9 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let cache = Cache::open(&dir.join("oviate.db"))?;
+            let cache = Arc::new(cache);
+            #[cfg(target_os = "android")]
+            let _ = SECRET_DB.set(cache.clone());
             let builder = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .connect_timeout(std::time::Duration::from_secs(10))
@@ -426,13 +477,15 @@ pub fn run() {
             let http = builder
                 .build()?;
             let streams = stream::Streams::start(app.handle().clone());
-            app.manage(Arc::new(AppState { cache: Arc::new(cache), http, streams, fetch_locks: Default::default(), prefetch: Default::default() }));
+            app.manage(Arc::new(AppState { cache, http, streams, fetch_locks: Default::default(), prefetch: Default::default() }));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_candles,
             prefetch_start,
             prefetch_status,
+            secrets_export,
+            secrets_apply,
             search_symbols,
             save_alpaca_keys,
             clear_alpaca_keys,

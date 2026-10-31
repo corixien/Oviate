@@ -68,7 +68,7 @@
     <div class="panel" class:out={closing} onpointerdown={(e) => e.stopPropagation()} role="dialog" aria-label="Command bar">
       <div class="field">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input data-nohist bind:this={input} bind:value={q} onkeydown={key} placeholder={t('search', app.lang)} spellcheck="false" autocomplete="off" />
+        <input data-nohist bind:this={input} bind:value={q} onkeydown={key} placeholder={app.mobile ? 'Symbol or /command' : t('search', app.lang)} spellcheck="false" autocomplete="off" />
         <kbd>esc</kbd>
       </div>
       {#if items.length}
@@ -114,4 +114,11 @@
   .sp-item kbd { margin-left: auto; }
   .empty, .hint { padding: 18px 22px; color: var(--dim); font-size: 13px; display: flex; gap: 22px; flex-wrap: wrap; }
   .hint kbd { margin-right: 4px; }
+  /* phone: below the status bar, centred, and inside the part of the screen the keyboard leaves free */
+  @media (max-width: 719px), (max-height: 479px) {
+    .scrim { padding: calc(env(safe-area-inset-top) + 14dvh) 12px 8px; box-sizing: border-box; }
+    .panel { width: 100%; max-height: calc(100dvh - 14dvh - env(safe-area-inset-top) - 16px); }
+    .field { padding: 14px 16px; }
+    .sp-item { padding: 12px; }
+  }
 </style>

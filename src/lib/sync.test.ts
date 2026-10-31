@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planScripts, hashCode, freeName, stateDirection, type LocalScript, type RemoteScript } from './sync.ts';
+import { planSecrets, planScripts, hashCode, freeName, stateDirection, type LocalScript, type RemoteScript } from './sync.ts';
 
 const L = (name: string, code: string, modified = 100, pub = false): LocalScript => ({ name, code, modified, public: pub });
 const R = (name: string, code: string, updatedAt = 100000, pub = false): RemoteScript => ({ name, code, public: pub, updatedAt });
@@ -46,4 +46,17 @@ test('free names, newest side', () => {
   assert.equal(freeName('RSI', ['RSI'], 'Ann'), 'RSI (Ann)');
   assert.equal(freeName('RSI', ['RSI', 'RSI (Ann)'], 'Ann'), 'RSI (Ann) 2');
   assert.equal(stateDirection(5, null), 'push'); assert.equal(stateDirection(5, 9), 'pull'); assert.equal(stateDirection(9, 5), 'push'); assert.equal(stateDirection(5, 5), 'none');
+});
+
+test('API keys: copied both ways, removals follow, own value wins a conflict', () => {
+  const h = hashCode;
+  assert.deepEqual(planSecrets({ a: '1' }, {}, {}).push, ['a'], 'new key goes to the account');
+  assert.deepEqual(planSecrets({}, { a: '1' }, {}).setLocal, ['a'], 'new key comes to this device');
+  assert.deepEqual(planSecrets({ a: '1' }, { a: '1' }, {}).seen, { a: h('1') });
+  assert.deepEqual(planSecrets({ a: '1' }, { a: '2' }, { a: h('1') }).setLocal, ['a'], 'changed elsewhere');
+  assert.deepEqual(planSecrets({ a: '2' }, { a: '1' }, { a: h('1') }).push, ['a'], 'changed here');
+  assert.deepEqual(planSecrets({ a: '2' }, { a: '3' }, { a: h('1') }).push, ['a'], 'both changed: this device wins');
+  assert.deepEqual(planSecrets({}, { a: '1' }, { a: h('1') }).delRemote, ['a'], 'removed here');
+  assert.deepEqual(planSecrets({ a: '1' }, {}, { a: h('1') }).delLocal, ['a'], 'removed elsewhere');
+  assert.deepEqual(planSecrets({ a: '2' }, {}, { a: h('1') }).push, ['a'], 'edited here after the remote removal: keep it');
 });

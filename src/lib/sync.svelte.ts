@@ -1,13 +1,13 @@
 import { app } from './app.svelte';
 import { library, type ScriptKind } from './library.svelte';
-import { kvGet, kvSet, remote, type Raw, type Tf } from './api';
-import { freeName, hashCode, planScripts, stateDirection, type Seen } from './sync.ts';
+import { kvGet, kvSet, remote, secretsApply, secretsExport, type Raw, type Tf } from './api';
+import { freeName, hashCode, planScripts, planSecrets, stateDirection, type Seen } from './sync.ts';
 
 export interface SyncUser { id: string; email: string; name: string }
 export interface Community { kind: ScriptKind; name: string; code: string; author: string; updatedAt: number }
 interface Auth { server: string; token: string; user: SyncUser; candles: boolean }
 /** Local bookkeeping of the sync (never sent): when the settings last changed here, and what every script looked like at its last sync. */
-interface Meta { localAt: number; seen: Record<string, Seen>; public: Record<string, boolean> }
+interface Meta { localAt: number; seen: Record<string, Seen>; public: Record<string, boolean>; secrets: Record<string, string> }
 
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
 const KINDS: ScriptKind[] = ['indicators', 'strategies'];
@@ -28,7 +28,7 @@ class Sync {
   community = $state<Record<ScriptKind, Community[]>>({ indicators: [], strategies: [] });
 
   private token = '';
-  private meta: Meta = { localAt: 0, seen: {}, public: {} };
+  private meta: Meta = { localAt: 0, seen: {}, public: {}, secrets: {} };
   private downUntil = 0;
   private stateTimer: ReturnType<typeof setTimeout> | undefined;
   private scriptTimer: ReturnType<typeof setTimeout> | undefined;
@@ -40,7 +40,7 @@ class Sync {
     try {
       const a: Auth | null = JSON.parse((await kvGet('sync_auth')) ?? 'null');
       const m = JSON.parse((await kvGet('sync_meta')) ?? 'null');
-      if (m) { this.meta = { localAt: m.localAt ?? 0, seen: m.seen ?? {}, public: m.public ?? {} }; this.pub = { ...this.meta.public }; }
+      if (m) { this.meta = { localAt: m.localAt ?? 0, seen: m.seen ?? {}, public: m.public ?? {}, secrets: m.secrets ?? {} }; this.pub = { ...this.meta.public }; }
       if (a?.token) { this.server = a.server; this.token = a.token; this.user = a.user; this.useCandles = a.candles !== false; this.status = 'idle'; }
     } catch { /* no saved account */ }
     this.wire();
@@ -98,7 +98,7 @@ class Sync {
     try {
       const r = await this.http<{ token: string; user: SyncUser }>('POST', `/api/auth/${mode}`, { email, password, name });
       this.token = r.token; this.user = r.user; this.downUntil = 0;
-      this.meta = { localAt: 0, seen: {}, public: {} };
+      this.meta = { localAt: 0, seen: {}, public: {}, secrets: {} };
       await this.saveAuth(); await this.saveMeta();
       await this.syncAll();
     } catch (e) { this.status = 'out'; this.message = (e as Error).message; throw e; }
@@ -176,6 +176,32 @@ class Sync {
     await this.saveMeta();
   }
 
+  // ---------- API keys ----------
+  private secretTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A key was saved or removed on this device: send it to the account shortly. */
+  secretsChanged() {
+    if (!this.signedIn) return;
+    clearTimeout(this.secretTimer);
+    this.secretTimer = setTimeout(() => void this.syncSecrets().catch(() => {}), 800);
+  }
+
+  async syncSecrets() {
+    let remoteAll: Record<string, { value: string; updatedAt: number }>;
+    try { remoteAll = await this.http('GET', '/api/secrets'); }
+    catch (e) { if (e instanceof HttpError && e.status === 503) return; throw e; } // the server has no SECRETS_KEY: keys stay on the devices
+    const rem = Object.fromEntries(Object.entries(remoteAll).map(([k, v]) => [k, v.value]));
+    const local = await secretsExport();
+    const plan = planSecrets(local, rem, this.meta.secrets);
+    for (const n of plan.push) await this.http('PUT', `/api/secrets/${n}`, { value: local[n] });
+    for (const n of plan.delRemote) await this.http('DELETE', `/api/secrets/${n}`);
+    if (plan.setLocal.length || plan.delLocal.length) await secretsApply(Object.fromEntries(plan.setLocal.map((n) => [n, rem[n]])), plan.delLocal);
+    this.meta.secrets = plan.seen;
+    await this.saveMeta();
+    if (plan.setLocal.length || plan.delLocal.length) this.keysVersion++;
+  }
+  /** counts up when keys arrived from the account (the settings read the key status again) */
+  keysVersion = $state(0);
+
   async loadCommunity() {
     if (!this.signedIn) return;
     for (const kind of KINDS) {
@@ -195,6 +221,7 @@ class Sync {
     try {
       await this.pullState();
       await this.syncScripts();
+      await this.syncSecrets().catch(() => {});
       await this.loadCommunity();
       this.lastSync = Date.now(); this.status = 'idle';
     } catch (e) { if (this.signedIn) { this.status = 'error'; this.message = (e as Error).message; } }
