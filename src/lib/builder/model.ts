@@ -412,8 +412,9 @@ export function toPine(m: Model, info: InfoFn): string {
       `if ${dir}Entry and strategy.position_size ${long ? '<=' : '>='} 0${cap ? ` and ${dir}Cnt < ${cap}` : ''}`,
       `    strategy.entry("${id}", strategy.${dir}, comment="${side} entry")`,
       ...(cap ? [`    ${dir}Cnt := ${dir}Cnt + 1`] : []),
-      `if strategy.position_size ${long ? '>' : '<'} 0`,
-      `    strategy.exit("${id} SL/TP", "${id}", stop=${dir}Sl > 0 ? strategy.position_avg_price * (1 ${long ? '-' : '+'} ${dir}Sl / 100) : na, limit=${dir}Tp > 0 ? strategy.position_avg_price * (1 ${long ? '+' : '-'} ${dir}Tp / 100) : na)`,
+      // placed on every bar (also on the signal bar) so the stop is active from the first bar of the trade; distances in ticks from the entry price
+      `${dir}Ref = strategy.position_size != 0 ? strategy.position_avg_price : close`,
+      `strategy.exit("${id} SL/TP", "${id}", loss=${dir}Sl > 0 ? ${dir}Ref * ${dir}Sl / 100 / syminfo.mintick : na, profit=${dir}Tp > 0 ? ${dir}Ref * ${dir}Tp / 100 / syminfo.mintick : na)`,
       '',
     );
   }

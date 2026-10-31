@@ -1,5 +1,6 @@
 import { inTauri } from './api';
 import { setIndicatorSource } from './pine/indlib.ts';
+import { upgradeLimitBlock } from './ai/pine.ts';
 
 export type ScriptKind = 'indicators' | 'strategies';
 export interface ScriptFile { name: string; code: string; title: string; shortTitle: string; overlay: boolean; modified: number }
@@ -62,6 +63,11 @@ class Library {
       this.strategies = Object.entries(this.store('strategies')).map(([n, c]) => toFile(n, c));
     }
     this.loaded = true;
+    // strategies made with the first stop loss / take profit block placed their exit one bar too late: rewrite them once
+    for (const f of this.strategies) {
+      const fixed = upgradeLimitBlock(f.code);
+      if (fixed !== f.code) await this.save('strategies', f.name, fixed);
+    }
   }
 
   async save(kind: ScriptKind, name: string, code: string, quiet = false): Promise<string> {

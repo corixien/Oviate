@@ -193,8 +193,8 @@ if longEntry
 if longExit
     strategy.close("Long", comment="Trend ended")
 
-if strategy.position_size > 0
-    strategy.exit("Long SL/TP", "Long", stop=slPct > 0 ? strategy.position_avg_price * (1 - slPct / 100) : na, limit=tpPct > 0 ? strategy.position_avg_price * (1 + tpPct / 100) : na)
+slRef = strategy.position_size != 0 ? strategy.position_avg_price : close
+strategy.exit("Long SL/TP", "Long", loss=slPct > 0 ? slRef * slPct / 100 / syminfo.mintick : na, profit=tpPct > 0 ? slRef * tpPct / 100 / syminfo.mintick : na)
 
 plot(fast, "Fast EMA", color=color.aqua)
 plot(slow, "Slow EMA", color=color.orange)
@@ -223,10 +223,9 @@ if midUp and strategy.position_size < 0
 if midDown and strategy.position_size > 0
     strategy.close("Long", comment="RSI back at 50")
 
-if strategy.position_size > 0
-    strategy.exit("Long SL", "Long", stop=slPct > 0 ? strategy.position_avg_price * (1 - slPct / 100) : na)
-if strategy.position_size < 0
-    strategy.exit("Short SL", "Short", stop=slPct > 0 ? strategy.position_avg_price * (1 + slPct / 100) : na)
+slRef = strategy.position_size != 0 ? strategy.position_avg_price : close
+strategy.exit("Long SL", "Long", loss=slPct > 0 ? slRef * slPct / 100 / syminfo.mintick : na)
+strategy.exit("Short SL", "Short", loss=slPct > 0 ? slRef * slPct / 100 / syminfo.mintick : na)
 
 hline(overbought, "Overbought", color=color.red, pane="RSI")
 hline(oversold, "Oversold", color=color.green, pane="RSI")
@@ -240,7 +239,7 @@ const STRATEGY_SYSTEM = `You are an expert Pine Script developer writing trading
 - strategy.entry() / strategy.close() / strategy.exit() orders are placed on the bar where the condition is true and FILL AT THE NEXT BAR'S OPEN. Never try to fill at the signal bar's close.
 - strategy.entry(id, strategy.long|strategy.short) while holding the opposite direction closes that position first and reverses. With pyramiding=0 an entry in the direction already held is ignored.
 - strategy.close(id) closes the position opened by entry id. strategy.close_all() closes everything.
-- strategy.exit(exitId, fromEntryId, stop=price, limit=price) sets a protective stop and/or a take-profit as ABSOLUTE PRICES. Call it on every bar while a position is open: wrap it in \`if strategy.position_size > 0\` (long) or \`< 0\` (short). Compute the prices from strategy.position_avg_price. Pass \`na\` for a level that is not wanted.
+- strategy.exit(exitId, fromEntryId, loss=ticks, profit=ticks) sets a protective stop and / or a take-profit as a DISTANCE IN TICKS from the entry price (stop=price / limit=price take absolute prices). Percentages: \`ref = strategy.position_size != 0 ? strategy.position_avg_price : close\`, \`loss = ref * slPct / 100 / syminfo.mintick\`, \`profit = ref * tpPct / 100 / syminfo.mintick\`. Call it on EVERY bar, not inside \`if strategy.position_size > 0\`: an exit that is placed together with the entry (on the signal bar) protects the position from its first bar, one placed only after the fill misses the first bar and can lose far more than the stop loss. Pass \`na\` for a level that is not wanted.
 - strategy.position_size is > 0 long, < 0 short, 0 flat. Orders do not take a \`when\` argument in v6: use if blocks.
 - Position size, capital, commission and slippage are handled by the app: do not size positions yourself and do not pass qty to strategy.entry.
 
@@ -394,11 +393,23 @@ const LIMIT_BLOCK = (sl: number, tp: number) => `
 // stop loss / take profit from the editor settings
 oviSl = input.float(${sl}, "Stop loss %", minval=0, step=0.1)
 oviTp = input.float(${tp}, "Take profit %", minval=0, step=0.1)
-if strategy.position_size > 0
-    strategy.exit("Long SL/TP", stop=oviSl > 0 ? strategy.position_avg_price * (1 - oviSl / 100) : na, limit=oviTp > 0 ? strategy.position_avg_price * (1 + oviTp / 100) : na)
-if strategy.position_size < 0
-    strategy.exit("Short SL/TP", stop=oviSl > 0 ? strategy.position_avg_price * (1 + oviSl / 100) : na, limit=oviTp > 0 ? strategy.position_avg_price * (1 - oviTp / 100) : na)
+// placed on every bar, also on the signal bar, so the stop is active from the first bar of the trade; distances are measured from the entry price
+oviRef = strategy.position_size != 0 ? strategy.position_avg_price : close
+strategy.exit("SL/TP", loss=oviSl > 0 ? oviRef * oviSl / 100 / syminfo.mintick : na, profit=oviTp > 0 ? oviRef * oviTp / 100 / syminfo.mintick : na)
 `;
+
+/** The first version of the block above only placed the exit once the position existed: one bar too late (a stop loss of 2% could lose 8%). Scripts that still have it get the new block. */
+const OLD_LIMIT_BLOCK = /if strategy\.position_size > 0\n {4}strategy\.exit\("Long SL\/TP", stop=oviSl > 0 \? strategy\.position_avg_price \* \(1 - oviSl \/ 100\) : na, limit=oviTp > 0 \? strategy\.position_avg_price \* \(1 \+ oviTp \/ 100\) : na\)\nif strategy\.position_size < 0\n {4}strategy\.exit\("Short SL\/TP", stop=oviSl > 0 \? strategy\.position_avg_price \* \(1 \+ oviSl \/ 100\) : na, limit=oviTp > 0 \? strategy\.position_avg_price \* \(1 - oviTp \/ 100\) : na\)\n?/;
+/** The visual builder wrote the same late exit per side (`longSl` / `longTp` inputs). */
+const OLD_BUILDER_EXIT = /if strategy\.position_size [<>] 0\n {4}strategy\.exit\("([^"]+) SL\/TP", "\1", stop=(\w+)Sl > 0 \? strategy\.position_avg_price \* \(1 [-+] \2Sl \/ 100\) : na, limit=\2Tp > 0 \? strategy\.position_avg_price \* \(1 [-+] \2Tp \/ 100\) : na\)\n/g;
+export const upgradeLimitBlock = (code: string) => code
+  .replace(OLD_LIMIT_BLOCK, `// placed on every bar, also on the signal bar, so the stop is active from the first bar of the trade; distances are measured from the entry price
+oviRef = strategy.position_size != 0 ? strategy.position_avg_price : close
+strategy.exit("SL/TP", loss=oviSl > 0 ? oviRef * oviSl / 100 / syminfo.mintick : na, profit=oviTp > 0 ? oviRef * oviTp / 100 / syminfo.mintick : na)
+`)
+  .replace(OLD_BUILDER_EXIT, (_all, id: string, dir: string) => `${dir}Ref = strategy.position_size != 0 ? strategy.position_avg_price : close
+strategy.exit("${id} SL/TP", "${id}", loss=${dir}Sl > 0 ? ${dir}Ref * ${dir}Sl / 100 / syminfo.mintick : na, profit=${dir}Tp > 0 ? ${dir}Ref * ${dir}Tp / 100 / syminfo.mintick : na)
+`);
 
 /** Does the code have a stop loss / take profit input (a float or int input titled so)? */
 export function hasLimitInput(code: string, k: 'sl' | 'tp'): boolean {
@@ -408,7 +419,7 @@ export function hasLimitInput(code: string, k: 'sl' | 'tp'): boolean {
 
 /** Change the form values without AI: position size, and stop loss / take profit (the inputs the code has, else an input and exit block is added; 0 or empty = off). */
 export function setStrategyParams(code: string, o: Pick<StrategyOpts, 'qtyType' | 'qty' | 'sl' | 'tp'>): string {
-  let out = setPositionSize(code, o.qtyType, o.qty);
+  let out = upgradeLimitBlock(setPositionSize(code, o.qtyType, o.qty));
   // no stop loss / take profit in the code yet: add inputs and an exit that uses them
   if (!hasLimitInput(out, 'sl') && !hasLimitInput(out, 'tp') && ((o.sl ?? 0) > 0 || (o.tp ?? 0) > 0)) out = out.trimEnd() + '\n' + LIMIT_BLOCK(o.sl && o.sl > 0 ? o.sl : 0, o.tp && o.tp > 0 ? o.tp : 0);
   for (const k of ['sl', 'tp'] as const) {

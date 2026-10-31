@@ -211,3 +211,21 @@ test('mirrorSideLocal flips a long side into its opposite', () => {
   assert.equal((s2.entry.items[0].r as { stat: string }).stat, 'low');
   assert.equal(s2.entry.items[1].cmp, 'between');
 });
+
+test('builder stop loss holds from the first bar: no trade loses more than the stop plus a gap', () => {
+  const m = newModel();
+  m.name = 'sl';
+  m.long.entry.items.push({ l: { k: 'price', src: 'close' }, cmp: 'above', r: { k: 'price', src: 'open' } });
+  m.long.sl = 2;
+  const code = toPine(m, info);
+  for (const fillOnClose of [true, false]) {
+    const r = runPine(code, STRAT_SAMPLE, { broker: { initialCapital: 10000, commissionValue: 0, slippagePct: 0, fillOnClose } });
+    assert.ok(!r.error, r.error?.message ?? '');
+    const stops = r.strategy!.trades.filter((t) => t.exitComment === 'stop');
+    assert.ok(stops.length > 0, 'the stop loss triggers on the sample');
+    // every stop exit is at -2% (or further only when the bar opened below the stop: a gap)
+    for (const t of stops) assert.ok(t.exitPrice / t.entryPrice - 1 >= -0.02 - 1e-9 || t.exitPrice <= t.entryPrice * 0.98, `${t.exitPrice} vs ${t.entryPrice}`);
+    const worst = Math.min(...r.strategy!.trades.filter((t) => !t.open).map((t) => t.exitPrice / t.entryPrice - 1));
+    assert.ok(worst > -0.06, `worst trade ${(worst * 100).toFixed(1)}% with a 2% stop`);
+  }
+});

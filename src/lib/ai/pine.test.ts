@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { extractCode, genIndicator, genStrategy, strategyCheck, strategyRequest, setPositionSize, sanity, pickExamples, STRATEGY_EXAMPLE_LONG, STRATEGY_EXAMPLE_BOTH, STRAT_SAMPLE } from './pine.ts';
+import { extractCode, genIndicator, genStrategy, strategyCheck, strategyRequest, setPositionSize, upgradeLimitBlock, sanity, pickExamples, STRATEGY_EXAMPLE_LONG, STRATEGY_EXAMPLE_BOTH, STRAT_SAMPLE } from './pine.ts';
 import type { StrategyOpts } from './pine.ts';
 import { runPine } from '../pine/index.ts';
 
@@ -185,7 +185,7 @@ test('strategyCheck enforces what the form asked for', () => {
   assert.match(strategyCheck(STRATEGY_EXAMPLE_LONG, { ...OPTS, direction: 'short' }).error!, /SHORT ONLY/);
   assert.match(strategyCheck(STRATEGY_EXAMPLE_LONG, { ...OPTS, direction: 'both' }).error!, /BOTH/);
   assert.match(strategyCheck(STRATEGY_EXAMPLE_BOTH, { ...OPTS, direction: 'long' }).error!, /LONG ONLY/);
-  const noExit = STRATEGY_EXAMPLE_LONG.replace(/if strategy\.position_size > 0\n {4}strategy\.exit[^\n]*\n/, '');
+  const noExit = STRATEGY_EXAMPLE_LONG.replace(/strategy\.exit\([^\n]*\n/, '');
   assert.match(strategyCheck(noExit, OPTS).error!, /strategy\.exit/);
   assert.equal(strategyCheck(noExit, { ...OPTS, sl: 0, tp: 0 }).error, null);
   assert.match(strategyCheck('//@version=6\nindicator("x")\nplot(close)', OPTS).error!, /must declare strategy/);
@@ -492,4 +492,62 @@ if shortC
   const r2 = runPine(so, STRAT_SAMPLE);
   assert.ok(r2.strategy!.trades.length > 0 && r2.strategy!.trades.every((t) => t.dir === 'short'));
   assert.equal(readDirection(setDirection(so, 'both')), 'both');
+});
+
+// ---- the stop loss must hold from the first bar of the trade
+function gapData() {
+  const n = 60;
+  const t = new Float64Array(n), o = new Float64Array(n), h = new Float64Array(n), l = new Float64Array(n), c = new Float64Array(n), v = new Float64Array(n).fill(1);
+  for (let i = 0; i < n; i++) { t[i] = 1.6e9 + i * 86400; o[i] = c[i] = 100; h[i] = 100.5; l[i] = 99.5; }
+  // the bar after the entry signal (bar 20) falls to 90 and closes at 92
+  l[21] = 90; c[21] = 92; h[21] = 100; o[22] = 92; l[22] = 91; c[22] = 99;
+  return { n, t, o, h, l, c, v };
+}
+const GAP_STRAT = '//@version=5\nstrategy("t", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)\nif bar_index == 20\n    strategy.entry("L", strategy.long)\nif bar_index == 30\n    strategy.close("L")\n';
+
+test('stop loss and take profit set in the editor are active from the first bar of the trade', () => {
+  const code = setStrategyParams(GAP_STRAT, { qtyType: 'percent_of_equity', qty: 100, sl: 2, tp: 0 });
+  for (const fillOnClose of [true, false]) {
+    const r = runPine(code, gapData(), { broker: { initialCapital: 10000, commissionValue: 0, slippagePct: 0, fillOnClose } });
+    assert.equal(r.error, undefined);
+    const tr = r.strategy!.trades[0];
+    assert.ok(Math.abs(tr.exitPrice / tr.entryPrice - 0.98) < 1e-9, `exit at -2%, got ${tr.exitPrice} (fillOnClose ${fillOnClose})`);
+    assert.equal(tr.exitComment, 'stop');
+  }
+  // take profit works the same way
+  const up = gapData(); up.h[21] = 106; up.l[21] = 99.6; up.c[21] = 104;
+  const tp = runPine(setStrategyParams(GAP_STRAT, { qtyType: 'percent_of_equity', qty: 100, sl: 0, tp: 5 }), up, { broker: { initialCapital: 10000, commissionValue: 0, slippagePct: 0, fillOnClose: true } });
+  assert.ok(Math.abs(tp.strategy!.trades[0].exitPrice - 105) < 1e-9);
+  // sl and tp off: nothing is added
+  assert.equal(setStrategyParams(GAP_STRAT, { qtyType: 'percent_of_equity', qty: 100, sl: 0, tp: 0 }).includes('strategy.exit'), false);
+});
+
+test('scripts with the old late exit block are upgraded when the settings are applied', () => {
+  const old = GAP_STRAT + `oviSl = input.float(2, "Stop loss %", minval=0, step=0.1)
+oviTp = input.float(0, "Take profit %", minval=0, step=0.1)
+if strategy.position_size > 0
+    strategy.exit("Long SL/TP", stop=oviSl > 0 ? strategy.position_avg_price * (1 - oviSl / 100) : na, limit=oviTp > 0 ? strategy.position_avg_price * (1 + oviTp / 100) : na)
+if strategy.position_size < 0
+    strategy.exit("Short SL/TP", stop=oviSl > 0 ? strategy.position_avg_price * (1 + oviSl / 100) : na, limit=oviTp > 0 ? strategy.position_avg_price * (1 - oviTp / 100) : na)
+`;
+  const broker = { initialCapital: 10000, commissionValue: 0, slippagePct: 0, fillOnClose: true };
+  const loss = (code: string) => { const t = runPine(code, gapData(), { broker }).strategy!.trades[0]; return t.exitPrice / t.entryPrice - 1; };
+  assert.ok(loss(old) < -0.07, 'the old block lost far more than the 2% stop loss');
+  const fixed = upgradeLimitBlock(old);
+  assert.notEqual(fixed, old);
+  assert.ok(Math.abs(loss(fixed) + 0.02) < 1e-9);
+  assert.equal(upgradeLimitBlock(fixed), fixed, 'idempotent');
+  assert.ok(Math.abs(loss(setStrategyParams(old, { qtyType: 'percent_of_equity', qty: 100, sl: 2, tp: 0 })) + 0.02) < 1e-9);
+});
+
+test('builder strategies with the old late exit are upgraded too', () => {
+  const old = GAP_STRAT.replace('strategy.entry("L"', 'strategy.entry("Long"').replace('strategy.close("L")', 'strategy.close("Long")') + `longSl = input.float(2, "Long stop loss %", minval=0, step=0.1)
+longTp = input.float(0, "Long take profit %", minval=0, step=0.1)
+if strategy.position_size > 0
+    strategy.exit("Long SL/TP", "Long", stop=longSl > 0 ? strategy.position_avg_price * (1 - longSl / 100) : na, limit=longTp > 0 ? strategy.position_avg_price * (1 + longTp / 100) : na)
+`;
+  const broker = { initialCapital: 10000, commissionValue: 0, slippagePct: 0, fillOnClose: true };
+  const loss = (code: string) => { const r = runPine(code, gapData(), { broker }); assert.equal(r.error, undefined); const t = r.strategy!.trades[0]; return t.exitPrice / t.entryPrice - 1; };
+  assert.ok(loss(old) < -0.07);
+  assert.ok(Math.abs(loss(upgradeLimitBlock(old)) + 0.02) < 1e-9);
 });
