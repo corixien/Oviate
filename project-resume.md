@@ -2,10 +2,10 @@
 
 > Instruction for Claude: read this whole file first. Then read every file under "Must read before any change". Do not modify anything until you have fully understood the project. Keep this file updated as you work (see "Maintenance rules" in the resume-writer skill).
 
-Last updated: 2026-10-31 (sync server, account sync, Android app, phone layout)
+Last updated: 2026-11-10 (account sync + server, Android app with Oviate icon, phone layout, SL / TP fix, drawings per symbol)
 
 ## 1. What this project is
-Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop charting tool, TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). MIT. Paper trading only, no live orders.
+Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first charting tool for desktop (Linux first) and Android (phone + tablet), TradingView alternative. Black/purple UI. Linux first, portable design (Rust core separate from UI). Tauri 2 + Rust core + Svelte 5/SvelteKit SPA (adapter-static) + TypeScript, custom Canvas2D renderer, Pine Script v5/v6 subset engine in TypeScript (Web Worker). Optional account sync through a small Node + Postgres server (`server/`, Render + Neon). MIT. Paper trading only, no live orders.
 
 ## 2. Must read before any change
 1. `AGENTS.md` - rules, layout, design constraints, secrets policy, local-install rule (it also documents sync, replay, builder, editor settings in detail)
@@ -19,6 +19,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 9. `src/lib/pine/optimizer.ts` - strategy optimizer
 10. `src/lib/history.ts`, `keybinds.ts`, `commands.svelte.ts`, `src/routes/+page.svelte` - back / forward history (view snapshot `Nav`), shortcuts and command-bar commands
 11. `src/lib/builder/cache.ts` - stored builder conversions + background pass; `src/lib/paper/journal.ts` + `ui/JournalPanel.svelte` - trading journal
+12. `src/lib/sync.svelte.ts` + `sync.ts` + `server/src/app.ts` - account, settings / script / key sync, community scripts, shared candles; `src/lib/ui/MobileTop.svelte`, `MobileNav.svelte` + the phone rules in `+page.svelte` - touch layout
 
 ## 3. How to navigate
 - `src-tauri/src/`: `lib.rs` commands (incl. `ai_complete`, `news_window`, `calendar_window`), `ai.rs` (Groq news summaries + OpenRouter code chat with 429 retry and `CODE_MODELS` fallback), `cache.rs` SQLite (candles, news, kv; file `oviate.db`), `calendar.rs` (economic calendar: Forex Factory weekly JSON + optional FMP), `stream.rs`, `news.rs`, `mcp.rs`, `pine_files.rs`, `providers/`.
@@ -30,6 +31,8 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - `src/lib/optimizer.svelte.ts`, `src/lib/paper/`, `library.svelte.ts` (script library, reloads on window focus; `setIndicatorSource` for `oviate.ind`).
 - `cli/oviate.ts` (+ wrapper, tests): the `oviate` CLI. `skills/oviate/SKILL.md`: the `/oviate` skill. `scripts/install-local.sh`: rebuild + install.
 - `indicators/*.pine`: 94 bundled indicators, seeded into `<app data>/indicators`. `strategies/` ships empty. `Syspromptvorschlag.md`: base of the AI indicator system prompt.
+- `server/`: sync server (`src/app.ts` routes, `auth.ts`, `candles.ts` Yahoo / Alpaca providers + Postgres store, `vault.ts` sealed API keys, `db.ts` schema, `dev-memory.ts` local run without Postgres, tests on pg-mem); `render.yaml` deploys it (service name `oviate`). Client side: `src/lib/sync.svelte.ts`, `sync.ts`, `tz.ts` + `sessions.ts` (time zones, session cheat sheet), `universe.ts` + `scopeData.ts` + `tester.svelte.ts` (test scope).
+- `src-tauri/gen/android/`: Tauri Android project (committed, launcher icon = Oviate logo: adaptive icon on black, `mipmap-*` + `values/ic_launcher_background.xml`); `scripts/android.sh` builds the debug APK and installs it over adb. Toolchain lives in the user's home (`~/.cargo` rustup with the android targets, `~/.android-tools/jdk17`, `~/Android/Sdk` with NDK).
 - App data: `~/.local/share/dev.oviate.app/` (`indicators/`, `strategies/`, `oviate.db`).
 
 ## 4. Commands (run from repo root)
@@ -38,6 +41,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - `npm test` node --test (pine, paper, ai, builder, cli) then `cargo test`
 - `scripts/install-local.sh` after every push to main (about 4 min), then restart Oviate
 - `oviate help` for the CLI
+- `scripts/android.sh` build + install the Android debug APK on the phone connected with adb (USB debugging); `cd server && npm test` server tests; `node server/src/dev-memory.ts` local server on port 8787 (PORT=...) without Postgres
 - Requires Node 22.18+ (type stripping, `node:sqlite`), Rust stable, Tauri Linux deps (webkit2gtk-4.1, libsoup3, gtk3, openssl)
 - CI: `.github/workflows/ci.yml`
 - Visual check without the app: `npm run dev -- --port 1420` (browser mode, synthetic data) + headless `google-chrome --remote-debugging-port` driven over CDP (a small node script with `WebSocket`: navigate, `Runtime.evaluate`, `Input.dispatchMouseEvent`, `Page.captureScreenshot`). Open the command bar with an `Enter` keydown on `window`, type `/visual` etc. Never `pkill -f vite` (matches the shell itself: use `pkill -f "[v]ite"`).
@@ -52,6 +56,9 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - Editor settings (size, SL/TP, direction) are applied to the code algorithmically; only a side the code does not have yet is created by the AI (`extendCode` / `fillSide`, with an offline fallback in the builder).
 - Chart sync: leader pushes view at the end of its draw; do not add reactive round trips. Effects must read reactive state before an early return (a `$effect` that returns before reading anything never re-runs).
 - AI keys: OpenRouter (code) and Groq (news) and FMP (calendar, optional) in the OS keyring only. OpenRouter free models are rate limited: one model call per repair round.
+- Sync: drawings are global per symbol (`app.drawings`), settings sync = `app.sharedState()` (not layout / split / zoom), first sign-in on a device merges instead of overwriting (`mergeFirstSync`), shipped indicators are public by nature and never uploaded, API keys are sealed on the server with `SECRETS_KEY` (never change it), Android keeps keys in the app database.
+- SL / TP: `strategy.exit(loss=ticks, profit=ticks)` on EVERY bar (not inside `if position_size > 0`), otherwise the stop is live one bar late; `upgradeLimitBlock` migrates old scripts.
+- Phone: `app.mobile` = narrow or short window; Svelte comment-out pitfall for comma selectors naming a missing element; dialogs `.scrim > .card` are full screen, bottom sheet scrim is `.mscrim` (never reuse `.scrim`); Android rustls needs the bundled roots; back button = history entries.
 - Tests run TS via type stripping: no parameter properties, no enums in tested files; use `.ts` import extensions.
 - Secrets never in repo, logs, commits. Liquid OAuth `read` scope only.
 - Git: push directly to `main`, no PRs. Commit ends with the Co-Authored-By line from the session. After every push run `scripts/install-local.sh` and restart the app for the user.
@@ -59,9 +66,12 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 ## 6. Current state
 - Branch / last commit: main, everything committed and pushed (see git log)
 - Working tree: clean
-- Goal of current task: none
+- Goal of current task: none (last: Android launcher icon + documentation refresh)
+- Phone: a Galaxy S23+ (Android 16) was used for manual tests over adb; the debug APK is installed there, the desktop release is installed by `scripts/install-local.sh`.
 
 ### Done (recent, newest first)
+- [x] Android launcher icon (2026-11-10): the Oviate logo (`logos/oviate-logo.svg`) as adaptive icon (black background, logo inside the safe zone) plus legacy round / square icons, generated with PIL from the `tauri icon` output and committed under `src-tauri/gen/android/app/src/main/res`.
+- [x] Phone checks (2026-10-31): sync of PC state (charts, drawings, strategies) verified on the device, editor layout, public / private button, bottom sheet swipe, back button, search field above the keyboard. Pinch / triple-finger zoom were verified with emulated touch events only (adb cannot send multi-touch).
 - [x] SL / TP fix (2026-10-31): the exit was placed after the fill, so it was live one bar late and a 2% stop could lose 8%. Now `strategy.exit(loss=ticks, profit=ticks)` on every bar (editor block, builder, AI prompt / references), old blocks upgraded (`upgradeLimitBlock`, once on library load). Script editor shows Public / Private (signed in) or Publish... (opens Settings when not signed in). API keys sync (sealed on the server, Android keeps keys in the app db), triple-finger zoom, swipe-down sheet, phone top bar / search fixes.
 - [x] Sync server + account sync + Android app (2026-10-31): `server/` (Node + Postgres, deployed by `render.yaml`, tests on pg-mem), client sync (`sync.svelte.ts`, `sync.ts`, Settings section, Public toggle in the script editor, community commands, server candles, shared summaries), phone layout (`MobileTop` / `MobileNav`, full-screen dialogs, list / detail pages), touch gestures in the renderer, Android project (`src-tauri/gen/android`, `scripts/android.sh`), rustls roots fix for Android, back button via history entries. The user sets up Render + Neon themselves: the server was only tested on pg-mem and with real Yahoo candles through `dev-memory.ts`, never against Neon / Render. Not synced yet: paper accounts (kv `paper`), builder cache, news windows (only AI summaries are shared). Phone tested by hand on a Galaxy S23+ (Android 16): layout, pan, menus; pinch zoom could not be driven over adb. Debug APK only (no signing).
 - [x] Background prefetch of the 200 universe symbols (Rust `prefetch_start`, daily / weekly / monthly 20 y, 1h / 4h 2 y; newest candles only on later rounds), tester equity: purple above / red below the starting capital on the Equity scale, rows and equity line stream live during a scope run (`onEquity` engine hook), Settings preferences laid out as rows, time zone dropdown (`tz.ts`, axis + crosshair of intraday charts) and Session Time Cheat Sheet (`sessions.ts`, `SessionsDialog`). Verified in browser mode with synthetic data only; the Rust prefetch ran `cargo check` only (not watched against Yahoo / Alpaca). Prefetch status is exposed (`prefetch_status`) but not shown in the UI yet.
@@ -93,12 +103,14 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 
 ### Next steps
 1. No active task. Ask the user what to build next.
-2. Possible follow-ups not asked for yet: tester transparency steps B-E (richer trade list with exit reason / fees, gross vs net, annualisation per asset, out-of-sample split), sort the per-security table, plain toggle buttons in the back / forward history, News / Calendar page filters in the history, calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
+2. Open sync gaps: paper accounts (kv `paper`), builder cache and news windows are not synced (AI summaries are shared); a signed release APK (keystore) and a Play Store / F-Droid path were not set up; the Android app has no push or background refresh.
+3. Possible follow-ups not asked for yet: tester transparency steps B-E (richer trade list with exit reason / fees, gross vs net, annualisation per asset, out-of-sample split), sort the per-security table, plain toggle buttons in the back / forward history, News / Calendar page filters in the history, calendar events as strategy conditions (e.g. no trades 30 min around high-impact news), per-side stop loss / take profit in the builder settings row, optimizer out-of-sample check, more bundled strategies.
 
 ### Open questions / blockers
 - Macro for other countries than the 9 currency areas, and actual values, need the FMP key; its free tier may not include the economic calendar endpoint (unverified). Nasdaq endpoints are unofficial and could change; failures show as a provider error on the calendar page. Next-week file is published late in the week (404 before that is normal).
 - Pre-market strategies need candles that include extended hours; whether Alpaca / Yahoo return them for the chosen timeframe was not verified.
 - OpenRouter free models are the quality limit of the AI features; `CODE_MODELS` in `src-tauri/src/ai.rs` can be changed.
+- Render + Neon: the user sets them up (service `oviate`, env `DATABASE_URL`, `SECRETS_KEY`). The server was tested on pg-mem and against Yahoo through `dev-memory.ts`, but the real Neon / Render deployment was not observed by Claude. The free Render plan sleeps after 15 min (first request up to a minute); the client has a 60 s circuit breaker and falls back to its own candle fetch. Neon free storage is 0.5 GB.
 - Visual checks of the real Tauri window are only done by the user (browser-mode screenshots were used in development).
 
 ## 7. Decisions log
@@ -115,6 +127,12 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first desktop 
 - 2026-10-25 - Shortcuts live in `keybinds.ts` `BUILTIN` and are checked with `hasCombo`, never raw `e.key`.
 - 2026-10-23 - Editor settings are algorithmic (no LLM) except creating a missing trade side.
 - 2026-10-24 - Calendar: keyless Forex Factory (macro) + Nasdaq (earnings, dividends, splits, IPOs) as baseline, FMP key optional (Finnhub / Trading Economics economic calendars are paid).
+- 2026-10-31 - Account sync is optional; the server holds shared candles / summaries and per-user settings, scripts, keys. Candles are fetched once for everybody. Keys are sealed with a server secret (the operator can read them) instead of client-side encryption, so a new device only needs the password.
+- 2026-10-31 - Drawings belong to symbols, not chart slots; the old per-slot format is migrated on load.
+- 2026-10-31 - Unchanged shipped indicators are not synced (everybody has them): shown as Public, no server copies.
+- 2026-10-31 - SL / TP exits are placed on every bar with tick distances (one-bar-late bug); old blocks upgraded automatically.
+- 2026-10-31 - Phone UI is a separate layout switched by window size (`app.mobile`), tablets keep the desktop layout.
+- 2026-11-10 - Android launcher icon = Oviate logo on black (adaptive icon), committed in the generated Android project.
 
 ## 8. Resume prompt
 > Read project-resume.md in this project fully. Read every file it lists under "Must read before any change". Then continue from "Current state". Do not change anything before you have understood the project. Keep project-resume.md updated.
