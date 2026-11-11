@@ -16,13 +16,13 @@
 </header>
 
 <style>
-  header { display: flex; align-items: center; gap: 6px; height: calc(48px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left)); border-bottom: 1px solid var(--line); background: var(--bar); flex: none; }
+  header { display: flex; align-items: center; gap: 6px; height: calc(60px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left)); border-bottom: 1px solid var(--line); background: var(--bar); flex: none; }
   .grow { flex: 1; }
-  button { box-sizing: border-box; height: 40px; min-width: 40px; background: none; border: 1px solid transparent; color: var(--fg); font: 700 14px system-ui, sans-serif; padding: 0 10px; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  button { box-sizing: border-box; height: 48px; min-width: 40px; flex: 1; background: none; border: 1px solid transparent; color: var(--fg); font: 700 14px system-ui, sans-serif; padding: 0 10px; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
   button:active { background: var(--accent-soft); }
   /* every button has the outline of the search button */
   button { border-color: var(--line); }
-  .sym { padding: 0 12px; max-width: 42vw; overflow: hidden; white-space: nowrap; }
+  .sym { flex: 2.2; padding: 0 12px; min-width: 0; overflow: hidden; white-space: nowrap; }
   .ic { padding: 0; color: var(--dim); }
   .ic.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 </style>

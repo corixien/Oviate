@@ -31,7 +31,7 @@
     <span class="tag"><Icons name="wallet" />{#if openPos > 0}<b class="badge">{openPos}</b>{/if}</span><span class="lbl">Trade</span>
   </button>
   <button class:on={app.sheet === 'more' || ['news', 'calendar', 'editor'].includes(app.page)} onclick={() => (app.sheet = app.sheet === 'more' ? '' : 'more')}>
-    <span class="tag"><Icons name="blocks" />{#if sync.signedIn}<i class="dot" class:err={sync.status === 'error'}></i>{/if}</span><span class="lbl">More</span>
+    <span class="tag"><Icons name="blocks" /></span><span class="lbl">More</span>
   </button>
 </nav>
 
@@ -73,8 +73,6 @@
   .lbl { font: 700 10px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; }
   .badge { position: absolute; top: -7px; right: -9px; min-width: 14px; height: 14px; box-sizing: border-box; padding: 0 3px; display: grid; place-items: center; background: var(--accent); border: 1px solid var(--bar); border-radius: 2px; color: #fff; font: 700 9px system-ui, sans-serif; }
   nav button.on .badge { background: #fff; color: var(--accent); }
-  .dot { position: absolute; top: -4px; right: -4px; width: 7px; height: 7px; background: var(--up); border: 1px solid var(--bar); border-radius: 1px; }
-  .dot.err { background: var(--down); }
   .mscrim { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; }
   .sheet { touch-action: none; width: 100%; max-height: 80vh; overflow: auto; padding: 8px 12px calc(14px + env(safe-area-inset-bottom)); background: var(--glass); border-top: 1px solid var(--glass-line); box-shadow: 0 -1px 0 1px rgba(168, 85, 247, 0.22); }
   .grab { display: block; width: 38px; height: 4px; background: var(--line); margin: 2px auto 10px; }
