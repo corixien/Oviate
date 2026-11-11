@@ -1,13 +1,15 @@
 import { app } from './app.svelte';
 import { library, type ScriptKind } from './library.svelte';
 import { kvGet, kvSet, remote, secretsApply, secretsExport, type Raw, type Tf } from './api';
-import { collectDrawings, freeName, hashCode, mergeFirstSync, planScripts, planSecrets, stateDirection, type Seen } from './sync.ts';
+import { collectDrawings, freeName, hashCode, mergeById, mergeFirstSync, planScripts, planSecrets, stateDirection, unionCapped, type Seen } from './sync.ts';
+import { paper } from './paper/paper.svelte';
+import { adoptBuilderTable, BUILDER_LIMIT, builderSync, builderTable } from './builder/cache';
 
 export interface SyncUser { id: string; email: string; name: string }
 export interface Community { kind: ScriptKind; name: string; code: string; author: string; updatedAt: number }
 interface Auth { server: string; token: string; user: SyncUser; candles: boolean }
 /** Local bookkeeping of the sync (never sent): when the settings last changed here, and what every script looked like at its last sync. */
-interface Meta { /** 2 = drawings in one list for all symbols */ schema?: number; localAt: number; seen: Record<string, Seen>; public: Record<string, boolean>; secrets: Record<string, string> }
+interface Meta { /** 2 = drawings in one list for all symbols */ schema?: number; localAt: number; /** when the paper accounts last changed here (0 = this device never synced them) */ paperAt: number; seen: Record<string, Seen>; public: Record<string, boolean>; secrets: Record<string, string> }
 
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
 const KINDS: ScriptKind[] = ['indicators', 'strategies'];
@@ -28,7 +30,7 @@ class Sync {
   community = $state<Record<ScriptKind, Community[]>>({ indicators: [], strategies: [] });
 
   private token = '';
-  private meta: Meta = { localAt: 0, seen: {}, public: {}, secrets: {} };
+  private meta: Meta = { localAt: 0, paperAt: 0, seen: {}, public: {}, secrets: {} };
   private downUntil = 0;
   private stateTimer: ReturnType<typeof setTimeout> | undefined;
   private scriptTimer: ReturnType<typeof setTimeout> | undefined;
@@ -40,7 +42,7 @@ class Sync {
     try {
       const a: Auth | null = JSON.parse((await kvGet('sync_auth')) ?? 'null');
       const m = JSON.parse((await kvGet('sync_meta')) ?? 'null');
-      if (m) { this.meta = { schema: m.schema, localAt: m.localAt ?? 0, seen: m.seen ?? {}, public: m.public ?? {}, secrets: m.secrets ?? {} }; this.pub = { ...this.meta.public }; }
+      if (m) { this.meta = { schema: m.schema, localAt: m.localAt ?? 0, paperAt: m.paperAt ?? 0, seen: m.seen ?? {}, public: m.public ?? {}, secrets: m.secrets ?? {} }; this.pub = { ...this.meta.public }; }
       if (a?.token) { this.server = a.server; this.token = a.token; this.user = a.user; this.useCandles = a.candles !== false; this.status = 'idle'; }
     } catch { /* no saved account */ }
     this.wire();
@@ -54,6 +56,8 @@ class Sync {
 
   private wire() {
     app.onPersist = () => this.settingsChanged();
+    paper.onPersist = () => this.paperChanged();
+    builderSync.onChange = () => this.builderChanged();
     library.onChange = (kind, name) => this.scriptChanged(kind, name);
     remote.candles = (symbol, tf, from, to) => this.fetchCandles(symbol, tf, from, to);
     remote.shared = {
@@ -100,7 +104,7 @@ class Sync {
     try {
       const r = await this.http<{ token: string; user: SyncUser }>('POST', `/api/auth/${mode}`, { email, password, name });
       this.token = r.token; this.user = r.user; this.downUntil = 0;
-      this.meta = { localAt: 0, seen: {}, public: {}, secrets: {} };
+      this.meta = { localAt: 0, paperAt: 0, seen: {}, public: {}, secrets: {} };
       await this.saveAuth(); await this.saveMeta();
       await this.syncAll();
     } catch (e) { this.status = 'out'; this.message = (e as Error).message; throw e; }
@@ -135,7 +139,12 @@ class Sync {
 
   private async pullState() {
     const all = await this.http<Record<string, { value: string; updatedAt: number }>>('GET', '/api/kv');
-    const remoteS = all.settings ?? null;
+    await this.pullSettings(all.settings ?? null);
+    await this.pullPaper(all.paper ?? null);
+    await this.pullBuilder(all.builder_cache ?? null);
+  }
+
+  private async pullSettings(remoteS: { value: string; updatedAt: number } | null) {
     const dir = stateDirection(this.meta.localAt, remoteS ? remoteS.updatedAt : null);
     if (dir === 'pull' && remoteS) {
       const first = this.meta.localAt === 0; // this device has not synced before: keep its own drawings and watchlists
@@ -150,6 +159,71 @@ class Sync {
       }
       app.persist(true);
     } else if (dir === 'push') await this.pushState();
+  }
+
+  // ---------- paper accounts ----------
+  private paperTimer: ReturnType<typeof setTimeout> | undefined;
+  /** hash of the paper document as last sent or received (a save that changed nothing is not a change) */
+  private paperHash = '';
+  private paperDoc() { return JSON.stringify(paper.shared()); }
+
+  private paperChanged() {
+    if (!this.signedIn) return;
+    const h = hashCode(this.paperDoc());
+    if (h === this.paperHash) return;
+    this.meta.paperAt = Date.now();
+    void this.saveMeta();
+    clearTimeout(this.paperTimer);
+    this.paperTimer = setTimeout(() => void this.pushPaper().catch((e) => { this.status = 'error'; this.message = 'Paper accounts not saved to the account: ' + (e as Error).message; }), 3000);
+  }
+
+  private async pushPaper() {
+    const value = this.paperDoc();
+    const r = await this.http<{ stored: boolean; updatedAt: number }>('PUT', '/api/kv/paper', { value, updatedAt: this.meta.paperAt || Date.now() });
+    if (r.stored) { this.paperHash = hashCode(value); return; }
+    this.meta.paperAt = 1; // another device saved later: its accounts replace these (older than any real save, but not "never synced", so nothing is merged back)
+    await this.pullState();
+  }
+
+  private async pullPaper(remoteP: { value: string; updatedAt: number } | null) {
+    await paper.load();
+    const dir = stateDirection(this.meta.paperAt, remoteP ? remoteP.updatedAt : null);
+    if (dir === 'pull' && remoteP) {
+      let doc: { accounts?: typeof paper.accounts; activeId?: string };
+      try { doc = JSON.parse(remoteP.value); if (!Array.isArray(doc.accounts)) return; } catch { return; }
+      const first = this.meta.paperAt === 0; // this device has not synced before: keep accounts that only exist here
+      const accounts = first ? mergeById(doc.accounts, $state.snapshot(paper.accounts)) : doc.accounts;
+      paper.adopt(accounts, doc.activeId);
+      this.paperHash = hashCode(this.paperDoc());
+      this.meta.paperAt = remoteP.updatedAt; await this.saveMeta();
+      if (accounts.length !== doc.accounts.length) { this.paperHash = ''; this.paperChanged(); } // something was added here: send the merged accounts
+    } else if (dir === 'push' && (remoteP || paper.accounts.length)) {
+      this.meta.paperAt = this.meta.paperAt || Date.now();
+      await this.pushPaper();
+      await this.saveMeta();
+    }
+  }
+
+  // ---------- builder conversions (content addressed: the union of all devices) ----------
+  private builderTimer: ReturnType<typeof setTimeout> | undefined;
+  private builderChanged() {
+    if (!this.signedIn) return;
+    clearTimeout(this.builderTimer);
+    this.builderTimer = setTimeout(() => void this.syncBuilder().catch(() => {}), 5000);
+  }
+
+  private async syncBuilder() {
+    const all = await this.http<Record<string, { value: string; updatedAt: number }>>('GET', '/api/kv');
+    await this.pullBuilder(all.builder_cache ?? null);
+  }
+
+  private async pullBuilder(remoteB: { value: string; updatedAt: number } | null) {
+    let theirs: Record<string, never> = {};
+    try { if (remoteB) theirs = JSON.parse(remoteB.value) ?? {}; } catch { /* unreadable: replaced by the merged table below */ }
+    const mine = await builderTable();
+    const merged = unionCapped(theirs, mine, BUILDER_LIMIT);
+    if (Object.keys(merged).length !== Object.keys(mine).length) await adoptBuilderTable(merged);
+    if (Object.keys(merged).some((k) => !(k in theirs))) await this.http('PUT', '/api/kv/builder_cache', { value: JSON.stringify(merged), updatedAt: Date.now() });
   }
 
   // ---------- scripts ----------

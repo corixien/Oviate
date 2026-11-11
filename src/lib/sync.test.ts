@@ -76,3 +76,16 @@ test('first sync keeps what only exists on this device', () => {
   assert.deepEqual(m.drawings.map((x) => x.id), ['2', '3', '1']);
   assert.deepEqual(m.watchlists, [{ id: 'default', symbols: ['MSFT', 'AAPL', 'TSLA'] }, { id: 'mine', symbols: ['X'] }]);
 });
+
+import { mergeById, unionCapped, mergeNews } from './sync.ts';
+test('mergeById keeps remote and adds local-only', () => {
+  assert.deepEqual(mergeById([{ id: 'a', v: 1 }], [{ id: 'a', v: 2 }, { id: 'b', v: 3 }]), [{ id: 'a', v: 1 }, { id: 'b', v: 3 }]);
+});
+test('unionCapped unions and drops the oldest beyond the limit', () => {
+  assert.deepEqual(Object.keys(unionCapped({ a: 1, b: 2 }, { b: 9, c: 3 }, 2)), ['b', 'c']);
+});
+test('mergeNews dedupes, sorts newest first, drops old and malformed items', () => {
+  const n = (id: string, ts: number, url = 'https://x.y') => ({ id, ts, url, headline: id });
+  const out = mergeNews([n('a', 10), n('b', 30)], [n('b', 30), n('c', 20), n('old', 1), n('bad', 25, 'javascript:1'), { id: 5 }], 5, 10);
+  assert.deepEqual(out.map((x) => x.id), ['b', 'c', 'a']);
+});

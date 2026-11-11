@@ -18,6 +18,9 @@ export function codeHash(code: string): string {
   return h.toString(36) + ':' + t.length;
 }
 
+/** Set by the account sync: called after a conversion was stored here. */
+export const builderSync: { onChange?: () => void } = {};
+
 let mem: Record<string, Model> | null = null;
 async function table(): Promise<Record<string, Model>> {
   if (mem) return mem;
@@ -37,7 +40,17 @@ async function remember(code: string, model: Model) {
   const keys = Object.keys(t);
   for (const k of keys.slice(0, Math.max(0, keys.length - LIMIT))) delete t[k];
   await kvSet(KEY, JSON.stringify(t));
+  builderSync.onChange?.();
 }
+
+/** All stored conversions (for the account sync). */
+export const builderTable = table;
+/** Replace the stored conversions with a merged table from the account sync. */
+export async function adoptBuilderTable(t: Record<string, Model>) {
+  mem = t;
+  await kvSet(KEY, JSON.stringify(t));
+}
+export const BUILDER_LIMIT = LIMIT;
 
 const inflight = new Map<string, Promise<Model>>();
 

@@ -1,5 +1,6 @@
 import type { Candles } from './chart/data';
 import { synthColumns } from './chart/data';
+import { mergeNews } from './sync.ts';
 
 export type Tf = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w' | '1M';
 export const TIMEFRAMES: Tf[] = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'];
@@ -108,8 +109,33 @@ export const secretsApply = (set: Record<string, string>, remove: string[]) => (
 export const liquidLogin = () => (inTauri ? call<void>('liquid_login') : Promise.reject('Liquid login needs the desktop app'));
 export const liquidLogout = () => (inTauri ? call<void>('liquid_logout') : Promise.resolve());
 /** News in [from, to] (unix seconds); symbol null = market-wide. Cached locally by the backend. */
-export const newsWindow = (symbol: string | null, from: number, to: number) =>
-  inTauri ? call<NewsResult>('news_window', { symbol, from, to }) : Promise.resolve({ items: [], errors: [] } as NewsResult);
+export async function newsWindow(symbol: string | null, from: number, to: number): Promise<NewsResult> {
+  if (!inTauri) return { items: [], errors: [] };
+  const res = await call<NewsResult>('news_window', { symbol, from, to });
+  return remote.shared ? shareNews(remote.shared, symbol, from, to, res) : res;
+}
+
+const NEWS_KEEP = 45 * 86400, NEWS_CAP = 300;
+const newsShared = new Map<string, { at: number; items: NewsItem[] }>();
+/** News of a symbol that any of the account's devices collected are added to the local window, and what this device found is shared back (at most every 2 minutes per symbol). */
+async function shareNews(sh: NonNullable<typeof remote.shared>, symbol: string | null, from: number, to: number, res: NewsResult): Promise<NewsResult> {
+  const key = 'news:win:' + (symbol ? symbol.toUpperCase().replace(/[^A-Za-z0-9_.-]/g, '_') : '_market');
+  const now = Math.floor(Date.now() / 1000);
+  let entry = newsShared.get(key);
+  if (!entry || Date.now() - entry.at > 120000) {
+    const e: { at: number; items: NewsItem[] } = { at: Date.now(), items: entry?.items ?? [] };
+    entry = e;
+    newsShared.set(key, e);
+    try {
+      const raw = await Promise.race([sh.get(key), new Promise<null>((r) => setTimeout(() => r(null), 4000))]);
+      const theirs = raw ? JSON.parse(raw) : [];
+      e.items = mergeNews<NewsItem>([], theirs, now - NEWS_KEEP, NEWS_CAP);
+      const all = mergeNews(res.items, e.items, now - NEWS_KEEP, NEWS_CAP);
+      if (all.length !== e.items.length || all.some((x, i) => x.id !== e.items[i].id)) { e.items = all; sh.put(key, JSON.stringify(all)).catch(() => {}); }
+    } catch { /* the server is optional */ }
+  }
+  return { ...res, items: mergeNews(res.items, entry.items.filter((x) => x.ts >= from && x.ts <= to), from, 800) };
+}
 
 export interface CalEvent { id: string; ts: number; country: string; title: string; impact: 'high' | 'medium' | 'low' | 'holiday'; actual: string | null; forecast: string | null; previous: string | null; provider: string; kind: 'macro' | 'earnings' | 'dividend' | 'split' | 'ipo'; symbol: string | null; detail: string | null }
 export interface CalendarResult { items: CalEvent[]; errors: { provider: string; error: string }[]; /** company data is still being fetched: ask again shortly */ pending: boolean }

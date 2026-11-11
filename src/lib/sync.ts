@@ -104,3 +104,30 @@ export function mergeFirstSync<D extends DrawingLike, W extends { id: string; sy
   const known = new Set(remote.watchlists.map((w) => w.id));
   return { drawings, watchlists: [...lists, ...local.watchlists.filter((w) => !known.has(w.id))] };
 }
+
+/** Union by id: what the account has, plus what only exists here. */
+export function mergeById<T extends { id: string }>(remote: T[], local: T[]): T[] {
+  const have = new Set(remote.map((x) => x.id));
+  return [...remote, ...local.filter((x) => !have.has(x.id))];
+}
+
+/** Union of two content-addressed tables (insertion order = age); the oldest entries beyond `limit` are dropped. */
+export function unionCapped<T>(remote: Record<string, T>, local: Record<string, T>, limit: number): Record<string, T> {
+  const out: Record<string, T> = { ...remote };
+  for (const [k, v] of Object.entries(local)) if (!(k in out)) out[k] = v;
+  const keys = Object.keys(out);
+  for (const k of keys.slice(0, Math.max(0, keys.length - limit))) delete out[k];
+  return out;
+}
+
+export interface NewsLike { id: string; ts: number; url: string; headline: string }
+/** News another device collected: only well-formed items with a web link are taken over (the shared cache is writable by every account). */
+export const validNews = (x: unknown): x is NewsLike =>
+  !!x && typeof (x as NewsLike).id === 'string' && typeof (x as NewsLike).ts === 'number' && typeof (x as NewsLike).headline === 'string' && (!(x as NewsLike).url || /^https?:\/\//.test((x as NewsLike).url));
+
+/** Local and shared news of one symbol, newest first, no duplicates, nothing older than `since`, at most `cap` items. */
+export function mergeNews<T extends NewsLike>(local: T[], shared: unknown, since: number, cap: number): T[] {
+  const seen = new Set<string>(), out: T[] = [];
+  for (const it of [...local, ...(Array.isArray(shared) ? (shared.filter(validNews) as T[]) : [])]) if (it.ts >= since && !seen.has(it.id)) { seen.add(it.id); out.push(it); }
+  return out.sort((a, b) => b.ts - a.ts).slice(0, cap);
+}

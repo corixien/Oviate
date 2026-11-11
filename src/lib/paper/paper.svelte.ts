@@ -30,7 +30,11 @@ class Paper {
 
   get active(): Account | undefined { return this.accounts.find((a) => a.id === this.activeId) ?? this.accounts[0]; }
 
-  async load() {
+  private loading?: Promise<void>;
+  /** Loads the saved state once; later calls return the same promise (the account sync waits for it). */
+  load(): Promise<void> { return (this.loading ??= this.read()); }
+
+  private async read() {
     try {
       const raw = await kvGet('paper');
       if (raw) {
@@ -47,14 +51,32 @@ class Paper {
     this.ready = true;
   }
 
+  /** The part of the state every device shares through the account (panel layout and live strategies stay per device). */
+  shared() { return { accounts: $state.snapshot(this.accounts), activeId: this.activeId }; }
+
+  /** Take over accounts from the account sync. Live strategies of accounts that no longer exist stop. */
+  adopt(accounts: Account[], activeId?: string) {
+    this.accounts = accounts;
+    this.activeId = accounts.some((a) => a.id === activeId) ? (activeId as string) : accounts[0]?.id ?? '';
+    this.live = this.live.filter((l) => accounts.some((a) => a.id === l.accountId));
+    this.persist(true);
+  }
+
+  /** Set by the account sync: called after a change made on this device was saved (not after adopting synced accounts). */
+  onPersist: (() => void) | null = null;
+  private dirty = false;
+
   private timer: ReturnType<typeof setTimeout> | undefined;
-  persist() {
+  /** `quiet`: the change came from the account sync and must not be sent back. */
+  persist(quiet = false) {
     clearTimeout(this.timer);
+    if (!quiet) this.dirty = true;
     this.timer = setTimeout(() => {
       kvSet('paper', JSON.stringify({
         accounts: $state.snapshot(this.accounts), activeId: this.activeId, panelOpen: this.panelOpen, panelTab: this.panelTab,
         sub: this.sub, panelHeight: this.panelHeight, live: $state.snapshot(this.live),
       }));
+      if (this.dirty) { this.dirty = false; this.onPersist?.(); }
     }, 600);
   }
 

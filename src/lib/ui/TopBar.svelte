@@ -73,5 +73,7 @@
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); animation: m 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: top left; }
   .menu.right { left: auto; right: 0; transform-origin: top right; }
   .menu button { justify-content: flex-start; text-transform: capitalize; font-weight: 500; }
+  /* narrow windows (tablets, small laptops): icons only, the titles stay as tooltips */
+  @media (max-width: 960px) { .ib span { display: none; } .logo { margin: 0 6px 0 2px; } .sep { margin: 0 4px; } .sym { padding: 0 10px; } header button { padding: 0 7px; } .tfs button { padding: 0 5px; } .logo { letter-spacing: 0.16em; } }
   @keyframes m { from { opacity: 0; transform: scale(0.92) translateY(-6px); } }
 </style>

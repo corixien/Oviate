@@ -63,7 +63,7 @@
     });
   }
 
-  if (import.meta.env.DEV) (globalThis as { __ov?: unknown }).__ov = { app, sync }; // browser tests
+  if (import.meta.env.DEV) (globalThis as { __ov?: unknown }).__ov = { app, sync, paper }; // browser tests
 
   onMount(() => {
     const size = () => { app.vw = window.innerWidth; app.vh = window.innerHeight; document.documentElement.dataset.mobile = app.mobile ? '1' : '0'; };
