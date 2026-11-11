@@ -218,12 +218,12 @@
     {#if !app.mobile}<LeftBar />{/if}
     <div class="center" class:noright={!app.showWatchlist || app.mobile}>
      <div class="chartarea" bind:this={center}>
+      {#if app.mobile && app.drawOpen}<div class="drawstrip"><LeftBar horizontal /></div>{/if}
       <main class="grid l{app.mobile ? '1' : app.layout}" class:flush={app.showWatchlist && !app.mobile} style:grid-template-columns={app.mobile ? undefined : cols} style:grid-template-rows={app.mobile ? undefined : rows}>
         {#each (app.mobile ? [app.active] : Array.from({ length: app.count }, (_, k) => k)) as i (app.charts[i].id)}
           <Chart bind:cfg={app.charts[i]} index={i} />
         {/each}
       </main>
-      {#if app.mobile && app.drawOpen}<div class="drawstrip"><LeftBar horizontal /></div>{/if}
       {#if !app.mobile && ['2v', '3', '4'].includes(app.layout)}
         <div class="ov" class:flush={app.showWatchlist} bind:this={ov}>
           <div class="hv" style:left="calc(100% * {app.split.c})" role="separator" aria-orientation="vertical" onpointerdown={(e) => startDrag(e, 'c')}></div>

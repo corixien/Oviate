@@ -2,6 +2,7 @@
   import { app } from '$lib/app.svelte';
   import Icons from './Icons.svelte';
   const lab = (tf: string) => tf.replace('1d', '1D').replace('1w', '1W');
+  const draw = () => { app.page = 'chart'; app.sheet = ''; app.drawOpen = !app.drawOpen; if (!app.drawOpen) app.tool = 'cursor'; };
 </script>
 
 <!-- phone top bar: symbol, timeframe, chart type, indicators, menu -->
@@ -11,6 +12,7 @@
   <button class="ic" onclick={() => (app.sheet = 'type')} aria-label="Chart type"><Icons name="candle" /></button>
   <button class="ic" onclick={() => (app.spotlight = { open: true, seed: '/ind add ' })} aria-label="Indicators"><Icons name="ind" /></button>
   <button class="ic" onclick={() => (app.spotlight = { open: true, seed: '/strat add ' })} aria-label="Strategies"><Icons name="blocks" /></button>
+  <button class="ic" class:on={app.drawOpen && app.page === 'chart'} onclick={draw} aria-label="Drawing tools"><Icons name="trend" /></button>
 </header>
 
 <style>
@@ -22,4 +24,5 @@
   button { border-color: var(--line); }
   .sym { padding: 0 12px; max-width: 42vw; overflow: hidden; white-space: nowrap; }
   .ic { padding: 0; color: var(--dim); }
+  .ic.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 </style>

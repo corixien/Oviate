@@ -70,6 +70,7 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first charting
 - Phone: a Galaxy S23+ (Android 16) was used for manual tests over adb; the debug APK is installed there, the desktop release is installed by `scripts/install-local.sh`.
 
 ### Done (recent, newest first)
+- [x] Sync rework + phone polish (2026-11-11): settings and paper accounts sync by three-way merge with a stored base (drawings made on one device no longer vanish when the other syncs), API key sync shows a hint when the server has no SECRETS_KEY, sync also on visibility change (phone resume); phone: dock redesign, Draw toggle moved to the top bar with the strip above the chart, Replay removed from More, editor 'All scripts' back button fixed (opens the blank list) and tidier, tab rows no longer wrap on the Trade page, light-theme chart pills, news marker spacing. `scripts/android.sh` fixed for `set -u`.
 - [x] Sync of paper accounts, builder cache and news windows (2026-11-11): kv `paper` (accounts + activeId, LWW, first-sync merge by id), kv `builder_cache` (union), shared key `news:win:<SYM>` (merged into `newsWindow`); pure helpers `mergeById` / `unionCapped` / `mergeNews` in `sync.ts` (tested). Verified in browser mode against `dev-memory.ts` (single device simulated by wiping local state). Top bar shows icons only below 960 px width (the gear was cut off at 800 px).
 - [x] Android launcher icon (2026-11-10): the Oviate logo (`logos/oviate-logo.svg`) as adaptive icon (black background, logo inside the safe zone) plus legacy round / square icons, generated with PIL from the `tauri icon` output and committed under `src-tauri/gen/android/app/src/main/res`.
 - [x] Phone checks (2026-10-31): sync of PC state (charts, drawings, strategies) verified on the device, editor layout, public / private button, bottom sheet swipe, back button, search field above the keyboard. Pinch / triple-finger zoom were verified with emulated touch events only (adb cannot send multi-touch).
@@ -133,7 +134,8 @@ Oviate (Optimal Visions Inspire Accurate Trade Entries): keyboard-first charting
 - 2026-10-31 - Unchanged shipped indicators are not synced (everybody has them): shown as Public, no server copies.
 - 2026-10-31 - SL / TP exits are placed on every bar with tick distances (one-bar-late bug); old blocks upgraded automatically.
 - 2026-10-31 - Phone UI is a separate layout switched by window size (`app.mobile`), tablets keep the desktop layout.
-- 2026-11-11 - Paper accounts sync as one document (LWW), builder cache as a union, news per symbol through the shared cache; live strategies stay per device so two devices never trade the same signal.
+- 2026-11-11 - Settings and paper accounts: three-way merge with a stored base instead of timestamp LWW (the old way lost drawings); same item on both sides: the account wins. Paper accounts were first one LWW document
+- 2026-11-11 - (superseded) Paper accounts sync as one document (LWW), builder cache as a union, news per symbol through the shared cache; live strategies stay per device so two devices never trade the same signal.
 - 2026-11-10 - Android launcher icon = Oviate logo on black (adaptive icon), committed in the generated Android project.
 
 ## 8. Resume prompt

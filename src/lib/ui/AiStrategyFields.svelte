@@ -33,7 +33,7 @@
   <div class="f"><span>Take profit % <i>optional</i></span><input class="num" bind:value={tp} onchange={commit} disabled={noTp} title={noTp ? 'The code has no take profit input: add one with AI' : ''} inputmode="decimal" placeholder="none" aria-label="Take profit percent" /></div>
   {/if}
   {#if part !== 'params'}
-  <div class="f" title={dirHint}><span>Direction</span>
+  <div class="f dir" title={dirHint}><span>Direction</span>
     <Select value={direction} options={[...(withAuto ? [{ value: 'auto', label: 'As described' }] : []), { value: 'long', label: 'Long only' }, { value: 'short', label: 'Short only' }, { value: 'both', label: 'Long and short' }]} onchange={(v) => { direction = v as StrategyOpts['direction']; commit?.(); }} width="150px" /></div>
   {/if}
 </div>
@@ -48,7 +48,8 @@
   .num:focus { border-color: var(--accent); } .num.bad { border-color: var(--down); } .num:disabled { opacity: 0.4; }
   @media (max-width: 719px), (max-height: 479px) {
     .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; width: 100%; }
-    .f:first-child { grid-column: 1 / -1; }
+    .f:first-child, .f.dir { grid-column: 1 / -1; }
+    .f.dir :global(.sel) { display: block; width: 100% !important; }
     .num { width: 100%; }
     .inline { width: 100%; } .inline :global(.sel) { flex: 1.5; min-width: 0; } .inline .num { flex: 1; width: auto; min-width: 0; }
   }

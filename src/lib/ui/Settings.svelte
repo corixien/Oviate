@@ -67,6 +67,7 @@
         <h3>Account and sync</h3>
         {#if sync.signedIn}
           <p class="status ok">Signed in as {sync.user?.name} ({sync.user?.email}). Charts, drawings, watchlists, settings, scripts and your API keys (stored encrypted on the server) follow you to every device; candles come from the shared server.</p>
+          {#if sync.keysOff}<p class="warn">API keys are not synced: the server has no SECRETS_KEY (set it in the Render environment).</p>{/if}
           <p class="status">{sync.status === 'syncing' ? 'Syncing…' : sync.status === 'error' ? 'Sync problem: ' + sync.message : 'Last sync ' + ago(sync.lastSync)} · {sync.server}</p>
           <div class="btns">
             <button class="primary" onclick={() => sync.syncAll()} disabled={sync.status === 'syncing'}>Sync now</button>

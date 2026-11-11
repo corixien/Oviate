@@ -421,4 +421,9 @@
   .dinfo { margin: 8px 14px 0; color: var(--dim); font-size: 11.5px; line-height: 1.6; } .dinfo b { color: var(--fg); font-weight: 600; } .warn { color: #e8b13a; }
   .utab { margin: 8px 14px 4px; max-height: 190px; overflow: auto; border: 1px solid var(--line); } .utab tr { cursor: pointer; } .utab tr.sel td { background: var(--accent-soft); }
   kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); padding: 1px 6px; }
+  /* phone: tab rows stay on one line and scroll sideways instead of wrapping or being cut off */
+  @media (max-width: 719px), (max-height: 479px) {
+    .bar, .subs { overflow-x: auto; scrollbar-width: none; }
+    .tabs button, .subs button { white-space: nowrap; flex: none; }
+  }
 </style>

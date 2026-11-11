@@ -49,10 +49,6 @@ export function freeName(name: string, taken: string[], author?: string): string
   for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
 }
 
-/** Which side holds the newer settings? Timestamps are unix milliseconds. */
-export const stateDirection = (localAt: number, remoteAt: number | null): 'push' | 'pull' | 'none' =>
-  remoteAt === null ? 'push' : remoteAt > localAt ? 'pull' : localAt > remoteAt ? 'push' : 'none';
-
 export interface SecretPlan { push: string[]; delRemote: string[]; setLocal: string[]; delLocal: string[]; seen: Record<string, string> }
 
 /**
@@ -90,27 +86,6 @@ export function collectDrawings<T extends DrawingLike>(s: { drawings?: T[]; char
   return out;
 }
 
-/**
- * First sync of a device that has its own data: what the account has wins, but drawings and watchlists that only exist here are added (nothing made before
- * signing in is lost). Later syncs follow the newer side, so deletions travel.
- */
-export function mergeFirstSync<D extends DrawingLike, W extends { id: string; symbols: string[] }>(local: { drawings: D[]; watchlists: W[] }, remote: { drawings: D[]; watchlists: W[] }) {
-  const have = new Set(remote.drawings.map((d) => d.id));
-  const drawings = [...remote.drawings, ...local.drawings.filter((d) => !have.has(d.id))];
-  const lists = remote.watchlists.map((w) => {
-    const mine = local.watchlists.find((x) => x.id === w.id);
-    return mine ? { ...w, symbols: [...w.symbols, ...mine.symbols.filter((y) => !w.symbols.includes(y))] } : w;
-  });
-  const known = new Set(remote.watchlists.map((w) => w.id));
-  return { drawings, watchlists: [...lists, ...local.watchlists.filter((w) => !known.has(w.id))] };
-}
-
-/** Union by id: what the account has, plus what only exists here. */
-export function mergeById<T extends { id: string }>(remote: T[], local: T[]): T[] {
-  const have = new Set(remote.map((x) => x.id));
-  return [...remote, ...local.filter((x) => !have.has(x.id))];
-}
-
 /** Union of two content-addressed tables (insertion order = age); the oldest entries beyond `limit` are dropped. */
 export function unionCapped<T>(remote: Record<string, T>, local: Record<string, T>, limit: number): Record<string, T> {
   const out: Record<string, T> = { ...remote };
@@ -130,4 +105,73 @@ export function mergeNews<T extends NewsLike>(local: T[], shared: unknown, since
   const seen = new Set<string>(), out: T[] = [];
   for (const it of [...local, ...(Array.isArray(shared) ? (shared.filter(validNews) as T[]) : [])]) if (it.ts >= since && !seen.has(it.id)) { seen.add(it.id); out.push(it); }
   return out.sort((a, b) => b.ts - a.ts).slice(0, cap);
+}
+
+// ---------- three-way merge of the synced documents (settings, paper accounts) ----------
+// `base` = what both sides looked like at the last sync, `local` = this device now, `remote` = the account now.
+// Different things changed on the two sides: both changes are kept. The same thing changed on both: the account's value wins (the device that
+// starts a sync takes the other device's setting).
+
+/** JSON with sorted keys: two devices may build the same object with its fields in another order. */
+export function stable(x: unknown): string {
+  if (Array.isArray(x)) return '[' + x.map(stable).join(',') + ']';
+  if (x && typeof x === 'object') return '{' + Object.keys(x).sort().filter((k) => (x as Record<string, unknown>)[k] !== undefined).map((k) => JSON.stringify(k) + ':' + stable((x as Record<string, unknown>)[k])).join(',') + '}';
+  return JSON.stringify(x) ?? 'null';
+}
+const same = (a: unknown, b: unknown) => stable(a) === stable(b);
+
+/** One value: the side that changed it wins; changed on both sides: the remote one. */
+export function scalar3<T>(base: T | undefined, local: T, remote: T): T {
+  if (same(local, remote)) return local;
+  if (base !== undefined && same(local, base)) return remote;
+  if (base !== undefined && same(remote, base)) return local;
+  return remote;
+}
+
+/** A set of strings (watchlist symbols): additions and removals of both sides are applied, remote order first. */
+export function set3(base: string[] | undefined, local: string[], remote: string[]): string[] {
+  const b = new Set(base ?? []), l = new Set(local), r = new Set(remote);
+  const out = remote.filter((x) => !(b.has(x) && !l.has(x))); // removed here
+  for (const x of local) if (!r.has(x) && !b.has(x)) out.push(x); // added here
+  return out;
+}
+
+/**
+ * A list of items with ids (drawings, watchlists, paper accounts). Added on one side: kept. Removed on one side and untouched on the other: removed.
+ * Changed on one side only: that change. Changed on both (or removed on one and changed on the other): the remote item (a remote removal counts).
+ */
+export function list3<T extends { id: string }>(base: T[] | undefined, local: T[], remote: T[], mergeItem?: (b: T | undefined, l: T, r: T) => T): T[] {
+  const B = new Map((base ?? []).map((x) => [x.id, x])), L = new Map(local.map((x) => [x.id, x])), R = new Map(remote.map((x) => [x.id, x]));
+  const out: T[] = [];
+  for (const [id, r] of R) {
+    const l = L.get(id), b = B.get(id);
+    if (!l) { if (!b || !same(r, b)) out.push(r); } // removed here: gone, unless the account changed it meanwhile
+    else out.push(same(l, r) ? l : mergeItem ? mergeItem(b, l, r) : scalar3(b, l, r));
+  }
+  for (const [id, l] of L) if (!R.has(id) && !B.has(id)) out.push(l); // added here
+  return out;
+}
+
+type Doc = Record<string, any>;
+const watchlist = (b: any, l: any, r: any) => ({ ...scalar3(b, l, r), name: scalar3(b?.name, l.name, r.name), symbols: set3(b?.symbols, l.symbols ?? [], r.symbols ?? []) });
+
+/** The settings document (`app.sharedState()`): drawings and watchlists per item, the four charts per slot, everything else per field. */
+export function mergeSettings(base: Doc | undefined, local: Doc, remote: Doc): Doc {
+  const out: Doc = {};
+  for (const k of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const b = base?.[k], l = local[k], r = remote[k];
+    let v: unknown;
+    if (l === undefined || r === undefined) v = r ?? l;
+    else if (k === 'drawings' && Array.isArray(l) && Array.isArray(r)) v = list3(b, l, r);
+    else if (k === 'watchlists' && Array.isArray(l) && Array.isArray(r)) v = list3(b, l, r, watchlist);
+    else if (k === 'charts' && Array.isArray(l) && Array.isArray(r)) v = r.map((rc, i) => (l[i] === undefined ? rc : scalar3(b?.[i], l[i], rc)));
+    else v = scalar3(b, l, r);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/** The paper document: accounts per id (an account changed on both sides takes the remote one), the active account as a field. */
+export function mergePaper(base: Doc | undefined, local: Doc, remote: Doc): Doc {
+  return { accounts: list3(base?.accounts, local.accounts ?? [], remote.accounts ?? []), activeId: scalar3(base?.activeId, local.activeId, remote.activeId) };
 }

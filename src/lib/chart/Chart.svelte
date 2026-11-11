@@ -624,14 +624,14 @@ import { knownCurrencies, regionMatches } from '$lib/regions.ts';
   .sym { pointer-events: auto; background: none; border: 0; color: var(--fg); font: 600 14px system-ui, sans-serif; cursor: pointer; padding: 0; }
   .sym:hover { color: var(--accent); }
   .dim { color: var(--dim); }
-  .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 0; width: fit-content; padding: 3px 9px; border: 1px solid var(--accent); background: rgba(0, 0, 0, 0.55); font-size: 11.5px; }
+  .pill { white-space: nowrap; pointer-events: auto; display: inline-flex; align-items: center; gap: 0; width: fit-content; padding: 3px 9px; border: 1px solid var(--accent); background: color-mix(in srgb, var(--bg) 70%, transparent); font-size: 11.5px; }
   .pill.off { opacity: 0.55; }
   .pill.bad { border-color: var(--down); }
   .sbadge { font: 800 9px system-ui, sans-serif; background: var(--accent); color: #fff; padding: 1px 4px; margin-right: 6px; }
   .live { font: 800 8.5px system-ui, sans-serif; border: 1px solid var(--up); color: var(--up); padding: 0 4px; margin-left: 6px; letter-spacing: 0.06em; }
   .hd2 { color: var(--dim) !important; font-size: 10.5px !important; text-transform: uppercase; letter-spacing: 0.08em; }
   .trade { display: inline-flex; gap: 4px; pointer-events: auto; align-items: stretch; }
-  .trade button { display: inline-flex; align-items: center; background: #000; border: 1px solid; padding: 0 12px; font: 800 11px system-ui, sans-serif; letter-spacing: 0.06em; cursor: pointer; text-transform: uppercase; }
+  .trade button { display: inline-flex; align-items: center; background: var(--bg); border: 1px solid; padding: 0 12px; font: 800 11px system-ui, sans-serif; letter-spacing: 0.06em; cursor: pointer; text-transform: uppercase; }
   .trade .b { color: var(--up); border-color: var(--up); } .trade .b:hover { background: var(--up); color: #000; }
   .trade .s { color: var(--down); border-color: var(--down); } .trade .s:hover { background: var(--down); color: #000; }
   .top { display: flex; gap: 8px; align-items: stretch; }

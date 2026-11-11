@@ -8,7 +8,7 @@
 
   const lab = (tf: string) => tf.replace('1d', '1D').replace('1w', '1W');
   const go = (p: typeof app.page) => { app.page = p; app.sheet = ''; if (p === 'trade') { paper.panelOpen = true; paper.persist(); } };
-  const draw = () => { app.page = 'chart'; app.sheet = ''; app.drawOpen = !app.drawOpen; if (!app.drawOpen) app.tool = 'cursor'; };
+  const openPos = $derived(paper.active?.positions.length ?? 0);
   const more = (f: () => void) => () => { app.sheet = ''; f(); };
 
   // swipe the sheet down to close it (it follows the finger; a short pull springs back)
@@ -25,11 +25,14 @@
 </script>
 
 <nav>
-  <button class:on={app.page === 'chart' && !app.drawOpen} onclick={() => { go('chart'); app.drawOpen = false; }}><Icons name="candle" /><span>Chart</span></button>
-  <button class:on={app.page === 'watchlist'} onclick={() => go('watchlist')}><Icons name="list" /><span>Watchlist</span></button>
-  <button class:on={app.page === 'chart' && app.drawOpen} onclick={draw}><Icons name="trend" /><span>Draw</span></button>
-  <button class:on={app.page === 'trade'} onclick={() => go('trade')}><Icons name="wallet" /><span>Trade</span></button>
-  <button class:on={app.sheet === 'more' || ['news', 'calendar', 'editor'].includes(app.page)} onclick={() => (app.sheet = app.sheet === 'more' ? '' : 'more')}><Icons name="blocks" /><span>More</span></button>
+  <button class:on={app.page === 'chart'} onclick={() => { go('chart'); app.drawOpen = false; app.tool = 'cursor'; }}><span class="tag"><Icons name="candle" /></span><span class="lbl">Chart</span></button>
+  <button class:on={app.page === 'watchlist'} onclick={() => go('watchlist')}><span class="tag"><Icons name="list" /></span><span class="lbl">Watchlist</span></button>
+  <button class:on={app.page === 'trade'} onclick={() => go('trade')}>
+    <span class="tag"><Icons name="wallet" />{#if openPos > 0}<b class="badge">{openPos}</b>{/if}</span><span class="lbl">Trade</span>
+  </button>
+  <button class:on={app.sheet === 'more' || ['news', 'calendar', 'editor'].includes(app.page)} onclick={() => (app.sheet = app.sheet === 'more' ? '' : 'more')}>
+    <span class="tag"><Icons name="blocks" />{#if sync.signedIn}<i class="dot" class:err={sync.status === 'error'}></i>{/if}</span><span class="lbl">More</span>
+  </button>
 </nav>
 
 {#if app.sheet}
@@ -48,7 +51,6 @@
           <button onclick={more(() => go('calendar'))}><Icons name="calendar" /> Economic calendar</button>
           <button onclick={more(() => app.openEditor('strategies'))}><Icons name="blocks" /> Strategies: code editor</button>
           <button onclick={more(() => app.openEditor('indicators'))}><Icons name="ind" /> Indicators: code editor</button>
-          <button onclick={more(() => (app.replayReq = { id: app.chart.id, n: app.replayReq.n + 1 }))}><Icons name="candle" /> Replay</button>
           <button onclick={more(() => (app.sessionsOpen = true))}><Icons name="calendar" /> Session times</button>
           <button onclick={more(() => (app.settingsOpen = true))}><Icons name="gear" /> Settings{sync.signedIn ? ' · ' + sync.user?.name : ''}</button>
         </div>
@@ -58,9 +60,21 @@
 {/if}
 
 <style>
-  nav { display: flex; flex: none; height: calc(56px + env(safe-area-inset-bottom)); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); border-top: 1px solid var(--line); background: var(--bar); }
-  nav button { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; background: none; border: 0; color: var(--dim); font: 600 10.5px system-ui, sans-serif; letter-spacing: 0.04em; }
-  nav button.on { color: var(--accent); }
+  /* dock: purple hairline on top, square icon tags like the chart markers, a bar over the active tab */
+  nav { position: relative; display: flex; flex: none; height: calc(60px + env(safe-area-inset-bottom)); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); border-top: 1px solid var(--line); background: var(--bar); }
+  nav::before { content: ''; position: absolute; left: 0; right: 0; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--accent) 30%, var(--accent) 70%, transparent); opacity: 0.7; }
+  nav button { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: none; border: 0; border-left: 1px solid var(--line); color: var(--dim); }
+  nav button:first-child { border-left: 0; }
+  nav button::after { content: ''; position: absolute; left: 22%; right: 22%; top: 0; height: 2px; background: transparent; }
+  nav button.on { color: var(--accent); background: linear-gradient(180deg, var(--accent-soft), transparent 80%); }
+  nav button.on::after { background: var(--accent); }
+  .tag { position: relative; width: 34px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 2px; }
+  nav button.on .tag { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .lbl { font: 700 10px system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase; }
+  .badge { position: absolute; top: -7px; right: -9px; min-width: 14px; height: 14px; box-sizing: border-box; padding: 0 3px; display: grid; place-items: center; background: var(--accent); border: 1px solid var(--bar); border-radius: 2px; color: #fff; font: 700 9px system-ui, sans-serif; }
+  nav button.on .badge { background: #fff; color: var(--accent); }
+  .dot { position: absolute; top: -4px; right: -4px; width: 7px; height: 7px; background: var(--up); border: 1px solid var(--bar); border-radius: 1px; }
+  .dot.err { background: var(--down); }
   .mscrim { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; }
   .sheet { touch-action: none; width: 100%; max-height: 80vh; overflow: auto; padding: 8px 12px calc(14px + env(safe-area-inset-bottom)); background: var(--glass); border-top: 1px solid var(--glass-line); box-shadow: 0 -1px 0 1px rgba(168, 85, 247, 0.22); }
   .grab { display: block; width: 38px; height: 4px; background: var(--line); margin: 2px auto 10px; }

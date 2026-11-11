@@ -1,7 +1,7 @@
 import { app } from './app.svelte';
 import { library, type ScriptKind } from './library.svelte';
 import { kvGet, kvSet, remote, secretsApply, secretsExport, type Raw, type Tf } from './api';
-import { collectDrawings, freeName, hashCode, mergeById, mergeFirstSync, planScripts, planSecrets, stateDirection, unionCapped, type Seen } from './sync.ts';
+import { collectDrawings, freeName, hashCode, mergePaper, mergeSettings, planScripts, planSecrets, stable, unionCapped, type Seen } from './sync.ts';
 import { paper } from './paper/paper.svelte';
 import { adoptBuilderTable, BUILDER_LIMIT, builderSync, builderTable } from './builder/cache';
 
@@ -9,7 +9,13 @@ export interface SyncUser { id: string; email: string; name: string }
 export interface Community { kind: ScriptKind; name: string; code: string; author: string; updatedAt: number }
 interface Auth { server: string; token: string; user: SyncUser; candles: boolean }
 /** Local bookkeeping of the sync (never sent): when the settings last changed here, and what every script looked like at its last sync. */
-interface Meta { /** 2 = drawings in one list for all symbols */ schema?: number; localAt: number; /** when the paper accounts last changed here (0 = this device never synced them) */ paperAt: number; seen: Record<string, Seen>; public: Record<string, boolean>; secrets: Record<string, string> }
+interface Meta { seen: Record<string, Seen>; public: Record<string, boolean>; secrets: Record<string, string> }
+
+type DocName = 'settings' | 'paper';
+const DOCS: DocName[] = ['settings', 'paper'];
+type Doc = Record<string, any>;
+interface DocSpec { get(): Doc; norm(d: Doc): Doc; merge(base: Doc | undefined, local: Doc, remote: Doc): Doc; adopt(d: Doc): void }
+const sameDoc = (a: Doc, b: Doc) => stable(a) === stable(b);
 
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
 const KINDS: ScriptKind[] = ['indicators', 'strategies'];
@@ -30,9 +36,8 @@ class Sync {
   community = $state<Record<ScriptKind, Community[]>>({ indicators: [], strategies: [] });
 
   private token = '';
-  private meta: Meta = { localAt: 0, paperAt: 0, seen: {}, public: {}, secrets: {} };
+  private meta: Meta = { seen: {}, public: {}, secrets: {} };
   private downUntil = 0;
-  private stateTimer: ReturnType<typeof setTimeout> | undefined;
   private scriptTimer: ReturnType<typeof setTimeout> | undefined;
   private busy = false;
 
@@ -42,21 +47,20 @@ class Sync {
     try {
       const a: Auth | null = JSON.parse((await kvGet('sync_auth')) ?? 'null');
       const m = JSON.parse((await kvGet('sync_meta')) ?? 'null');
-      if (m) { this.meta = { schema: m.schema, localAt: m.localAt ?? 0, paperAt: m.paperAt ?? 0, seen: m.seen ?? {}, public: m.public ?? {}, secrets: m.secrets ?? {} }; this.pub = { ...this.meta.public }; }
+      if (m) { this.meta = { seen: m.seen ?? {}, public: m.public ?? {}, secrets: m.secrets ?? {} }; this.pub = { ...this.meta.public }; }
       if (a?.token) { this.server = a.server; this.token = a.token; this.user = a.user; this.useCandles = a.candles !== false; this.status = 'idle'; }
     } catch { /* no saved account */ }
     this.wire();
-    // the settings changed shape (drawings per symbol): treat this device like a new one once, so what the account has and what is here get merged
-    if (this.meta.schema !== 2) { this.meta.schema = 2; if (this.signedIn) this.meta.localAt = 0; await this.saveMeta(); }
     if (this.signedIn) { void this.syncAll(); }
     // other devices change things too: look again when the window comes back and every few minutes
     window.addEventListener('focus', () => { if (this.signedIn) void this.syncAll(); });
+    document.addEventListener('visibilitychange', () => { if (this.signedIn && document.visibilityState === 'visible') void this.syncAll(); }); // the phone app comes back from the background
     setInterval(() => { if (this.signedIn && document.visibilityState === 'visible') void this.syncAll(); }, 180000);
   }
 
   private wire() {
-    app.onPersist = () => this.settingsChanged();
-    paper.onPersist = () => this.paperChanged();
+    app.onPersist = () => this.docChanged('settings');
+    paper.onPersist = () => this.docChanged('paper');
     builderSync.onChange = () => this.builderChanged();
     library.onChange = (kind, name) => this.scriptChanged(kind, name);
     remote.candles = (symbol, tf, from, to) => this.fetchCandles(symbol, tf, from, to);
@@ -104,7 +108,8 @@ class Sync {
     try {
       const r = await this.http<{ token: string; user: SyncUser }>('POST', `/api/auth/${mode}`, { email, password, name });
       this.token = r.token; this.user = r.user; this.downUntil = 0;
-      this.meta = { localAt: 0, paperAt: 0, seen: {}, public: {}, secrets: {} };
+      this.meta = { seen: {}, public: {}, secrets: {} };
+      await this.clearBases();
       await this.saveAuth(); await this.saveMeta();
       await this.syncAll();
     } catch (e) { this.status = 'out'; this.message = (e as Error).message; throw e; }
@@ -116,91 +121,62 @@ class Sync {
   }
 
   private dropSession(msg: string) {
+    void this.clearBases();
     this.token = ''; this.user = null; this.status = 'out'; this.message = msg;
     void this.saveAuth();
   }
 
   async setUseCandles(v: boolean) { this.useCandles = v; await this.saveAuth(); }
 
-  // ---------- settings (charts, drawings, watchlists, colours, ...) ----------
-  private settingsChanged() {
+  // ---------- settings and paper accounts: three-way merge per item ----------
+  // Every device remembers what the account looked like at its last sync (the base). A sync reads the account, merges base / this device / account
+  // (see `mergeSettings`), applies the result here and sends it back. So a drawing made on the PC survives a sync on the phone, and the other way round.
+  private docs: Record<DocName, DocSpec> = {
+    settings: { get: () => app.sharedState(), norm: (d) => ({ ...d, drawings: collectDrawings(d) }), merge: mergeSettings, adopt: (d) => { app.adoptShared(d); app.persist(true); } },
+    paper: { get: () => paper.shared(), norm: (d) => d, merge: mergePaper, adopt: (d) => paper.adopt(d.accounts, d.activeId) },
+  };
+  private hashes: Partial<Record<DocName, string>> = {};
+  private timers: Partial<Record<DocName, ReturnType<typeof setTimeout>>> = {};
+  private queue: Promise<unknown> = Promise.resolve();
+
+  private async clearBases() { for (const n of DOCS) { delete this.hashes[n]; await kvSet('sync_base_' + n, ''); } }
+  private async base(n: DocName): Promise<Doc | undefined> { try { const v = await kvGet('sync_base_' + n); return v ? JSON.parse(v) : undefined; } catch { return undefined; } }
+
+  /** Something changed on this device: sync that document shortly (nothing happens when it equals what was synced last). */
+  private docChanged(n: DocName) {
     if (!this.signedIn) return;
-    this.meta.localAt = Date.now();
-    void this.saveMeta();
-    clearTimeout(this.stateTimer);
-    this.stateTimer = setTimeout(() => void this.pushState().catch((e) => { this.status = 'error'; this.message = 'Settings not saved to the account: ' + (e as Error).message; }), 3000);
+    const spec = this.docs[n];
+    if (this.hashes[n] !== undefined && hashCode(stable(spec.norm(spec.get()))) === this.hashes[n]) return;
+    clearTimeout(this.timers[n]);
+    this.timers[n] = setTimeout(() => void this.syncDoc(n).catch((e) => { this.status = 'error'; this.message = `${n === 'paper' ? 'Paper accounts' : 'Settings'} not saved to the account: ` + (e as Error).message; }), 3000);
   }
 
-  private async pushState() {
-    const at = this.meta.localAt || Date.now();
-    const r = await this.http<{ stored: boolean; updatedAt: number }>('PUT', '/api/kv/settings', { value: JSON.stringify(app.sharedState()), updatedAt: at });
-    if (!r.stored) { this.meta.localAt = 0; await this.pullState(); } // another device was newer
+  /** Documents are synced one at a time (a sync reads, merges and writes: two at once would read the same base). */
+  private syncDoc(n: DocName): Promise<void> {
+    const run = this.queue.then(() => this.syncDocNow(n));
+    this.queue = run.catch(() => {});
+    return run;
   }
 
-  private async pullState() {
-    const all = await this.http<Record<string, { value: string; updatedAt: number }>>('GET', '/api/kv');
-    await this.pullSettings(all.settings ?? null);
-    await this.pullPaper(all.paper ?? null);
-    await this.pullBuilder(all.builder_cache ?? null);
-  }
-
-  private async pullSettings(remoteS: { value: string; updatedAt: number } | null) {
-    const dir = stateDirection(this.meta.localAt, remoteS ? remoteS.updatedAt : null);
-    if (dir === 'pull' && remoteS) {
-      const first = this.meta.localAt === 0; // this device has not synced before: keep its own drawings and watchlists
-      const mine = { drawings: $state.snapshot(app.drawings), watchlists: $state.snapshot(app.watchlists) };
-      let parsed: any;
-      try { parsed = JSON.parse(remoteS.value); app.adoptShared(parsed); } catch { return; }
-      this.meta.localAt = remoteS.updatedAt; await this.saveMeta();
-      if (first) {
-        const m = mergeFirstSync(mine, { drawings: collectDrawings(parsed), watchlists: $state.snapshot(app.watchlists) });
-        app.drawings = m.drawings; app.watchlists = m.watchlists;
-        if (m.drawings.length !== collectDrawings(parsed).length || m.watchlists.some((w, i) => w.symbols.length !== (app.watchlists[i]?.symbols.length ?? -1))) { app.persist(); return; } // something was added here: send the merged state
+  private async syncDocNow(n: DocName) {
+    if (!this.signedIn) return;
+    const spec = this.docs[n];
+    if (n === 'paper') await paper.load();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const all = await this.http<Record<string, { value: string; updatedAt: number }>>('GET', '/api/kv');
+      const rem = all[n] ?? null;
+      let R: Doc | null = null;
+      try { R = rem ? spec.norm(JSON.parse(rem.value)) : null; } catch { R = null; } // unreadable: replaced by this device's state
+      const L = spec.norm($state.snapshot(spec.get()) as Doc);
+      const M = R ? spec.merge(await this.base(n), L, R) : L;
+      if (!sameDoc(M, L)) spec.adopt(M);
+      let stored = true;
+      if ((!R || !sameDoc(M, R)) && !(n === 'paper' && !R && !M.accounts?.length)) {
+        const r = await this.http<{ stored: boolean }>('PUT', `/api/kv/${n}`, { value: JSON.stringify(M), updatedAt: Math.max(Date.now(), (rem?.updatedAt ?? 0) + 1) });
+        stored = r.stored;
       }
-      app.persist(true);
-    } else if (dir === 'push') await this.pushState();
-  }
-
-  // ---------- paper accounts ----------
-  private paperTimer: ReturnType<typeof setTimeout> | undefined;
-  /** hash of the paper document as last sent or received (a save that changed nothing is not a change) */
-  private paperHash = '';
-  private paperDoc() { return JSON.stringify(paper.shared()); }
-
-  private paperChanged() {
-    if (!this.signedIn) return;
-    const h = hashCode(this.paperDoc());
-    if (h === this.paperHash) return;
-    this.meta.paperAt = Date.now();
-    void this.saveMeta();
-    clearTimeout(this.paperTimer);
-    this.paperTimer = setTimeout(() => void this.pushPaper().catch((e) => { this.status = 'error'; this.message = 'Paper accounts not saved to the account: ' + (e as Error).message; }), 3000);
-  }
-
-  private async pushPaper() {
-    const value = this.paperDoc();
-    const r = await this.http<{ stored: boolean; updatedAt: number }>('PUT', '/api/kv/paper', { value, updatedAt: this.meta.paperAt || Date.now() });
-    if (r.stored) { this.paperHash = hashCode(value); return; }
-    this.meta.paperAt = 1; // another device saved later: its accounts replace these (older than any real save, but not "never synced", so nothing is merged back)
-    await this.pullState();
-  }
-
-  private async pullPaper(remoteP: { value: string; updatedAt: number } | null) {
-    await paper.load();
-    const dir = stateDirection(this.meta.paperAt, remoteP ? remoteP.updatedAt : null);
-    if (dir === 'pull' && remoteP) {
-      let doc: { accounts?: typeof paper.accounts; activeId?: string };
-      try { doc = JSON.parse(remoteP.value); if (!Array.isArray(doc.accounts)) return; } catch { return; }
-      const first = this.meta.paperAt === 0; // this device has not synced before: keep accounts that only exist here
-      const accounts = first ? mergeById(doc.accounts, $state.snapshot(paper.accounts)) : doc.accounts;
-      paper.adopt(accounts, doc.activeId);
-      this.paperHash = hashCode(this.paperDoc());
-      this.meta.paperAt = remoteP.updatedAt; await this.saveMeta();
-      if (accounts.length !== doc.accounts.length) { this.paperHash = ''; this.paperChanged(); } // something was added here: send the merged accounts
-    } else if (dir === 'push' && (remoteP || paper.accounts.length)) {
-      this.meta.paperAt = this.meta.paperAt || Date.now();
-      await this.pushPaper();
-      await this.saveMeta();
+      if (stored) { await kvSet('sync_base_' + n, JSON.stringify(M)); this.hashes[n] = hashCode(stable(spec.norm($state.snapshot(spec.get()) as Doc))); return; }
+      // another device wrote between our read and write: merge again
     }
   }
 
@@ -275,7 +251,8 @@ class Sync {
   async syncSecrets() {
     let remoteAll: Record<string, { value: string; updatedAt: number }>;
     try { remoteAll = await this.http('GET', '/api/secrets'); }
-    catch (e) { if (e instanceof HttpError && e.status === 503) return; throw e; } // the server has no SECRETS_KEY: keys stay on the devices
+    catch (e) { if (e instanceof HttpError && e.status === 503) { this.keysOff = true; return; } throw e; } // the server has no SECRETS_KEY: keys stay on the devices
+    this.keysOff = false;
     const rem = Object.fromEntries(Object.entries(remoteAll).map(([k, v]) => [k, v.value]));
     const local = await secretsExport();
     const plan = planSecrets(local, rem, this.meta.secrets);
@@ -288,6 +265,8 @@ class Sync {
   }
   /** counts up when keys arrived from the account (the settings read the key status again) */
   keysVersion = $state(0);
+  /** the server cannot store keys (no SECRETS_KEY): shown in the settings */
+  keysOff = $state(false);
 
   async loadCommunity() {
     if (!this.signedIn) return;
@@ -306,7 +285,9 @@ class Sync {
     if (!this.signedIn || this.busy) return;
     this.busy = true; this.status = 'syncing'; this.message = '';
     try {
-      await this.pullState();
+      await this.syncDoc('settings');
+      await this.syncDoc('paper');
+      await this.syncBuilder().catch(() => {});
       await this.syncScripts();
       await this.syncSecrets().catch(() => {});
       await this.loadCommunity();

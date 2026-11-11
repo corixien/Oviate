@@ -4,10 +4,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}" ANDROID_SDK_ROOT="${ANDROID_HOME}"
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export NDK_HOME="${NDK_HOME:-$(ls -d "$ANDROID_HOME"/ndk/* | tail -1)}"
 export JAVA_HOME="${JAVA_HOME:-$(ls -d "$HOME"/.android-tools/jdk17/jdk-* | head -1)}"
 npx tauri android build --debug --target aarch64 --apk
 APK=src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
-adb install -r "$APK"
-adb shell am start -n dev.oviate.app/.MainActivity
+"$ANDROID_HOME/platform-tools/adb" install -r "$APK"
+"$ANDROID_HOME/platform-tools/adb" shell am start -n dev.oviate.app/.MainActivity

@@ -30,7 +30,7 @@
   button.on { color: #fff; background: var(--accent); }
   i { width: 22px; height: 1px; background: var(--line); margin: 4px 0; flex: none; }
   /* phone: a strip along the bottom of the chart */
-  aside.h { width: auto; flex-direction: row; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; border-right: 0; border-top: 1px solid var(--line); gap: 4px; }
+  aside.h { width: auto; flex-direction: row; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; border-right: 0; border-top: 0; border-bottom: 1px solid var(--line); gap: 4px; }
   aside.h button { width: 44px; height: 44px; }
   aside.h i { width: 1px; height: 24px; margin: 0 4px; }
 </style>

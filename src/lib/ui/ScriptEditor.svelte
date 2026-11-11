@@ -244,6 +244,8 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   function open(k: ScriptKind, n: string | null) {
     app.editor = { kind: k, name: n };
   }
+  /** Back to the selection (nothing open); on a phone this is the list of scripts. */
+  const toList = (k: ScriptKind) => { app.editor = { kind: k, name: null, blank: true }; };
 
   $effect(() => {
     const key = kind + '|' + (app.editor.name ?? '') + (app.editor.blank ? '|blank' : '') + (app.editor.builder ? '|builder' : '');
@@ -346,8 +348,8 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
     <button class="back" onclick={back}>← Charts</button>
     <h1>{label} editor</h1>
     <div class="seg">
-      <button class:on={kind === 'indicators'} onclick={() => open('indicators', null)}>Indicators</button>
-      <button class:on={kind === 'strategies'} onclick={() => open('strategies', null)}>Strategies</button>
+      <button class:on={kind === 'indicators'} onclick={() => toList('indicators')}>Indicators</button>
+      <button class:on={kind === 'strategies'} onclick={() => toList('strategies')}>Strategies</button>
     </div>
     <span class="path" title="Scripts are plain .pine files in this folder">{library.folder[kind] || 'browser storage'}</span>
   </header>
@@ -367,7 +369,7 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
 
     <section class="main">
       <div class="bar">
-        <button class="mlist" onclick={() => open(kind, null)}>‹ All scripts</button>
+        <button class="mlist" onclick={() => toList(kind)}>‹ All {kind}</button>
         <input class="name" bind:value={name} oninput={onNameInput} placeholder={blank ? '' : isNew ? 'File name (default: script title)' : 'File name (change it and save to rename)'} spellcheck="false" disabled={blank} aria-label="File name" />
         <span class="ext">.pine</span>
         <div class="spacer"></div>
@@ -460,22 +462,23 @@ strategy("My Strategy", overlay=true, initial_capital=10000, default_qty_type=st
   .aibtns .primary { background: var(--accent); border-color: var(--accent); color: #fff; } .aibtns button:disabled { opacity: 0.5; cursor: default; }
   .editor.bpane { display: flex; flex-direction: column; background: var(--bg); }
   .status.hint { color: var(--dim); }
-  .mlist { display: none; }
+  .bar .mlist { display: none; }
   /* phone: one tidy column, buttons in a grid, the code fills the rest */
   @media (max-width: 719px), (max-height: 479px) {
     header { padding: 8px 12px; gap: 8px; align-items: center; }
-    header .back, .path { display: none; }
-    header h1 { font-size: 13px; margin: 0; flex: 1; }
+    header .back, .path, header h1 { display: none; }
+    .seg { flex: 1; }
+    .seg button { flex: 1; height: 38px; font-size: 13px; }
     .cols { display: block; overflow: hidden; }
     .cols aside { width: auto; height: 100%; border-right: 0; }
     .cols .main { height: 100%; overflow-y: auto; }
     .cols.isblank .main { display: none; }
     .cols:not(.isblank) aside { display: none; }
     .bar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
-    .bar .mlist { display: block; grid-column: 1 / -1; text-align: left; }
+    .bar .mlist { display: flex; align-items: center; grid-column: 1 / -1; justify-content: flex-start; height: 36px; padding: 0 2px; border: 0; background: none; color: var(--accent); font: 700 13px system-ui, sans-serif; letter-spacing: 0.04em; }
     .bar .name { grid-column: 1 / -1; min-width: 0; width: 100%; box-sizing: border-box; }
     .bar .ext, .bar .spacer, .bar kbd { display: none; }
-    .bar button { width: 100%; height: 40px; padding: 0 8px; justify-content: center; }
+    .bar button:not(.mlist) { width: 100%; height: 40px; padding: 0 8px; justify-content: center; }
     .setrow { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px; }
     .settings { width: 100%; }
     .aibox { width: 100%; flex-direction: column; }

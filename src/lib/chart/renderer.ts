@@ -901,7 +901,7 @@ export class ChartRenderer {
   }
 
   /** Zoomed out, markers that would overlap collapse to the most important one (higher priority first); zooming in brings the others back. */
-  private declutter<T>(marks: T[], x: (m: T) => number, prio: (m: T) => number, gap = 17): T[] {
+  private declutter<T>(marks: T[], x: (m: T) => number, prio: (m: T) => number, gap = 22): T[] {
     const vis = marks.filter((m) => { const px = x(m); return px >= -10 && px <= this.plotW + 10; }).sort((a, b) => prio(b) - prio(a));
     const placed: number[] = [], out: T[] = [];
     for (const m of vis) {
@@ -926,9 +926,9 @@ export class ChartRenderer {
       ctx.strokeStyle = hot ? '#fff' : theme.accent;
       ctx.beginPath(); ctx.moveTo(x - 4, y - 3.5); ctx.lineTo(x + 4, y - 3.5); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x - 4, y + 3.5); ctx.lineTo(x + 1, y + 3.5); ctx.stroke();
       if (m.ids.length > 1) {
-        ctx.fillStyle = theme.accent; ctx.fillRect(x + 4, y - 12, 12, 10);
+        ctx.fillStyle = theme.accent; ctx.fillRect(x + 4, y - 12, 14, 10);
         ctx.fillStyle = '#fff'; ctx.font = '9px ui-monospace, monospace'; ctx.textAlign = 'center';
-        ctx.fillText(String(Math.min(m.ids.length, 99)), x + 10, y - 6.5); ctx.textAlign = 'left';
+        ctx.fillText(String(Math.min(m.ids.length, 99)), x + 11, y - 6.5); ctx.textAlign = 'left';
         ctx.font = '11px ui-monospace, "JetBrains Mono", monospace';
       }
     }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectDrawings, mergeFirstSync, planSecrets, planScripts, hashCode, freeName, stateDirection, type LocalScript, type RemoteScript } from './sync.ts';
+import { collectDrawings, planSecrets, planScripts, hashCode, freeName, type LocalScript, type RemoteScript } from './sync.ts';
 
 const L = (name: string, code: string, modified = 100, pub = false): LocalScript => ({ name, code, modified, public: pub });
 const R = (name: string, code: string, updatedAt = 100000, pub = false): RemoteScript => ({ name, code, public: pub, updatedAt });
@@ -45,7 +45,6 @@ test('free names, newest side', () => {
   assert.equal(freeName('RSI', ['MACD']), 'RSI');
   assert.equal(freeName('RSI', ['RSI'], 'Ann'), 'RSI (Ann)');
   assert.equal(freeName('RSI', ['RSI', 'RSI (Ann)'], 'Ann'), 'RSI (Ann) 2');
-  assert.equal(stateDirection(5, null), 'push'); assert.equal(stateDirection(5, 9), 'pull'); assert.equal(stateDirection(9, 5), 'push'); assert.equal(stateDirection(5, 5), 'none');
 });
 
 test('API keys: copied both ways, removals follow, own value wins a conflict', () => {
@@ -68,19 +67,46 @@ test('drawings belong to symbols, not to chart slots', () => {
   assert.deepEqual(collectDrawings({}), []);
 });
 
-test('first sync keeps what only exists on this device', () => {
-  const m = mergeFirstSync(
-    { drawings: [{ id: '1' }, { id: '2' }], watchlists: [{ id: 'default', symbols: ['AAPL', 'TSLA'] }, { id: 'mine', symbols: ['X'] }] },
-    { drawings: [{ id: '2' }, { id: '3' }], watchlists: [{ id: 'default', symbols: ['MSFT', 'AAPL'] }] },
-  );
-  assert.deepEqual(m.drawings.map((x) => x.id), ['2', '3', '1']);
-  assert.deepEqual(m.watchlists, [{ id: 'default', symbols: ['MSFT', 'AAPL', 'TSLA'] }, { id: 'mine', symbols: ['X'] }]);
+import { mergeSettings, mergePaper, list3, set3 } from './sync.ts';
+const D = (id: string, v = 0) => ({ id, v });
+test('first sync (no base) keeps what only exists on this device, the account wins the rest', () => {
+  const m = mergeSettings(undefined,
+    { drawings: [D('1'), D('2', 1)], watchlists: [{ id: 'default', name: 'Main', symbols: ['AAPL', 'TSLA'] }, { id: 'mine', name: 'M', symbols: ['X'] }], tz: 'system' },
+    { drawings: [D('2', 5), D('3')], watchlists: [{ id: 'default', name: 'Main', symbols: ['MSFT', 'AAPL'] }], tz: 'Europe/Berlin' });
+  assert.deepEqual(m.drawings.map((x: any) => x.id + ':' + x.v), ['2:5', '3:0', '1:0']);
+  assert.deepEqual(m.watchlists.map((w: any) => w.id + ':' + w.symbols.join()), ['default:MSFT,AAPL,TSLA', 'mine:X']);
+  assert.equal(m.tz, 'Europe/Berlin');
+});
+test('drawn on the PC, nothing changed on the phone since the last sync: the drawing stays', () => {
+  const base = { drawings: [D('1')], theme: 'dark' };
+  const phone = { drawings: [D('1')], theme: 'dark' }, pc = { drawings: [D('1'), D('2')], theme: 'dark' };
+  assert.deepEqual(mergeSettings(base, phone, pc).drawings.map((x: any) => x.id), ['1', '2']);
+  assert.deepEqual(mergeSettings(base, pc, phone).drawings.map((x: any) => x.id), ['1', '2']);
+});
+test('different things changed: both are kept; the same thing: the account wins; deletions follow', () => {
+  const base = { drawings: [D('1'), D('2')], theme: 'dark', tz: 'system' };
+  const local = { drawings: [D('1', 9), D('3')], theme: 'light', tz: 'system' }; // edited 1, deleted 2, added 3, theme
+  const remote = { drawings: [D('1', 7), D('2')], theme: 'dark', tz: 'UTC' }; // edited 1 too, tz
+  const m = mergeSettings(base, local, remote);
+  assert.deepEqual(m.drawings.map((x: any) => x.id + ':' + x.v), ['1:7', '3:0']);
+  assert.equal(m.theme, 'light'); assert.equal(m.tz, 'UTC');
+});
+test('removed on the other device and untouched here: removed; changed here: the removal wins only when untouched', () => {
+  assert.deepEqual(list3([D('1')], [D('1')], []), []);
+  assert.deepEqual(list3([D('1')], [], [D('1', 4)]), [D('1', 4)]);
+  assert.deepEqual(list3([D('1')], [], [D('1')]), []);
+});
+test('watchlist symbols merge as a set', () => {
+  assert.deepEqual(set3(['A', 'B'], ['A', 'B', 'C'], ['B', 'D']), ['B', 'D', 'C']);
+  assert.deepEqual(set3(['A', 'B'], ['A'], ['A', 'B', 'D']), ['A', 'D']);
+});
+test('paper accounts merge per account', () => {
+  const m = mergePaper({ accounts: [D('a'), D('b')], activeId: 'a' }, { accounts: [D('a', 1), D('b'), D('c')], activeId: 'c' }, { accounts: [D('a'), D('b', 2)], activeId: 'a' });
+  assert.deepEqual(m.accounts.map((x: any) => x.id + ':' + x.v), ['a:1', 'b:2', 'c:0']);
+  assert.equal(m.activeId, 'c');
 });
 
-import { mergeById, unionCapped, mergeNews } from './sync.ts';
-test('mergeById keeps remote and adds local-only', () => {
-  assert.deepEqual(mergeById([{ id: 'a', v: 1 }], [{ id: 'a', v: 2 }, { id: 'b', v: 3 }]), [{ id: 'a', v: 1 }, { id: 'b', v: 3 }]);
-});
+import { unionCapped, mergeNews } from './sync.ts';
 test('unionCapped unions and drops the oldest beyond the limit', () => {
   assert.deepEqual(Object.keys(unionCapped({ a: 1, b: 2 }, { b: 9, c: 3 }, 2)), ['b', 'c']);
 });
